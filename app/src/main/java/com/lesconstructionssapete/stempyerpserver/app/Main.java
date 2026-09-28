@@ -1,4 +1,4 @@
-package com.lesconstructionssapete.stempyerpserver;
+package com.lesconstructionssapete.stempyerpserver.app;
 
 public class Main {
   public static void main(String[] args) {
