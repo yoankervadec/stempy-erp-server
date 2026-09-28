@@ -17,7 +17,6 @@
         </developer>
     </developers>
 
-    <!-- Build order is derived from inter-module dependencies, not from this list's order. -->
     <modules>
         <module>shared</module>
         <module>platform</module>
@@ -30,12 +29,10 @@
         <maven.compiler.release>${java.version}</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
-        <!-- Plugin versions -->
         <maven.compiler.plugin.version>3.16.0</maven.compiler.plugin.version>
         <maven.shade.plugin.version>3.6.2</maven.shade.plugin.version>
         <maven.enforcer.plugin.version>3.6.2</maven.enforcer.plugin.version>
 
-        <!-- Existing dependency versions -->
         <javalin.version>7.2.3</javalin.version>
         <mysql.connector.version>8.4.0</mysql.connector.version>
         <hikaricp.version>7.1.0</hikaricp.version>
@@ -46,7 +43,6 @@
         <slf4j.version>2.0.20</slf4j.version>
         <junit.version>6.1.3</junit.version>
 
-        <!-- NEW (verify the latest versions when you add them) -->
         <flyway.version>11.10.0</flyway.version>
         <testcontainers.version>1.21.3</testcontainers.version>
         <archunit.version>1.4.1</archunit.version>
@@ -54,7 +50,6 @@
 
     <dependencyManagement>
         <dependencies>
-            <!-- Internal modules: children reference them without a version -->
             <dependency>
                 <groupId>${project.groupId}</groupId>
                 <artifactId>stempyerpserver-shared</artifactId>
@@ -71,7 +66,6 @@
                 <version>${project.version}</version>
             </dependency>
 
-            <!-- BOMs: keep related artifacts on the same version automatically -->
             <dependency>
                 <groupId>com.fasterxml.jackson</groupId>
                 <artifactId>jackson-bom</artifactId>
@@ -87,7 +81,6 @@
                 <scope>import</scope>
             </dependency>
 
-            <!-- Third-party libraries -->
             <dependency>
                 <groupId>io.javalin</groupId>
                 <artifactId>javalin</artifactId>
@@ -156,7 +149,6 @@
         </dependencies>
     </dependencyManagement>
 
-    <!-- Declared here = inherited by ALL modules -->
     <dependencies>
         <dependency>
             <groupId>org.junit.jupiter</groupId>

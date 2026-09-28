@@ -14,13 +14,11 @@
     <name>Stempy ERP - Business Modules</name>
 
     <dependencies>
-        <!-- Brings shared, Javalin, Jackson, Hikari, Lettuce, JJWT, Flyway, slf4j-api transitively -->
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>stempyerpserver-platform</artifactId>
         </dependency>
 
-        <!-- Test only -->
         <dependency>
             <groupId>com.tngtech.archunit</groupId>
             <artifactId>archunit-junit5</artifactId>

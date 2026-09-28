@@ -19,20 +19,16 @@
             <artifactId>stempyerpserver-modules</artifactId>
         </dependency>
 
-        <!-- Environment / .env loading -->
         <dependency>
             <groupId>io.github.cdimascio</groupId>
             <artifactId>dotenv-java</artifactId>
         </dependency>
 
-        <!-- Logging backend. (slf4j-simple has no MDC support; switch to logback-classic
-        when you want request-id / correlation-id in log lines.) -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-simple</artifactId>
         </dependency>
 
-        <!-- End-to-end tests (full server against real MySQL/Redis containers) -->
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>junit-jupiter</artifactId>
@@ -70,8 +66,6 @@
                                         <Multi-Release>true</Multi-Release>
                                     </manifestEntries>
                                 </transformer>
-                                <!-- Merges META-INF/services files instead of letting one jar overwrite another.
-                                Matters for the JDBC driver, Flyway, and other ServiceLoader users. -->
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
                             </transformers>
 

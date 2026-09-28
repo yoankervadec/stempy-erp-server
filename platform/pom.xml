@@ -19,36 +19,30 @@
             <artifactId>stempyerpserver-shared</artifactId>
         </dependency>
 
-        <!-- Web -->
         <dependency>
             <groupId>io.javalin</groupId>
             <artifactId>javalin</artifactId>
         </dependency>
 
-        <!-- JSON (annotations + core come transitively via databind; versions pinned by the Jackson BOM) -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
         </dependency>
-        <!-- java.time support: you'll want this for every date/timestamp in an ERP -->
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>
             <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
 
-        <!-- Database -->
         <dependency>
             <groupId>com.zaxxer</groupId>
             <artifactId>HikariCP</artifactId>
         </dependency>
-        <!-- Driver is only needed at runtime; runtime scope is still passed on to modules and app -->
         <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
             <scope>runtime</scope>
         </dependency>
 
-        <!-- Migrations. flyway-mysql is REQUIRED for MySQL support in Flyway 10+ -->
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
@@ -58,13 +52,11 @@
             <artifactId>flyway-mysql</artifactId>
         </dependency>
 
-        <!-- Redis (distributed lock, caching) -->
         <dependency>
             <groupId>io.lettuce</groupId>
             <artifactId>lettuce-core</artifactId>
         </dependency>
 
-        <!-- JWT: your old POM only had jjwt-api. Without impl + jackson at runtime, parsing/signing fails. -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt-api</artifactId>
@@ -80,7 +72,6 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- Logging API only. The backend (slf4j-simple) is chosen by the app module. -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
