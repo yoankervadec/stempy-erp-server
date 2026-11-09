@@ -8,8 +8,7 @@ import java.util.TreeSet;
 
 /**
  * Startup-time lookup of shared services. It is a composition-root tool, NOT
- * something
- * orchestrators, operations or repositories should ever receive.
+ * something orchestrators, operations or repositories should ever receive.
  *
  * What goes in:
  * - Platform services built by Main (UnitOfWorkFactory, EventBus, JwtService,
@@ -18,20 +17,18 @@ import java.util.TreeSet;
  * registerServices().
  *
  * What stays out: repositories, operations, orchestrators and listeners. Those
- * are module-internal;
- * putting them here would be a back door around the module boundaries.
+ * are module-internal; putting them here would be a back door around the module
+ * boundaries.
  *
  * Usage pattern: a module's XxxModule class resolves what it needs from the
- * registry ONCE,
- * then hands plain constructor arguments to its internals. The registry never
- * travels deeper.
+ * registry ONCE, then hands plain constructor arguments to its internals. The
+ * registry never travels deeper.
  *
  * Lifecycle (same idea as EventBus):
  * 1. Startup, single-threaded: Main and the modules register services (and may
  * read them).
  * 2. Main calls freeze(). Registration is closed and the contents become
- * immutable,
- * so reads are safe from any thread afterwards.
+ * immutable, so reads are safe from any thread afterwards.
  *
  * Lookup is by the exact registered type: register under the interface you want
  * callers to depend on.
