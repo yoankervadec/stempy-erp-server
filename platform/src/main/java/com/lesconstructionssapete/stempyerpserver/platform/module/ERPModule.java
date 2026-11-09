@@ -2,8 +2,7 @@ package com.lesconstructionssapete.stempyerpserver.platform.module;
 
 import com.lesconstructionssapete.stempyerpserver.platform.events.EventBus;
 import com.lesconstructionssapete.stempyerpserver.platform.scheduler.Scheduler;
-
-import io.javalin.Javalin;
+import com.lesconstructionssapete.stempyerpserver.platform.web.Routes;
 
 public interface ERPModule {
 
@@ -11,7 +10,7 @@ public interface ERPModule {
 
   void registerServices(ServiceRegistry serviceRegistry);
 
-  void registerRoutes(Javalin app, ServiceRegistry serviceRegistry);
+  void registerRoutes(Routes routes, ServiceRegistry serviceRegistry);
 
   void registerEventHandlers(EventBus eventBus, ServiceRegistry serviceRegistry);
 
