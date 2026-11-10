@@ -7,6 +7,7 @@ import com.lesconstructionssapete.stempyerpserver.app.config.ApplicationProperti
 import com.lesconstructionssapete.stempyerpserver.platform.db.DataAccessException;
 import com.lesconstructionssapete.stempyerpserver.platform.db.DataSources;
 import com.lesconstructionssapete.stempyerpserver.platform.db.DatabaseConfig;
+import com.lesconstructionssapete.stempyerpserver.platform.db.DatabaseMigrator;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.web.ErrorTranslator;
 import com.lesconstructionssapete.stempyerpserver.platform.web.ExceptionMapper;
@@ -28,6 +29,11 @@ public class Main {
         ApplicationProperties.getByPrefix("database.url.params"),
         ApplicationEnvironment.get("DATABASE_USER"),
         ApplicationEnvironment.get("DATABASE_PASSWORD"));
+
+    DatabaseMigrator.migrate(
+        db.jdbcUrl(),
+        db.user(),
+        db.password());
 
     dataSource = DataSources.create(db);
 
