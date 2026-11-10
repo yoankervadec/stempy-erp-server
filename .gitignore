@@ -42,3 +42,7 @@ replay_pid*
 
 # Notes
 notes/
+
+
+# Ignore temporary files
+*.tmp.*
