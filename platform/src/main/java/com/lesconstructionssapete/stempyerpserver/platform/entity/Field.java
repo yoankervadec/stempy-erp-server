@@ -196,25 +196,25 @@ public final class Field<E, V> {
   public void validate(V value, List<FieldError> errors) {
     if (value == null) {
       if (required) {
-        errors.add(new FieldError(name, "required", "is required"));
+        errors.add(new FieldError(name, "REQUIRED", "is required"));
       }
       return;
     }
     if (value instanceof String s) {
       if (maxLength != null && s.length() > maxLength) {
-        errors.add(new FieldError(name, "too_long", "must be at most " + maxLength + " characters"));
+        errors.add(new FieldError(name, "TOO_LONG", "must be at most " + maxLength + " characters"));
       }
       if (pattern != null && !pattern.matcher(s).matches()) {
-        errors.add(new FieldError(name, "invalid_format", "has an invalid format"));
+        errors.add(new FieldError(name, "INVALID_FORMAT", "has an invalid format"));
       }
     }
     if (value instanceof Number n && (min != null || max != null)) {
       BigDecimal d = value instanceof BigDecimal bd ? bd : new BigDecimal(n.toString());
       if (min != null && d.compareTo(min) < 0) {
-        errors.add(new FieldError(name, "too_small", "must be at least " + min.toPlainString()));
+        errors.add(new FieldError(name, "TOO_SMALL", "must be at least " + min.toPlainString()));
       }
       if (max != null && d.compareTo(max) > 0) {
-        errors.add(new FieldError(name, "too_large", "must be at most " + max.toPlainString()));
+        errors.add(new FieldError(name, "TOO_LARGE", "must be at most " + max.toPlainString()));
       }
     }
   }
