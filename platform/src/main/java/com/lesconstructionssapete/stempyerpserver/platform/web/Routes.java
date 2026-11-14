@@ -7,16 +7,6 @@ import io.javalin.http.Handler;
  * What a module sees when it registers its endpoints: a few verbs and nothing
  * else.
  *
- * Why not hand modules Javalin directly? Javalin 7 moved route registration
- * into the Javalin.create(config -> ...) block, which changed how every module
- * would have to register routes.
- * Putting this thin wrapper in between means the next Javalin change is fixed
- * here, once, instead of in every module. It is also the natural place for
- * later additions such as permission-guarded overloads:
- * routes.post("/gl/journals", "gl.post", handler).
- *
- * Handlers are Javalin's own Handler (ctx -> ...), so controllers still use
- * Context directly.
  */
 public final class Routes {
 
@@ -28,6 +18,12 @@ public final class Routes {
 
   public Routes get(String path, Handler handler) {
     config.routes.get(path, handler);
+    return this;
+  }
+
+  // Javalin 7+
+  public Routes query(String path, Handler handler) {
+    config.routes.query(path, handler);
     return this;
   }
 
