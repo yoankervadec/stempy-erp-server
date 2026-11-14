@@ -1,0 +1,82 @@
+
+CREATE TABLE IF NOT EXISTS `users` (
+  `id` BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  `company_id` BIGINT UNSIGNED NOT NULL,
+  `version` INT UNSIGNED NOT NULL DEFAULT 0,
+
+  `user_no` VARCHAR(50) UNIQUE NOT NULL,
+  `name` VARCHAR(255) NOT NULL,
+
+  `is_enabled` BOOLEAN NOT NULL DEFAULT TRUE,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_by` BIGINT UNSIGNED NOT NULL,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `updated_by` BIGINT UNSIGNED NOT NULL,
+  `deleted_at` TIMESTAMP NULL DEFAULT NULL,
+
+  FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
+  FOREIGN KEY (`created_by`) REFERENCES `users`(`id`),
+  FOREIGN KEY (`updated_by`) REFERENCES `users`(`id`)
+);
+
+CREATE TABLE IF NOT EXISTS `user_credentials` (
+  `id` BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  `company_id` BIGINT UNSIGNED NOT NULL,
+
+  `user_id` BIGINT UNSIGNED NOT NULL,
+  `password_hash` VARCHAR(255) NOT NULL,
+
+  `is_enabled` BOOLEAN NOT NULL DEFAULT TRUE,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `deleted_at` TIMESTAMP NULL DEFAULT NULL,
+
+  FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
+  FOREIGN KEY (`user_id`) REFERENCES `users`(`id`)
+);
+
+CREATE TABLE IF NOT EXISTS `product_categories` (
+  `id` BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  `company_id` BIGINT UNSIGNED NOT NULL,
+  `version` INT UNSIGNED NOT NULL DEFAULT 0,
+
+  `code` VARCHAR(50) UNIQUE NOT NULL,
+  `description` VARCHAR(255) NOT NULL,
+
+  `is_enabled` BOOLEAN NOT NULL DEFAULT TRUE,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_by` BIGINT UNSIGNED NOT NULL,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `updated_by` BIGINT UNSIGNED NOT NULL,
+  `deleted_at` TIMESTAMP NULL DEFAULT NULL,
+
+  FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
+  FOREIGN KEY (`created_by`) REFERENCES `users`(`id`),
+  FOREIGN KEY (`updated_by`) REFERENCES `users`(`id`)
+);
+
+CREATE TABLE IF NOT EXISTS `products` (
+  `id` BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  `company_id` BIGINT UNSIGNED NOT NULL,
+  `version` INT UNSIGNED NOT NULL DEFAULT 0,
+
+  `product_no` VARCHAR(50) UNIQUE NOT NULL,
+  `name` VARCHAR(255) NOT NULL,
+  `unit_of_measure_id` BIGINT UNSIGNED NOT NULL,
+  `unit_amount` DECIMAL(19, 4) NOT NULL,
+  `currency_id` BIGINT UNSIGNED NOT NULL,
+  `product_category_id` BIGINT UNSIGNED NOT NULL,
+
+  `is_enabled` BOOLEAN NOT NULL DEFAULT TRUE,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_by` BIGINT UNSIGNED NOT NULL,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `updated_by` BIGINT UNSIGNED NOT NULL,
+  `deleted_at` TIMESTAMP NULL DEFAULT NULL,
+
+  FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`),
+  FOREIGN KEY (`created_by`) REFERENCES `users`(`id`),
+  FOREIGN KEY (`updated_by`) REFERENCES `users`(`id`),
+  FOREIGN KEY (`unit_of_measure_id`) REFERENCES `units_of_measure`(`id`),
+  FOREIGN KEY (`currency_id`) REFERENCES `currencies`(`id`),
+  FOREIGN KEY (`product_category_id`) REFERENCES `product_categories`(`id`)
+);
