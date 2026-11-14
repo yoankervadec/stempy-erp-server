@@ -20,10 +20,6 @@ import io.javalin.json.JavalinJackson;
  * 3. ExceptionMapper as the catch-all exception handler
  * 4. the routes, supplied by the caller through a Consumer<Routes>
  *
- * Javalin 7 wants routes registered while the server is being created, not
- * afterwards, hence the Consumer: Main passes "register every module's routes"
- * and WebServer runs it at the right moment.
- *
  */
 public final class WebServer {
 
@@ -53,8 +49,6 @@ public final class WebServer {
 
       config.routes.before(requestIdFilter::before);
       config.routes.after(requestIdFilter::after);
-      // Docs disagree on the spelling: config.routes.exception(...) (migration guide)
-      // vs config.error.exception(...)
       config.routes.exception(Exception.class, exceptionMapper::handle);
 
       routeRegistrar.accept(new Routes(config));
