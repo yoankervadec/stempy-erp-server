@@ -4,50 +4,24 @@ import java.util.Arrays;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import com.lesconstructionssapete.stempyerpserver.platform.error.UnauthenticatedException;
 
 import io.javalin.http.Context;
 
 /**
- * DEVELOPMENT ONLY stand-in for the JWT AuthFilter: trusts whatever identity
- * the caller claims in plain headers. Anyone who can reach the server can act
- * as any user of any company, so it must never be enabled in production. Main
- * installs it only when DEV_AUTH_ENABLED=true, and it logs a warning when
- * built.
+ * TEST ONLY: trusts whatever identity the caller claims in plain headers, so
+ * web-layer tests can exercise authenticated routes without sessions. Lives in
+ * test sources so it can never be enabled in a real deployment.
  *
- * Headers:
- * - X-Dev-User-Id: users.id (required to authenticate)
- * - X-Dev-Company-Id: the company to operate on (required with the user id)
- * - X-Dev-Permissions: optional comma-separated permission names
- *
- * No X-Dev-User-Id header: the request stays unauthenticated (routes that call
- * RequestContexts.require get 401, public routes like /health still work).
- * Malformed headers: 401 right away.
- *
- * Example:
- *
- * <pre>
- * curl -X QUERY localhost:8081/masterdata/products \
- *   -H 'X-Dev-User-Id: 1' -H 'X-Dev-Company-Id: 1' \
- *   -H 'Content-Type: application/json' \
- *   -d '{"where":{"field":"name","op":"contains","value":"bolt"}}'
- * </pre>
+ * Headers: X-Dev-User-Id and X-Dev-Company-Id (both required to authenticate),
+ * X-Dev-Permissions (optional, comma-separated). No X-Dev-User-Id: the request
+ * stays unauthenticated. Malformed: 401.
  */
 public final class DevAuthFilter {
-
-  private static final Logger log = LoggerFactory.getLogger(DevAuthFilter.class);
 
   public static final String USER_HEADER = "X-Dev-User-Id";
   public static final String COMPANY_HEADER = "X-Dev-Company-Id";
   public static final String PERMISSIONS_HEADER = "X-Dev-Permissions";
-
-  public DevAuthFilter() {
-    log.warn("DevAuthFilter is ENABLED: requests are authenticated from {} / {} headers without any check. "
-        + "Never use this outside local development.", USER_HEADER, COMPANY_HEADER);
-  }
 
   public void handle(Context ctx) {
     String user = ctx.header(USER_HEADER);

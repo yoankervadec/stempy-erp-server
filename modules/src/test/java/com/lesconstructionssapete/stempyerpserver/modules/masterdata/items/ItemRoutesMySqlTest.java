@@ -4,76 +4,32 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
-
 import java.io.IOException;
-import java.io.InputStream;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
-import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.flywaydb.core.Flyway;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lesconstructionssapete.stempyerpserver.modules.users.UsersModule;
-import com.lesconstructionssapete.stempyerpserver.platform.db.DataSources;
-import com.lesconstructionssapete.stempyerpserver.platform.db.DatabaseConfig;
-import com.lesconstructionssapete.stempyerpserver.platform.db.DatabaseMigrator;
-import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
-import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityRegistry;
-import com.lesconstructionssapete.stempyerpserver.platform.module.ERPModule;
-import com.lesconstructionssapete.stempyerpserver.platform.module.ServiceRegistry;
-import com.lesconstructionssapete.stempyerpserver.platform.query.QueryLimits;
-import com.lesconstructionssapete.stempyerpserver.platform.web.DevAuthFilter;
-import com.lesconstructionssapete.stempyerpserver.platform.web.EntityQueryEndpoint;
-import com.lesconstructionssapete.stempyerpserver.platform.web.ErrorTranslator;
-import com.lesconstructionssapete.stempyerpserver.platform.web.ExceptionMapper;
-import com.lesconstructionssapete.stempyerpserver.platform.web.JsonMapperFactory;
-import com.lesconstructionssapete.stempyerpserver.platform.web.WebServer;
-import com.lesconstructionssapete.stempyerpserver.platform.web.WebServerConfig;
-import com.zaxxer.hikari.HikariDataSource;
-
-import io.github.cdimascio.dotenv.Dotenv;
+import com.lesconstructionssapete.stempyerpserver.modules.testsupport.MySqlTestStack;
+import com.lesconstructionssapete.stempyerpserver.modules.users.AuthSettings;
 
 /**
  * End-to-end check of the items routes against a real MySQL: Flyway
  * migrations, HikariCP, the generated SQL, JDBC type mapping and JSON output,
- * wired the same way Main wires them.
+ * with real logins. See MySqlTestStack for the database setup; skipped when
+ * the test database is unavailable.
  *
- * Runs against the local MySQL server, using the connection settings from the
- * repository's .env (DATABASE_HOST, DATABASE_PORT, DATABASE_USER,
- * DATABASE_PASSWORD) and the URL params from db.properties, like Main.
+ * One seeded data set is shared by all tests, so tests only read.
  *
- * It uses its OWN database, TEST_DATABASE_NAME (default stempy_erp_test),
- * never DATABASE_NAME: every run drops all its tables (Flyway clean), migrates
- * from scratch and seeds. As a guard, the name must end in "_test". One-time
- * setup, as a MySQL admin:
- *
- * <pre>
- * CREATE DATABASE stempy_erp_test CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
- * GRANT ALL PRIVILEGES ON stempy_erp_test.* TO '&lt;DATABASE_USER&gt;'@'localhost';
- * </pre>
- *
- * Skipped (not failed) when the test database can't be reached, so the build
- * still passes on machines without it. One seeded data set is shared by all
- * tests, so tests only read.
- *
- * Seed data (company 1 is the default caller):
+ * Seed data (company 1 is the default caller, logged in as U1; company 2 as U2):
  *
  * <pre>
  * id  company  productNo  name                  unitAmount  category
@@ -86,163 +42,60 @@ import io.github.cdimascio.dotenv.Dotenv;
  */
 class ItemRoutesMySqlTest {
 
-  private static final String DEFAULT_TEST_DATABASE = "stempy_erp_test";
+  private static final String PASSWORD = "test-password";
 
-  private static final ObjectMapper JSON = JsonMapperFactory.newObjectMapper();
-  private static final HttpClient HTTP = HttpClient.newHttpClient();
-
-  private static HikariDataSource dataSource;
-  private static WebServer server;
+  private static MySqlTestStack stack;
+  /** Session token per company id. */
+  private static Map<Long, String> tokens;
 
   @BeforeAll
-  static void startStack() throws SQLException {
-    var db = testDatabaseConfig();
-    assumeReachable(db);
-
-    // Start from an empty schema every run, then apply the real migrations.
-    Flyway.configure()
-        .dataSource(db.jdbcUrl(), db.user(), db.password())
-        .cleanDisabled(false)
-        .load()
-        .clean();
-    DatabaseMigrator.migrate(db.jdbcUrl(), db.user(), db.password());
-    dataSource = DataSources.create(db);
-    seed();
-
-    // Same lifecycle as Main, minus the parts these routes don't use.
-    List<ERPModule> modules = List.of(new UsersModule(), new ItemService());
-    var entities = new EntityRegistry();
-    modules.forEach(m -> m.registerEntities(entities));
-    entities.freeze();
-
-    var services = new ServiceRegistry();
-    services.register(EntityQueryEndpoint.class,
-        new EntityQueryEndpoint(new UnitOfWorkFactory(dataSource), QueryLimits.defaults()));
-    modules.forEach(m -> m.registerServices(services));
-    services.freeze();
-
-    server = new WebServer(new WebServerConfig("127.0.0.1", 0),
-        new ExceptionMapper(new ErrorTranslator()), new DevAuthFilter()::handle);
-    server.start(routes -> modules.forEach(m -> m.registerRoutes(routes, services)));
+  static void startStack() throws Exception {
+    stack = MySqlTestStack.start(ItemRoutesMySqlTest.class, AuthSettings.defaults(), ItemRoutesMySqlTest::seed);
+    stack.users().setPassword("U1", PASSWORD.toCharArray());
+    stack.users().setPassword("U2", PASSWORD.toCharArray());
+    tokens = Map.of(1L, stack.login("U1", PASSWORD), 2L, stack.login("U2", PASSWORD));
   }
 
   @AfterAll
   static void stopStack() {
-    if (server != null) {
-      server.stop();
-    }
-    if (dataSource != null) {
-      dataSource.close();
+    if (stack != null) {
+      stack.close();
     }
   }
 
-  /** Same sources as Main: .env for the connection, db.properties for URL params. */
-  private static DatabaseConfig testDatabaseConfig() {
-    // Surefire runs in modules/, the .env lives at the repository root.
-    // Real environment variables take precedence over the file.
-    Dotenv env = Dotenv.configure().directory("..").ignoreIfMissing().load();
-
-    String name = env.get("TEST_DATABASE_NAME", DEFAULT_TEST_DATABASE);
-    if (!name.endsWith("_test") || name.equals(env.get("DATABASE_NAME"))) {
-      throw new IllegalStateException("Refusing to wipe database '" + name
-          + "': the test database name must end in _test and differ from DATABASE_NAME");
-    }
-    String host = env.get("DATABASE_HOST");
-    String port = env.get("DATABASE_PORT");
-    String user = env.get("DATABASE_USER");
-    String password = env.get("DATABASE_PASSWORD");
-    if (host == null || port == null || user == null || password == null) {
-      skip("DATABASE_HOST/PORT/USER/PASSWORD not set (.env or environment)");
-    }
-
-    return DatabaseConfig.of(host, Integer.parseInt(port), name, urlParams(), user, password);
-  }
-
-  private static Map<String, String> urlParams() {
-    String prefix = "database.url.params.";
-    Properties props = new Properties();
-    try (InputStream in = ItemRoutesMySqlTest.class.getClassLoader().getResourceAsStream("db.properties")) {
-      if (in == null) {
-        throw new IllegalStateException("db.properties not found on the classpath");
-      }
-      props.load(in);
-    } catch (IOException e) {
-      throw new IllegalStateException("Failed to load db.properties", e);
-    }
-    return props.stringPropertyNames().stream()
-        .filter(k -> k.startsWith(prefix))
-        .collect(Collectors.toMap(k -> k.substring(prefix.length()), props::getProperty));
-  }
-
-  private static void assumeReachable(DatabaseConfig db) {
-    try (Connection c = DriverManager.getConnection(db.jdbcUrl(), db.user(), db.password())) {
-      // reachable
-    } catch (SQLException e) {
-      // Only the message: it never contains the password.
-      skip("test database not reachable (" + db + "): " + e.getMessage()
-          + ". See the class Javadoc for the one-time setup.");
-    }
-  }
-
-  /**
-   * Surefire does not report why a @BeforeAll assumption skipped a class (it
-   * shows "Tests run: 0"), so say it on the console too.
-   */
-  private static void skip(String reason) {
-    System.err.println("[ItemRoutesMySqlTest] SKIPPED: " + reason);
-    assumeTrue(false, reason);
-  }
-
-  private static void seed() throws SQLException {
-    try (Connection c = dataSource.getConnection(); Statement st = c.createStatement()) {
-      // users.created_by references users itself; the first user can't satisfy
-      // that any other way. Session-scoped, and restored before the connection
-      // goes back to the pool.
-      st.execute("SET FOREIGN_KEY_CHECKS = 0");
-      try {
-        st.execute("INSERT INTO companies (id, code, is_enabled) VALUES (1, 'ACME', TRUE), (2, 'OTHER', TRUE)");
-        st.execute("INSERT INTO currencies (id, code, is_enabled) VALUES (1, 'CAD', TRUE)");
-        st.execute("INSERT INTO units_of_measure (id, code, is_enabled) VALUES (1, 'UN', TRUE)");
-        st.execute("""
-            INSERT INTO users (id, company_id, user_no, name, created_by, updated_by) VALUES
-              (1, 1, 'U1', 'Admin', 1, 1),
-              (2, 2, 'U2', 'Other admin', 2, 2)""");
-        st.execute("""
-            INSERT INTO product_categories (id, company_id, code, description, created_by, updated_by) VALUES
-              (1, 1, 'HW', 'Hardware', 1, 1),
-              (2, 1, 'EL', 'Electrical', 1, 1),
-              (3, 2, 'HW-B', 'Other hardware', 2, 2)""");
-        st.execute("""
-            INSERT INTO products (id, company_id, product_no, name, unit_of_measure_id, unit_amount,
-                                  currency_id, product_category_id, created_by, updated_by, deleted_at) VALUES
-              (1, 1, 'P-001', 'Hex Bolt M8',        1, 0.2500, 1, 1, 1, 1, NULL),
-              (2, 1, 'P-002', 'Wood screw 50% off', 1, 0.1000, 1, 1, 1, 1, NULL),
-              (3, 1, 'P-003', 'Wire 14 AWG',        1, 1.7500, 1, 2, 1, 1, NULL),
-              (4, 1, 'P-004', 'Old bolt',           1, 1.0000, 1, 1, 1, 1, CURRENT_TIMESTAMP),
-              (5, 2, 'P-B01', 'Hex Bolt M8',        1, 0.3000, 1, 3, 2, 2, NULL)""");
-        c.commit();
-      } finally {
-        st.execute("SET FOREIGN_KEY_CHECKS = 1");
-      }
-    }
+  private static void seed(Statement st) throws SQLException {
+    st.execute("INSERT INTO companies (id, code, is_enabled) VALUES (1, 'ACME', TRUE), (2, 'OTHER', TRUE)");
+    st.execute("INSERT INTO currencies (id, code, is_enabled) VALUES (1, 'CAD', TRUE)");
+    st.execute("INSERT INTO units_of_measure (id, code, is_enabled) VALUES (1, 'UN', TRUE)");
+    st.execute("""
+        INSERT INTO users (id, company_id, user_no, name, created_by, updated_by) VALUES
+          (1, 1, 'U1', 'Admin', 1, 1),
+          (2, 2, 'U2', 'Other admin', 2, 2)""");
+    st.execute("""
+        INSERT INTO product_categories (id, company_id, code, description, created_by, updated_by) VALUES
+          (1, 1, 'HW', 'Hardware', 1, 1),
+          (2, 1, 'EL', 'Electrical', 1, 1),
+          (3, 2, 'HW-B', 'Other hardware', 2, 2)""");
+    st.execute("""
+        INSERT INTO products (id, company_id, product_no, name, unit_of_measure_id, unit_amount,
+                              currency_id, product_category_id, created_by, updated_by, deleted_at) VALUES
+          (1, 1, 'P-001', 'Hex Bolt M8',        1, 0.2500, 1, 1, 1, 1, NULL),
+          (2, 1, 'P-002', 'Wood screw 50% off', 1, 0.1000, 1, 1, 1, 1, NULL),
+          (3, 1, 'P-003', 'Wire 14 AWG',        1, 1.7500, 1, 2, 1, 1, NULL),
+          (4, 1, 'P-004', 'Old bolt',           1, 1.0000, 1, 1, 1, 1, CURRENT_TIMESTAMP),
+          (5, 2, 'P-B01', 'Hex Bolt M8',        1, 0.3000, 1, 3, 2, 2, NULL)""");
   }
 
   // ---- helpers ----
 
   private static HttpResponse<String> query(String path, String body, long companyId)
       throws IOException, InterruptedException {
-    HttpRequest req = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.port() + path))
-        .method("QUERY", HttpRequest.BodyPublishers.ofString(body))
-        .header("Content-Type", "application/json")
-        .header(DevAuthFilter.USER_HEADER, String.valueOf(companyId)) // user id == company id in the seed
-        .header(DevAuthFilter.COMPANY_HEADER, String.valueOf(companyId))
-        .build();
-    return HTTP.send(req, HttpResponse.BodyHandlers.ofString());
+    return stack.send("QUERY", path, body, tokens.get(companyId));
   }
 
   private static JsonNode ok(HttpResponse<String> r) throws IOException {
     assertEquals(200, r.statusCode(), r.body());
-    return JSON.readTree(r.body());
+    return MySqlTestStack.json(r);
   }
 
   /** Product ids returned for company 1. */
@@ -381,7 +234,7 @@ class ItemRoutesMySqlTest {
   void nonFilterableFieldIs422() throws Exception {
     HttpResponse<String> r = query("/masterdata/products", where("currencyId", "equals", "1"), 1);
     assertEquals(422, r.statusCode(), r.body());
-    assertEquals("NOT_FILTERABLE", JSON.readTree(r.body()).get("errors").get(0).get("code").asText());
+    assertEquals("NOT_FILTERABLE", MySqlTestStack.json(r).get("errors").get(0).get("code").asText());
   }
 
   @Test

@@ -70,6 +70,7 @@ public final class ErrorTranslator {
       case CONFLICT -> 409;
       case FORBIDDEN -> 403;
       case UNAUTHENTICATED -> 401;
+      case RATE_LIMITED -> 429;
     };
   }
 

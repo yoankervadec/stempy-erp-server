@@ -1,6 +1,9 @@
 package com.lesconstructionssapete.stempyerpserver.app;
 
+import java.io.Console;
 import java.sql.SQLException;
+import java.time.Duration;
+import java.util.Arrays;
 import java.util.List;
 
 import com.lesconstructionssapete.stempyerpserver.app.config.ApplicationEnvironment;
@@ -10,6 +13,9 @@ import com.lesconstructionssapete.stempyerpserver.platform.db.DataSources;
 import com.lesconstructionssapete.stempyerpserver.platform.db.DatabaseConfig;
 import com.lesconstructionssapete.stempyerpserver.platform.db.DatabaseMigrator;
 import com.lesconstructionssapete.stempyerpserver.modules.masterdata.items.ItemService;
+import com.lesconstructionssapete.stempyerpserver.modules.users.AuthService;
+import com.lesconstructionssapete.stempyerpserver.modules.users.AuthSettings;
+import com.lesconstructionssapete.stempyerpserver.modules.users.UsersApi;
 import com.lesconstructionssapete.stempyerpserver.modules.users.UsersModule;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityRegistry;
@@ -17,7 +23,10 @@ import com.lesconstructionssapete.stempyerpserver.platform.events.EventBus;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ERPModule;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ServiceRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.query.QueryLimits;
-import com.lesconstructionssapete.stempyerpserver.platform.web.DevAuthFilter;
+import com.lesconstructionssapete.stempyerpserver.platform.error.ErpException;
+import com.lesconstructionssapete.stempyerpserver.platform.error.ValidationFailedException;
+import com.lesconstructionssapete.stempyerpserver.platform.security.AuthFilter;
+import com.lesconstructionssapete.stempyerpserver.platform.security.SessionAuthenticator;
 import com.lesconstructionssapete.stempyerpserver.platform.web.EntityQueryEndpoint;
 import com.lesconstructionssapete.stempyerpserver.platform.web.ErrorTranslator;
 import com.lesconstructionssapete.stempyerpserver.platform.web.ExceptionMapper;
@@ -27,6 +36,14 @@ import com.lesconstructionssapete.stempyerpserver.platform.web.WebServer;
 import com.lesconstructionssapete.stempyerpserver.platform.web.WebServerConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
+/**
+ * Usage:
+ *
+ * <pre>
+ * java -jar stempy.jar                       start the server
+ * java -jar stempy.jar set-password USER_NO  set a user's password (prompts, no echo)
+ * </pre>
+ */
 public class Main {
 
   /**
@@ -35,11 +52,29 @@ public class Main {
    */
   private static List<ERPModule> modules() {
     return List.of(
-        new UsersModule(),
+        new UsersModule(authSettings()),
         new ItemService());
   }
 
+  private static AuthSettings authSettings() {
+    AuthSettings d = AuthSettings.defaults();
+    return new AuthSettings(
+        duration("auth.session.idleTimeout", d.idleTimeout()),
+        duration("auth.session.maxLifetime", d.maxLifetime()),
+        ApplicationProperties.getInt("auth.login.maxFailures", d.maxFailedLogins()),
+        duration("auth.login.lockout", d.lockout()));
+  }
+
+  private static Duration duration(String key, Duration defaultValue) {
+    String value = ApplicationProperties.get(key);
+    return value == null ? defaultValue : Duration.parse(value);
+  }
+
   public static void main(String[] args) {
+    if (args.length > 0 && !(args.length == 2 && args[0].equals("set-password"))) {
+      System.err.println("Usage: (no arguments) to start the server, or: set-password USER_NO");
+      System.exit(2);
+    }
 
     List<ERPModule> modules = modules();
 
@@ -86,15 +121,15 @@ public class Main {
     modules.forEach(m -> m.registerEventHandlers(eventBus, services));
     eventBus.freeze();
 
-    // Until the JWT AuthFilter exists, local testing authenticates through
-    // X-Dev-* headers. Off unless explicitly enabled.
-    var authFilter = ApplicationEnvironment.getBoolean("DEV_AUTH_ENABLED", false)
-        ? new DevAuthFilter()
-        : null;
+    if (args.length == 2) {
+      setPassword(services.get(UsersApi.class), args[1]);
+      dataSource.close();
+      return;
+    }
 
+    var authFilter = new AuthFilter(services.get(SessionAuthenticator.class));
     var exceptionMapper = new ExceptionMapper(new ErrorTranslator());
-    var webServer = new WebServer(WebServerConfig.ofPort(8081), exceptionMapper,
-        authFilter == null ? null : authFilter::handle);
+    var webServer = new WebServer(WebServerConfig.ofPort(8081), exceptionMapper, authFilter::handle);
 
     var health = new HealthChecks().add("database", () -> uowFactory.executeReadOnly(uow -> {
       try (var st = uow.connection().createStatement(); var rs = st.executeQuery("SELECT 1")) {
@@ -110,5 +145,37 @@ public class Main {
     });
     Runtime.getRuntime().addShutdownHook(new Thread(webServer::stop));
 
+  }
+
+  /** Prompts twice without echo, so the password never lands in shell history or logs. */
+  private static void setPassword(UsersApi users, String userNo) {
+    Console console = System.console();
+    if (console == null) {
+      System.err.println("set-password needs an interactive terminal (no console attached)");
+      System.exit(1);
+    }
+    console.printf("Passwords must be %d to %d characters.%n",
+        AuthService.MIN_PASSWORD_LENGTH, AuthService.MAX_PASSWORD_LENGTH);
+    char[] first = console.readPassword("New password for %s: ", userNo);
+    char[] second = console.readPassword("Repeat it: ");
+    try {
+      if (first == null || second == null || !Arrays.equals(first, second)) {
+        System.err.println("Passwords don't match; nothing changed.");
+        System.exit(1);
+      }
+      users.setPassword(userNo, first); // wipes it
+      System.out.println("Password set for " + userNo + "; their existing sessions were ended.");
+    } catch (ValidationFailedException e) {
+      // The message alone is just "Validation failed"; the reasons are per field.
+      e.fieldErrors().forEach(fe -> System.err.println(fe.field() + " " + fe.message()));
+      System.err.println("Nothing changed.");
+      System.exit(1);
+    } catch (ErpException e) {
+      System.err.println(e.getMessage());
+      System.exit(1);
+    } finally {
+      Arrays.fill(first == null ? new char[0] : first, '\0');
+      Arrays.fill(second == null ? new char[0] : second, '\0');
+    }
   }
 }

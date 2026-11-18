@@ -22,5 +22,7 @@ public enum ErrorCategory {
   /** The caller is known but not allowed to do this. */
   FORBIDDEN,
   /** The caller is not (validly) logged in. */
-  UNAUTHENTICATED
+  UNAUTHENTICATED,
+  /** Too many attempts in a short time (e.g. failed logins); retry later. */
+  RATE_LIMITED
 }

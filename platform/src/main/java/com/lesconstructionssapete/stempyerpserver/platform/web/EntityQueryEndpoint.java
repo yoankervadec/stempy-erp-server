@@ -15,7 +15,6 @@ import com.lesconstructionssapete.stempyerpserver.platform.query.QuerySpecParser
 import com.lesconstructionssapete.stempyerpserver.platform.query.QueryTranslator;
 import com.lesconstructionssapete.stempyerpserver.platform.query.SQLQuery;
 
-import io.javalin.http.BadRequestResponse;
 import io.javalin.http.Context;
 import io.javalin.http.Handler;
 
@@ -88,22 +87,9 @@ public final class EntityQueryEndpoint {
   }
 
   private static Map<String, Object> readBody(Context ctx) {
-    String body = ctx.body();
-    if (body.isBlank()) {
+    if (ctx.body().isBlank()) {
       return Map.of();
     }
-    Map<String, Object> parsed;
-    try {
-      parsed = ctx.jsonMapper().fromJsonString(body, BODY_TYPE.getType());
-    } catch (Exception e) {
-      // Exception, not RuntimeException: Javalin's (Kotlin) mapper rethrows
-      // Jackson's checked JsonProcessingException undeclared.
-      // Jackson's message can echo the input; keep the client message generic.
-      throw new BadRequestResponse("Request body must be a JSON object");
-    }
-    if (parsed == null) {
-      throw new BadRequestResponse("Request body must be a JSON object");
-    }
-    return parsed;
+    return JsonBodies.read(ctx, BODY_TYPE.getType());
   }
 }
