@@ -24,7 +24,9 @@ import com.lesconstructionssapete.stempyerpserver.platform.web.RequestContexts;
 import com.lesconstructionssapete.stempyerpserver.platform.web.WebServer;
 import com.lesconstructionssapete.stempyerpserver.platform.web.WebServerConfig;
 
-/** The filter on a real server, with a fake authenticator that knows one token. */
+/**
+ * The filter on a real server, with a fake authenticator that knows one token.
+ */
 class AuthFilterTest {
 
   private static final ObjectMapper JSON = JsonMapperFactory.newObjectMapper();
@@ -33,6 +35,7 @@ class AuthFilterTest {
   private WebServer server;
 
   @BeforeEach
+  @SuppressWarnings("unused")
   void start() {
     SessionAuthenticator fake = token -> "good-token".equals(token)
         ? Optional.of(new Principal(7, 42, Set.of("x.read")))
@@ -52,6 +55,7 @@ class AuthFilterTest {
   }
 
   @AfterEach
+  @SuppressWarnings("unused")
   void stop() {
     server.stop();
   }
