@@ -14,10 +14,10 @@ import com.lesconstructionssapete.stempyerpserver.modules.users.dto.LoginRespons
 import com.lesconstructionssapete.stempyerpserver.modules.users.dto.MeResponse;
 import com.lesconstructionssapete.stempyerpserver.modules.users.dto.UserProfile;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.CreateSessionOperation;
+import com.lesconstructionssapete.stempyerpserver.modules.users.operations.FindLoginCandidateOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.GetUserProfileOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.RevokeSessionOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.SetPasswordOperation;
-import com.lesconstructionssapete.stempyerpserver.modules.users.operations.FindLoginCandidateOperation;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.error.FieldError;
 import com.lesconstructionssapete.stempyerpserver.platform.error.UnauthenticatedException;
@@ -106,9 +106,12 @@ public class AuthService implements UsersApi {
 
   @Override
   public void setPassword(String userNo, char[] password) {
+
+    String trimmedUserNo = userNo != null ? userNo.trim() : null;
+
     try {
       List<FieldError> errors = new ArrayList<>();
-      if (userNo == null || userNo.isBlank()) {
+      if (trimmedUserNo == null || trimmedUserNo.isBlank()) {
         errors.add(new FieldError("userNo", "REQUIRED", "is required"));
       }
       if (password == null || password.length < MIN_PASSWORD_LENGTH || password.length > MAX_PASSWORD_LENGTH) {
@@ -119,7 +122,7 @@ public class AuthService implements UsersApi {
         throw new ValidationFailedException("Validation failed", errors);
       }
       String hash = hasher.hash(password); // before the transaction, like login
-      uowFactory.execute(uow -> setPassword.execute(uow, new SetPasswordOperation.Input(userNo.trim(), hash, now())));
+      uowFactory.execute(uow -> setPassword.execute(uow, new SetPasswordOperation.Input(trimmedUserNo, hash, now())));
     } finally {
       PasswordHasher.wipe(password);
     }
@@ -142,7 +145,9 @@ public class AuthService implements UsersApi {
     }
   }
 
-  /** Whole seconds: what a MySQL TIMESTAMP column stores (it rounds otherwise). */
+  /**
+   * Whole seconds: what a MySQL TIMESTAMP column stores (it rounds otherwise).
+   */
   private Instant now() {
     return clock.instant().truncatedTo(ChronoUnit.SECONDS);
   }
