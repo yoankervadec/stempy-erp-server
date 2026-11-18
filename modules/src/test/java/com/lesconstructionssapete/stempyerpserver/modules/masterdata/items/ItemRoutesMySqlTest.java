@@ -1,9 +1,5 @@
 package com.lesconstructionssapete.stempyerpserver.modules.masterdata.items;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import java.io.IOException;
 import java.net.http.HttpResponse;
 import java.sql.SQLException;
@@ -14,6 +10,9 @@ import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.AfterAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -29,7 +28,8 @@ import com.lesconstructionssapete.stempyerpserver.modules.users.AuthSettings;
  *
  * One seeded data set is shared by all tests, so tests only read.
  *
- * Seed data (company 1 is the default caller, logged in as U1; company 2 as U2):
+ * Seed data (company 1 is the default caller, logged in as U1; company 2 as
+ * U2):
  *
  * <pre>
  * id  company  productNo  name                  unitAmount  category
@@ -49,6 +49,7 @@ class ItemRoutesMySqlTest {
   private static Map<Long, String> tokens;
 
   @BeforeAll
+  @SuppressWarnings("unused")
   static void startStack() throws Exception {
     stack = MySqlTestStack.start(ItemRoutesMySqlTest.class, AuthSettings.defaults(), ItemRoutesMySqlTest::seed);
     stack.users().setPassword("U1", PASSWORD.toCharArray());
@@ -57,6 +58,7 @@ class ItemRoutesMySqlTest {
   }
 
   @AfterAll
+  @SuppressWarnings("unused")
   static void stopStack() {
     if (stack != null) {
       stack.close();

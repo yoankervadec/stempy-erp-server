@@ -1,10 +1,5 @@
 package com.lesconstructionssapete.stempyerpserver.modules.users;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -20,6 +15,10 @@ import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 
 import org.junit.jupiter.api.AfterAll;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -45,6 +44,7 @@ class AuthRoutesMySqlTest {
   private static MySqlTestStack stack;
 
   @BeforeAll
+  @SuppressWarnings("unused")
   static void startStack() throws Exception {
     stack = MySqlTestStack.start(AuthRoutesMySqlTest.class, SETTINGS, AuthRoutesMySqlTest::seed);
     for (String userNo : new String[] { "U1", "U2", "U3", "U4", "U5", "U6", "U7" }) {
@@ -54,6 +54,7 @@ class AuthRoutesMySqlTest {
   }
 
   @AfterAll
+  @SuppressWarnings("unused")
   static void stopStack() {
     if (stack != null) {
       stack.close();
@@ -92,7 +93,10 @@ class AuthRoutesMySqlTest {
     assertEquals(code, code(r));
   }
 
-  /** Runs one statement; Instant parameters are bound as UTC, like the server does. */
+  /**
+   * Runs one statement; Instant parameters are bound as UTC, like the server
+   * does.
+   */
   private static int sql(String sql, Object... params) throws SQLException {
     try (Connection c = stack.dataSource().getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
       for (int i = 0; i < params.length; i++) {

@@ -1,7 +1,5 @@
 package com.lesconstructionssapete.stempyerpserver.modules.testsupport;
 
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -19,6 +17,7 @@ import java.util.Properties;
 import java.util.stream.Collectors;
 
 import org.flywaydb.core.Flyway;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -71,14 +70,20 @@ import io.github.cdimascio.dotenv.Dotenv;
  */
 public final class MySqlTestStack implements AutoCloseable {
 
-  /** Fast hashing so seeding and logins don't cost 0.3s each. Production uses the default. */
+  /**
+   * Fast hashing so seeding and logins don't cost 0.3s each. Production uses the
+   * default.
+   */
   public static final PasswordHasher FAST_HASHER = new PasswordHasher(1_000);
 
   private static final String DEFAULT_TEST_DATABASE = "stempy_erp_test";
   private static final ObjectMapper JSON = JsonMapperFactory.newObjectMapper();
   private static final HttpClient HTTP = HttpClient.newHttpClient();
 
-  /** Inserts the test's rows. Runs with foreign key checks off (users reference themselves). */
+  /**
+   * Inserts the test's rows. Runs with foreign key checks off (users reference
+   * themselves).
+   */
   @FunctionalInterface
   public interface Seeder {
     void seed(Statement st) throws SQLException;
@@ -142,7 +147,10 @@ public final class MySqlTestStack implements AutoCloseable {
     return dataSource;
   }
 
-  /** Logs in and returns the session token; fails the test if login doesn't succeed. */
+  /**
+   * Logs in and returns the session token; fails the test if login doesn't
+   * succeed.
+   */
   public String login(String userNo, String password) throws IOException, InterruptedException {
     HttpResponse<String> r = send("POST", "/auth/login", loginBody(userNo, password), null);
     if (r.statusCode() != 200) {
@@ -179,8 +187,9 @@ public final class MySqlTestStack implements AutoCloseable {
 
   @Override
   public void close() {
-    server.stop();
-    dataSource.close();
+    try (dataSource) {
+      server.stop();
+    }
   }
 
   // ---- setup ----
@@ -234,7 +243,7 @@ public final class MySqlTestStack implements AutoCloseable {
   }
 
   private static void assumeReachable(Class<?> testClass, DatabaseConfig db) {
-    try (Connection c = DriverManager.getConnection(db.jdbcUrl(), db.user(), db.password())) {
+    try (Connection _ = DriverManager.getConnection(db.jdbcUrl(), db.user(), db.password())) {
       // reachable
     } catch (SQLException e) {
       // Only the message: it never contains the password.
