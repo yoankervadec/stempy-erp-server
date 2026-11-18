@@ -103,14 +103,28 @@ public final class QueryTranslator {
     return new SQLQuery<>(root, sql.toString(), binds, selected, visible);
   }
 
+  /**
+   * '!' rather than a backslash as the LIKE escape character: a backslash in a
+   * MySQL string literal means different things depending on the
+   * NO_BACKSLASH_ESCAPES sql_mode, '!' does not.
+   */
+  private static final char LIKE_ESCAPE = '!';
+
   private static String escapeLike(String s) {
-    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    StringBuilder out = new StringBuilder(s.length() + 8);
+    for (int i = 0; i < s.length(); i++) {
+      char ch = s.charAt(i);
+      if (ch == LIKE_ESCAPE || ch == '%' || ch == '_') {
+        out.append(LIKE_ESCAPE);
+      }
+      out.append(ch);
+    }
+    return out.toString();
   }
 
   private static String sqlOp(Operator op) {
     return switch (op) {
       case EQUALS -> "=";
-      case NOT_EQUALS -> "IS DISTINCT FROM";
       case GREATER_THAN -> ">";
       case GREATER_THAN_OR_EQUAL -> ">=";
       case LESS_THAN -> "<";
@@ -279,9 +293,15 @@ public final class QueryTranslator {
       if (op == Operator.CONTAINS || op == Operator.STARTS_WITH) {
         String text = escapeLike(v.toString());
         whereBinds.add(new Bind(FieldType.STRING, op == Operator.CONTAINS ? "%" + text + "%" : text + "%"));
-        return col + " ILIKE ? ESCAPE '\\'";
+        // MySQL LIKE is case-insensitive under the default *_ci collations.
+        return col + " LIKE ? ESCAPE '" + LIKE_ESCAPE + "'";
       }
       whereBinds.add(new Bind(type, v));
+      if (op == Operator.NOT_EQUALS) {
+        // Null-safe "not equal" (MySQL has no IS DISTINCT FROM): a NULL column
+        // counts as different from any value, as a user would expect.
+        return "NOT (" + col + " <=> ?)";
+      }
       return col + " " + sqlOp(op) + " ?";
     }
 

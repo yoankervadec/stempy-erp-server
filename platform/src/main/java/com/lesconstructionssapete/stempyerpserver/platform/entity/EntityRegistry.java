@@ -16,6 +16,19 @@ public class EntityRegistry {
   private final Map<String, EntityDefinition<?>> byName = new LinkedHashMap<>();
   private boolean frozen;
 
+  /**
+   * Registers entity classes by reading their
+   * {@code public static final EntityDefinition<?> DEF} constant.
+   * Intended to be called from each module's startup hook with that module's
+   * entity classes.
+   */
+  public EntityRegistry registerAll(Class<?>... entityClasses) {
+    for (Class<?> clazz : entityClasses) {
+      register(defOf(clazz));
+    }
+    return this;
+  }
+
   public EntityRegistry register(EntityDefinition<?> def) {
     if (frozen) {
       throw new IllegalStateException("Registry is frozen");
@@ -24,6 +37,28 @@ public class EntityRegistry {
       throw new IllegalStateException("Entity already registered: " + def.name());
     }
     return this;
+  }
+
+  /**
+   * Reads the DEF constant of an entity class; fails with a clear message if the
+   * convention is broken.
+   */
+  public static EntityDefinition<?> defOf(Class<?> entityClass) {
+    try {
+      java.lang.reflect.Field f = entityClass.getField("DEF");
+      int mod = f.getModifiers();
+      if (!java.lang.reflect.Modifier.isStatic(mod)
+          || !java.lang.reflect.Modifier.isFinal(mod)
+          || !EntityDefinition.class.isAssignableFrom(f.getType())) {
+        throw new IllegalStateException(entityClass.getName()
+            + ".DEF must be 'public static final EntityDefinition<...>'");
+      }
+      return (EntityDefinition<?>) f.get(null);
+    } catch (NoSuchFieldException e) {
+      throw new IllegalStateException(entityClass.getName() + " has no public static DEF constant", e);
+    } catch (IllegalAccessException e) {
+      throw new IllegalStateException("Cannot read " + entityClass.getName() + ".DEF", e);
+    }
   }
 
   /**

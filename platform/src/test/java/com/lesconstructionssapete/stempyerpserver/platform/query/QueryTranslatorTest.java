@@ -88,4 +88,27 @@ class QueryTranslatorTest {
 
     assertEquals("UNKNOWN_OPERATOR", e.fieldErrors().get(0).code());
   }
+
+  @Test
+  void containsUsesMySqlLikeWithEscapedWildcards() {
+    QuerySpec spec = parser.parse(Map.of(
+        "where", Map.of("field", "name", "op", "contains", "value", "50%_!")));
+
+    SQLQuery<TestWidget> q = translator.translate(TestWidget.DEF, spec, 42L, FieldAccess.ALLOW_ALL);
+
+    assertTrue(q.sql().contains("t0.name LIKE ? ESCAPE '!'"), q.sql());
+    assertFalse(q.sql().contains("ILIKE"));
+    assertEquals("%50!%!_!!%", q.binds().get(1).value());
+  }
+
+  @Test
+  void notEqualsIsNullSafeInMySql() {
+    QuerySpec spec = parser.parse(Map.of(
+        "where", Map.of("field", "name", "op", "notEquals", "value", "abc")));
+
+    SQLQuery<TestWidget> q = translator.translate(TestWidget.DEF, spec, 42L, FieldAccess.ALLOW_ALL);
+
+    assertTrue(q.sql().contains("NOT (t0.name <=> ?)"), q.sql());
+    assertFalse(q.sql().contains("DISTINCT"));
+  }
 }
