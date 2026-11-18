@@ -53,10 +53,12 @@ public class User {
       "isEnabled", "is_enabled", User::isEnabled, User::setEnabled);
 
   public static final Field<User, String> USER_NO = DEF.string(
-      "userNo", "user_no", User::userNo, User::setUserNo);
+      "userNo", "user_no", User::userNo, User::setUserNo)
+      .filterable().sortable();
 
   public static final Field<User, String> NAME = DEF.string(
-      "name", "name", User::name, User::setName);
+      "name", "name", User::name, User::setName)
+      .filterable().sortable();
 
   public Long id() {
     return id;

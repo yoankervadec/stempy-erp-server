@@ -19,6 +19,13 @@
             <artifactId>stempyerpserver-platform</artifactId>
         </dependency>
 
+        <!-- Integration tests read the database credentials from the repo's .env -->
+        <dependency>
+            <groupId>io.github.cdimascio</groupId>
+            <artifactId>dotenv-java</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <dependency>
             <groupId>com.tngtech.archunit</groupId>
             <artifactId>archunit-junit5</artifactId>
@@ -33,6 +40,11 @@
             <groupId>org.testcontainers</groupId>
             <artifactId>mysql</artifactId>
             <scope>test</scope>
+        </dependency>
+
+        <dependency>
+          <groupId>org.slf4j</groupId>
+          <artifactId>slf4j-api</artifactId>
         </dependency>
     </dependencies>
 </project>

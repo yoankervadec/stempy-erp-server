@@ -5,7 +5,14 @@ import java.io.InputStream;
 import java.util.Map;
 import java.util.Properties;
 
+/**
+ * Non-secret settings from the classpath: application.properties (app module)
+ * and db.properties (platform module). Secrets live in .env
+ * (ApplicationEnvironment).
+ */
 public final class ApplicationProperties {
+
+  private static final String[] FILES = { "application.properties", "db.properties" };
 
   private static final Properties PROPERTIES = load();
 
@@ -55,31 +62,36 @@ public final class ApplicationProperties {
     return value;
   }
 
+  /**
+   * Properties under {@code prefix}, keyed by the rest of the name:
+   * getByPrefix("database.url.params") turns
+   * database.url.params.useSSL=false into useSSL -> false.
+   */
   public static Map<String, String> getByPrefix(String prefix) {
+    String dotted = prefix.endsWith(".") ? prefix : prefix + ".";
     return PROPERTIES.stringPropertyNames().stream()
-        .filter(name -> name.startsWith(prefix))
+        .filter(name -> name.startsWith(dotted))
         .collect(
             java.util.stream.Collectors.toMap(
-                name -> name,
+                name -> name.substring(dotted.length()),
                 PROPERTIES::getProperty));
   }
 
   private static Properties load() {
     Properties properties = new Properties();
+    for (String file : FILES) {
+      try (InputStream input = ApplicationProperties.class
+          .getClassLoader()
+          .getResourceAsStream(file)) {
 
-    try (InputStream input = ApplicationProperties.class
-        .getClassLoader()
-        .getResourceAsStream("application.properties")) {
+        if (input == null) {
+          throw new IllegalStateException(file + " not found on the classpath");
+        }
+        properties.load(input);
 
-      if (input == null) {
-        throw new IllegalStateException(
-            "application.properties not found");
+      } catch (IOException e) {
+        throw new IllegalStateException("Failed to load " + file, e);
       }
-      properties.load(input);
-
-    } catch (IOException e) {
-      throw new IllegalStateException(
-          "Failed to load application.properties", e);
     }
     return properties;
   }
