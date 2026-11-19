@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lesconstructionssapete.stempyerpserver.modules.masterdata.items.ItemService;
+import com.lesconstructionssapete.stempyerpserver.modules.masterdata.items.ItemsModule;
 import com.lesconstructionssapete.stempyerpserver.modules.users.AuthSettings;
 import com.lesconstructionssapete.stempyerpserver.modules.users.UsersApi;
 import com.lesconstructionssapete.stempyerpserver.modules.users.UsersModule;
@@ -116,7 +116,7 @@ public final class MySqlTestStack implements AutoCloseable {
       var uowFactory = new UnitOfWorkFactory(dataSource);
       List<ERPModule> modules = List.of(
           new UsersModule(auth, FAST_HASHER, Clock.systemUTC()),
-          new ItemService());
+          new ItemsModule());
 
       var entities = new EntityRegistry();
       modules.forEach(m -> m.registerEntities(entities));

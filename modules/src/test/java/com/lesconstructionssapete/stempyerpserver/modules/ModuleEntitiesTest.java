@@ -8,7 +8,7 @@ import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.Test;
 
-import com.lesconstructionssapete.stempyerpserver.modules.masterdata.items.ItemService;
+import com.lesconstructionssapete.stempyerpserver.modules.masterdata.items.ItemsModule;
 import com.lesconstructionssapete.stempyerpserver.modules.users.UsersModule;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityDefinition;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityDefinitionScanner;
@@ -21,7 +21,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.module.ERPModule;
  */
 class ModuleEntitiesTest {
 
-  private static final List<ERPModule> MODULES = List.of(new UsersModule(), new ItemService());
+  private static final List<ERPModule> MODULES = List.of(new UsersModule(), new ItemsModule());
 
   @Test
   void allModuleEntitiesRegisterAndFreeze() {

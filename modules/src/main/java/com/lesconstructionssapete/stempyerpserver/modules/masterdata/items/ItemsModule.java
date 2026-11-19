@@ -13,7 +13,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.web.Routes;
  * Depends on the users module (created_by / updated_by relations), so it must
  * be listed after it in Main.
  */
-public class ItemService implements ERPModule {
+public class ItemsModule implements ERPModule {
 
   @Override
   public String name() {

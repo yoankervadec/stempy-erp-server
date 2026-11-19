@@ -17,7 +17,7 @@ public final class DataSources {
 
   public static HikariDataSource create(DatabaseConfig cfg) {
     HikariConfig hc = new HikariConfig();
-    hc.setPoolName("stempy-erp");
+    hc.setPoolName(cfg.poolName());
     hc.setJdbcUrl(cfg.jdbcUrl());
     hc.setUsername(cfg.user());
     hc.setPassword(cfg.password());
@@ -37,12 +37,8 @@ public final class DataSources {
     // defense.
     hc.setAutoCommit(false);
 
-    // Standard MySQL Connector/J performance settings
-    hc.addDataSourceProperty("cachePrepStmts", "true");
-    hc.addDataSourceProperty("prepStmtCacheSize", "250");
-    hc.addDataSourceProperty("prepStmtCacheSqlLimit", "2048");
-    hc.addDataSourceProperty("useServerPrepStmts", "true");
-    hc.addDataSourceProperty("rewriteBatchedStatements", "true");
+    // Driver settings, e.g. MySQL Connector/J prepared-statement caching
+    cfg.driverProperties().forEach(hc::addDataSourceProperty);
 
     return new HikariDataSource(hc);
   }

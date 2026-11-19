@@ -12,7 +12,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.db.DataAccessExceptio
 import com.lesconstructionssapete.stempyerpserver.platform.db.DataSources;
 import com.lesconstructionssapete.stempyerpserver.platform.db.DatabaseConfig;
 import com.lesconstructionssapete.stempyerpserver.platform.db.DatabaseMigrator;
-import com.lesconstructionssapete.stempyerpserver.modules.masterdata.items.ItemService;
+import com.lesconstructionssapete.stempyerpserver.modules.masterdata.items.ItemsModule;
 import com.lesconstructionssapete.stempyerpserver.modules.users.AuthService;
 import com.lesconstructionssapete.stempyerpserver.modules.users.AuthSettings;
 import com.lesconstructionssapete.stempyerpserver.modules.users.UsersApi;
@@ -53,7 +53,7 @@ public class Main {
   private static List<ERPModule> modules() {
     return List.of(
         new UsersModule(authSettings()),
-        new ItemService());
+        new ItemsModule());
   }
 
   private static AuthSettings authSettings() {
@@ -83,30 +83,16 @@ public class Main {
     modules.forEach(m -> m.registerEntities(entities));
     entities.freeze();
 
-    HikariDataSource dataSource;
-
-    var db = DatabaseConfig.of(
-        ApplicationEnvironment.get("DATABASE_HOST"),
-        ApplicationEnvironment.getInt("DATABASE_PORT"),
-        ApplicationEnvironment.get("DATABASE_NAME"),
-        ApplicationProperties.getByPrefix("database.url.params"),
-        ApplicationEnvironment.get("DATABASE_USER"),
-        ApplicationEnvironment.get("DATABASE_PASSWORD"));
+    var db = databaseConfig();
 
     DatabaseMigrator.migrate(
         db.jdbcUrl(),
         db.user(),
         db.password());
 
-    dataSource = DataSources.create(db);
+    HikariDataSource dataSource = DataSources.create(db);
 
     var uowFactory = new UnitOfWorkFactory(dataSource);
-
-    // try ( dataSource = DataSources.create(db)) {
-    // UnitOfWorkFactory uowFactory = new UnitOfWorkFactory(dataSource);
-    // var result = uowFactory.execute(uow -> postingServices.post(uow, "INV1234",
-    // requestContext));
-    // }
 
     var eventBus = new EventBus();
 
@@ -129,7 +115,8 @@ public class Main {
 
     var authFilter = new AuthFilter(services.get(SessionAuthenticator.class));
     var exceptionMapper = new ExceptionMapper(new ErrorTranslator());
-    var webServer = new WebServer(WebServerConfig.ofPort(8081), exceptionMapper, authFilter::handle);
+    var webServer = new WebServer(
+        WebServerConfig.ofPort(ApplicationProperties.getInt("server.port")), exceptionMapper, authFilter::handle);
 
     var health = new HealthChecks().add("database", () -> uowFactory.executeReadOnly(uow -> {
       try (var st = uow.connection().createStatement(); var rs = st.executeQuery("SELECT 1")) {
@@ -143,8 +130,41 @@ public class Main {
       HealthRoutes.register(routes, health);
       modules.forEach(m -> m.registerRoutes(routes, services));
     });
-    Runtime.getRuntime().addShutdownHook(new Thread(webServer::stop));
+    // Stop taking requests first, then release the pool they were using.
+    Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+      try {
+        webServer.stop();
+      } finally {
+        dataSource.close();
+      }
+    }, "shutdown"));
+  }
 
+  /** Connection from .env, pool and driver settings from db.properties. */
+  private static DatabaseConfig databaseConfig() {
+    DatabaseConfig d = DatabaseConfig.of(
+        ApplicationEnvironment.getRequired("DATABASE_HOST"),
+        ApplicationEnvironment.getInt("DATABASE_PORT"),
+        ApplicationEnvironment.getRequired("DATABASE_NAME"),
+        ApplicationProperties.getByPrefix("database.url.params"),
+        ApplicationEnvironment.getRequired("DATABASE_USER"),
+        ApplicationEnvironment.getRequired("DATABASE_PASSWORD"));
+
+    var driverProperties = ApplicationProperties.getByPrefix("database.mysql.performance.settings");
+
+    return d
+        .withPool(
+            ApplicationProperties.get("database.pool.name", d.poolName()),
+            ApplicationProperties.getInt("database.pool.maxSize", d.maxPoolSize()),
+            ApplicationProperties.getInt("database.pool.minIdle", d.minIdle()),
+            getLong("database.pool.connectionTimeoutMs", d.connectionTimeoutMs()),
+            getLong("database.pool.leakDetectionThresholdMs", d.leakDetectionThresholdMs()))
+        .withDriverProperties(driverProperties.isEmpty() ? d.driverProperties() : driverProperties);
+  }
+
+  private static long getLong(String key, long defaultValue) {
+    String value = ApplicationProperties.get(key);
+    return value == null ? defaultValue : Long.parseLong(value.trim());
   }
 
   /** Prompts twice without echo, so the password never lands in shell history or logs. */
