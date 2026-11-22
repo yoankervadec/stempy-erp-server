@@ -34,7 +34,8 @@ class ModuleEntitiesTest {
     MODULES.forEach(m -> m.registerEntities(registry));
 
     Set<String> registered = registry.all().stream().map(EntityDefinition::name).collect(Collectors.toSet());
-    Set<String> declared = EntityDefinitionScanner.findEntityClasses("com.lesconstructionssapete.stempyerpserver.modules")
+    Set<String> declared = EntityDefinitionScanner
+        .findEntityClasses("com.lesconstructionssapete.stempyerpserver.modules")
         .stream().map(c -> EntityRegistry.defOf(c).name()).collect(Collectors.toSet());
 
     assertEquals(declared, registered, "entity classes not registered in any module's registerEntities()");

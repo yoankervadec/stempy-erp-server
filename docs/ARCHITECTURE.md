@@ -8,7 +8,7 @@ _Last synced with the code: 2026-11-22 (after the bootstrap cleanup: Settings, A
 
 **Stack (as declared in the root `pom.xml`):** Java 25 (enforced `[25,26)`), Maven multi-module, Javalin 7, Jackson 2.17, HikariCP 7, **MySQL 8** (Connector/J), Flyway 11 (`flyway-mysql`), slf4j + logback, JUnit 6.
 
-Logging: slf4j + logback-classic (app/src/main/resources/logback.xml prints the request id). Declared but not used yet (kept for planned work): Lettuce (Redis: distributed lock, shared login throttle), ArchUnit, Testcontainers BOM (in dependencyManagement only). Authentication uses opaque server-side sessions, not JWT (see §3.4); jjwt was removed.
+Logging: slf4j + logback-classic (app/src/main/resources/logback.xml prints the request id). Declared but not used yet (kept for planned work): Lettuce (Redis: distributed lock, shared login throttle), Testcontainers BOM (in dependencyManagement only). ArchUnit enforces the module rules (§11). Authentication uses opaque server-side sessions, not JWT (see §3.4); jjwt was removed.
 
 ---
 
@@ -664,36 +664,26 @@ The MySQL tests use a **local** MySQL configured through `.env`, not Testcontain
 
 ---
 
-## 11. Enforcing boundaries (ArchUnit) ⬜
+## 11. Enforcing boundaries (ArchUnit) ✅
 
-Maven already enforces `app -> modules -> platform -> shared`. What remains is isolation between business modules inside the `modules` artifact:
+Maven enforces `app -> modules -> platform -> shared`. `modules/src/test/.../ArchitectureTest.java` enforces what lives together inside the `modules` artifact, on every build.
 
-```java
-@AnalyzeClasses(packages = "com.lesconstructionssapete.stempyerpserver.modules")
-class ArchitectureTest {
+A **business module** is the package of an `ERPModule` implementation plus its subpackages (`users`, `masterdata.items`); new modules are picked up automatically. Packages outside every module (`common`, the root) are shared code; `AllModules` is the composition root and exempt.
 
-    @ArchTest
-    static final ArchRule operations_do_not_call_each_other =
-        noClasses().that().resideInAPackage("..operations..")
-            .should().dependOnClassesThat().resideInAPackage("..operations..")
-            .because("operations are orchestrated, never chained");
-    // careful: this also forbids an operation using its own Input record of another operation;
-    // scope it to "other operation classes" if needed.
+| Rule | Why |
+| --- | --- |
+| A module uses another only through its `*Api` interfaces (in the module's root package), its `events` package, and its entities (classes with a `DEF`) | Services, operations, repositories and DTOs stay private to their module |
+| No cycles between modules | Module order in `AllModules` is a dependency order |
+| Operations never use another operation | The orchestrator calls both, or shared logic moves to a helper |
+| Operations don't use `EventBus` or `UnitOfWorkFactory` | The orchestrator owns the transaction and the events |
+| Operations are used only by orchestrators (`*Service`) and the module class | Controllers go through orchestrators |
+| Repository classes are used only by operations (and built by the module class) | Only operations reach the database. Records nested in a repository are result shapes and may flow up |
+| Only repositories use `java.sql`, `Jdbc` or `uow.connection()` | SQL lives in one layer |
+| Only `ERPModule` classes see `ServiceRegistry` | The registry never travels deeper than the module class |
+| Only `*Controller` classes depend on Javalin | Business code stays HTTP-free |
+| `events` packages hold records implementing `DomainEvent` | Events are a public, immutable contract |
 
-    @ArchTest
-    static final ArchRule repositories_only_used_by_own_module = /* per-module rule */ null;
-
-    @ArchTest
-    static final ArchRule cross_module_access_only_via_api_events_or_entities =
-        /* e.g. masterdata.items -> users only via User (entity DEF) / UsersApi / ..users.events.. */ null;
-
-    @ArchTest
-    static final ArchRule module_registry_stays_at_the_top =
-        /* only *Module classes depend on ServiceRegistry */ null;
-}
-```
-
-ArchUnit's "slices" API can express "no cycles between modules" in one rule. Add the rules now that there are two modules (`users`, `masterdata.items`).
+The rules rely on the naming conventions of §4.2 (`*Module`, `*Api`, `*Controller`, `*Service`, `*Repository`, `operations/`, `events/`). A class nested in another (a local record, a lambda) belongs to its outer class's layer. Each rule was checked against deliberate violations when it was written.
 
 Only consider JPMS (`module-info.java`) if you have a strong reason; it adds friction with reflection-heavy libraries like Jackson.
 
@@ -714,7 +704,7 @@ Decide these early; they are painful to retrofit.
 - [x] **Error format:** RFC 7807 everywhere (`ApiError` via `ExceptionMapper`).
 - [ ] **Observability:** request id in MDC and printed on every log line (logback) ✅; basic metrics (Micrometer) still to do.
 - [x] **Migrations:** Flyway, versioned, run at startup. Never edit an applied migration.
-- [ ] **Tests:** unit + real-MySQL end-to-end ✅; Testcontainers and ArchUnit still to do.
+- [x] **Tests:** unit + real-MySQL end-to-end + ArchUnit module/layer rules. (Testcontainers not needed: the MySQL tests use a local `_test` database.)
 
 ---
 
@@ -739,7 +729,7 @@ Decide these early; they are painful to retrofit.
 6. ⬜ First transactional module (e.g. `sales` or `ap`) wired to GL through events, as the reference implementation for all later modules.
 7. ⬜ `platform/scheduler` + outbox dispatcher.
 8. ⬜ Remaining modules (inventory, purchasing, bank, fixed assets, approvals).
-9. ⬜ ArchUnit rules (due now: the second module exists).
+9. ✅ ArchUnit rules (§11).
 
 ---
 
@@ -749,7 +739,7 @@ Open:
 
 - **`V1__.sql` has no description.** Leave it: Flyway validates descriptions, so renaming an applied migration fails validation on every existing database. Just give future migrations a description.
 - **Stubs:** `platform.scheduler.Scheduler` is empty and `ModuleHost` never calls `registerJobs`; `shared` has no classes.
-- **Unused but planned dependencies:** Lettuce (`redis.port` unused), ArchUnit, Testcontainers BOM (no module depends on it; the MySQL tests use the local database).
+- **Unused but planned dependencies:** Lettuce (`redis.port` unused), Testcontainers BOM (no module depends on it; the MySQL tests use the local database).
 
 Fixed on 2026-11-18:
 
