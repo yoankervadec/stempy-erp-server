@@ -4,13 +4,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.StringJoiner;
 
+import com.lesconstructionssapete.stempyerpserver.platform.config.Settings;
+
 /**
- * Plain connection settings. The app module builds this (from .env /
- * environment and db.properties), so platform never needs to know where the
- * values come from.
- *
- * Start from of(...), which has sensible development defaults, then override
- * with withPool(...) / withDriverProperties(...).
+ * Plain connection settings. Usually read with from(Settings); of(...) gives
+ * development defaults to override with withPool(...) /
+ * withDriverProperties(...).
  *
  * @param driverProperties JDBC driver properties set on the pool's data
  *                         source (e.g. MySQL's cachePrepStmts)
@@ -48,6 +47,30 @@ public record DatabaseConfig(
       throw new IllegalArgumentException("connectionTimeoutMs must be >= 250 (HikariCP minimum)");
     if (leakDetectionThresholdMs < 0)
       throw new IllegalArgumentException("leakDetectionThresholdMs must be >= 0");
+  }
+
+  /**
+   * Connection from DATABASE_HOST, _PORT, _NAME, _USER, _PASSWORD (.env or
+   * environment); URL params, pool and driver settings from the database.*
+   * keys (db.properties). Anything absent keeps the of(...) default.
+   */
+  public static DatabaseConfig from(Settings s) {
+    DatabaseConfig d = of(
+        s.get("DATABASE_HOST"),
+        s.getInt("DATABASE_PORT"),
+        s.get("DATABASE_NAME"),
+        s.byPrefix("database.url.params"),
+        s.get("DATABASE_USER"),
+        s.get("DATABASE_PASSWORD"));
+    Map<String, String> driverProperties = s.byPrefix("database.mysql.performance.settings");
+    return d
+        .withPool(
+            s.get("database.pool.name", d.poolName()),
+            s.getInt("database.pool.maxSize", d.maxPoolSize()),
+            s.getInt("database.pool.minIdle", d.minIdle()),
+            s.getLong("database.pool.connectionTimeoutMs", d.connectionTimeoutMs()),
+            s.getLong("database.pool.leakDetectionThresholdMs", d.leakDetectionThresholdMs()))
+        .withDriverProperties(driverProperties.isEmpty() ? d.driverProperties() : driverProperties);
   }
 
   /** Sensible defaults for development. */

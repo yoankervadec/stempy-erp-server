@@ -1,7 +1,6 @@
 package com.lesconstructionssapete.stempyerpserver.modules.testsupport;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -10,35 +9,26 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.time.Clock;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
-import java.util.stream.Collectors;
 
 import org.flywaydb.core.Flyway;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lesconstructionssapete.stempyerpserver.modules.masterdata.items.ItemsModule;
+import com.lesconstructionssapete.stempyerpserver.modules.AllModules;
 import com.lesconstructionssapete.stempyerpserver.modules.users.AuthSettings;
 import com.lesconstructionssapete.stempyerpserver.modules.users.UsersApi;
-import com.lesconstructionssapete.stempyerpserver.modules.users.UsersModule;
+import com.lesconstructionssapete.stempyerpserver.platform.config.Settings;
 import com.lesconstructionssapete.stempyerpserver.platform.db.DataSources;
 import com.lesconstructionssapete.stempyerpserver.platform.db.DatabaseConfig;
 import com.lesconstructionssapete.stempyerpserver.platform.db.DatabaseMigrator;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
-import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityRegistry;
-import com.lesconstructionssapete.stempyerpserver.platform.module.ERPModule;
-import com.lesconstructionssapete.stempyerpserver.platform.module.ServiceRegistry;
-import com.lesconstructionssapete.stempyerpserver.platform.query.QueryLimits;
+import com.lesconstructionssapete.stempyerpserver.platform.module.ModuleHost;
 import com.lesconstructionssapete.stempyerpserver.platform.security.AuthFilter;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PasswordHasher;
-import com.lesconstructionssapete.stempyerpserver.platform.security.SessionAuthenticator;
-import com.lesconstructionssapete.stempyerpserver.platform.web.EntityQueryEndpoint;
-import com.lesconstructionssapete.stempyerpserver.platform.web.ErrorTranslator;
-import com.lesconstructionssapete.stempyerpserver.platform.web.ExceptionMapper;
 import com.lesconstructionssapete.stempyerpserver.platform.web.JsonMapperFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.web.WebServer;
 import com.lesconstructionssapete.stempyerpserver.platform.web.WebServerConfig;
@@ -47,12 +37,12 @@ import com.zaxxer.hikari.HikariDataSource;
 import io.github.cdimascio.dotenv.Dotenv;
 
 /**
- * The whole server against the local MySQL, wired like Main: fresh schema
- * (Flyway clean + migrate), test-specific seed data, every module, the real
- * AuthFilter, a real HTTP port.
+ * The whole server against the local MySQL, started like Main (AllModules +
+ * ModuleHost): fresh schema (Flyway clean + migrate), test-specific seed
+ * data, the real AuthFilter, a real HTTP port.
  *
  * Connection settings come from the repository's .env (DATABASE_HOST, _PORT,
- * _USER, _PASSWORD) and URL params from db.properties, like Main. The database
+ * _USER, _PASSWORD) and pool / URL settings from db.properties, like Main. The database
  * is TEST_DATABASE_NAME (default stempy_erp_test), never DATABASE_NAME: every
  * start WIPES it. As a guard, the name must end in "_test". One-time setup, as
  * a MySQL admin:
@@ -108,31 +98,16 @@ public final class MySqlTestStack implements AutoCloseable {
         .cleanDisabled(false)
         .load()
         .clean();
-    DatabaseMigrator.migrate(db.jdbcUrl(), db.user(), db.password());
+
+    // The same startup as Main, apart from the hasher and the auth settings.
+    var host = new ModuleHost(AllModules.create(authSettings(auth), FAST_HASHER));
+    DatabaseMigrator.migrate(db);
     HikariDataSource dataSource = DataSources.create(db);
     try {
       seed(dataSource, seeder);
-
-      var uowFactory = new UnitOfWorkFactory(dataSource);
-      List<ERPModule> modules = List.of(
-          new UsersModule(auth, FAST_HASHER, Clock.systemUTC()),
-          new ItemsModule());
-
-      var entities = new EntityRegistry();
-      modules.forEach(m -> m.registerEntities(entities));
-      entities.freeze();
-
-      var services = new ServiceRegistry();
-      services.register(UnitOfWorkFactory.class, uowFactory);
-      services.register(EntityQueryEndpoint.class, new EntityQueryEndpoint(uowFactory, QueryLimits.defaults()));
-      modules.forEach(m -> m.registerServices(services));
-      services.freeze();
-
-      var authFilter = new AuthFilter(services.get(SessionAuthenticator.class));
-      var server = new WebServer(new WebServerConfig("127.0.0.1", 0),
-          new ExceptionMapper(new ErrorTranslator()), authFilter::handle);
-      server.start(routes -> modules.forEach(m -> m.registerRoutes(routes, services)));
-      return new MySqlTestStack(dataSource, server, services.get(UsersApi.class));
+      host.start(new UnitOfWorkFactory(dataSource));
+      WebServer server = host.startWebServer(new WebServerConfig("127.0.0.1", 0));
+      return new MySqlTestStack(dataSource, server, host.services().get(UsersApi.class));
     } catch (RuntimeException | SQLException e) {
       dataSource.close();
       throw e;
@@ -209,37 +184,31 @@ public final class MySqlTestStack implements AutoCloseable {
   private static DatabaseConfig config(Class<?> testClass) {
     // Surefire runs in modules/, the .env lives at the repository root.
     // Real environment variables take precedence over the file.
-    Dotenv env = Dotenv.configure().directory("..").ignoreIfMissing().load();
+    Map<String, String> env = new HashMap<>();
+    Dotenv.configure().directory("..").ignoreIfMissing().load().entries()
+        .forEach(e -> env.put(e.getKey(), e.getValue()));
+    Settings settings = Settings.fromClasspath("db.properties").overriddenBy(Settings.of(env));
 
-    String name = env.get("TEST_DATABASE_NAME", DEFAULT_TEST_DATABASE);
-    if (!name.endsWith("_test") || name.equals(env.get("DATABASE_NAME"))) {
+    String name = settings.get("TEST_DATABASE_NAME", DEFAULT_TEST_DATABASE);
+    if (!name.endsWith("_test") || name.equals(settings.get("DATABASE_NAME", null))) {
       throw new IllegalStateException("Refusing to wipe database '" + name
           + "': the test database name must end in _test and differ from DATABASE_NAME");
     }
-    String host = env.get("DATABASE_HOST");
-    String port = env.get("DATABASE_PORT");
-    String user = env.get("DATABASE_USER");
-    String password = env.get("DATABASE_PASSWORD");
-    if (host == null || port == null || user == null || password == null) {
-      skip(testClass, "DATABASE_HOST/PORT/USER/PASSWORD not set (.env or environment)");
+    for (String key : List.of("DATABASE_HOST", "DATABASE_PORT", "DATABASE_USER", "DATABASE_PASSWORD")) {
+      if (settings.find(key).isEmpty()) {
+        skip(testClass, "DATABASE_HOST/PORT/USER/PASSWORD not set (.env or environment)");
+      }
     }
-    return DatabaseConfig.of(host, Integer.parseInt(port), name, urlParams(), user, password);
+    return DatabaseConfig.from(settings.overriddenBy(Settings.of(Map.of("DATABASE_NAME", name))));
   }
 
-  private static Map<String, String> urlParams() {
-    String prefix = "database.url.params.";
-    Properties props = new Properties();
-    try (InputStream in = MySqlTestStack.class.getClassLoader().getResourceAsStream("db.properties")) {
-      if (in == null) {
-        throw new IllegalStateException("db.properties not found on the classpath");
-      }
-      props.load(in);
-    } catch (IOException e) {
-      throw new IllegalStateException("Failed to load db.properties", e);
-    }
-    return props.stringPropertyNames().stream()
-        .filter(k -> k.startsWith(prefix))
-        .collect(Collectors.toMap(k -> k.substring(prefix.length()), props::getProperty));
+  /** The test's AuthSettings, as the auth.* keys AllModules reads. */
+  private static Settings authSettings(AuthSettings a) {
+    return Settings.of(Map.of(
+        "auth.session.idleTimeout", a.idleTimeout().toString(),
+        "auth.session.maxLifetime", a.maxLifetime().toString(),
+        "auth.login.maxFailures", Integer.toString(a.maxFailedLogins()),
+        "auth.login.lockout", a.lockout().toString()));
   }
 
   private static void assumeReachable(Class<?> testClass, DatabaseConfig db) {

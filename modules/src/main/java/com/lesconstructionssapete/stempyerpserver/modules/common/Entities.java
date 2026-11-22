@@ -11,7 +11,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.entity.StandardEntity
  * relations every business table has to the users module, so clients can
  * filter and sort on e.g. "createdByUser.name".
  *
- * The users module must be listed before any module using this (Main).
+ * The users module must come before any module using this (AllModules).
  */
 public final class Entities {
 

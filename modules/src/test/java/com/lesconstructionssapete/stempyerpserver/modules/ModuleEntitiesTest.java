@@ -8,26 +8,24 @@ import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.Test;
 
-import com.lesconstructionssapete.stempyerpserver.modules.masterdata.items.ItemsModule;
-import com.lesconstructionssapete.stempyerpserver.modules.users.UsersModule;
+import com.lesconstructionssapete.stempyerpserver.platform.config.Settings;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityDefinition;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityDefinitionScanner;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ERPModule;
+import com.lesconstructionssapete.stempyerpserver.platform.module.ModuleHost;
+import com.lesconstructionssapete.stempyerpserver.platform.security.PasswordHasher;
 
 /**
  * Catches entity wiring mistakes at build time instead of at startup.
- * Keep MODULES in the same order as Main.modules().
  */
 class ModuleEntitiesTest {
 
-  private static final List<ERPModule> MODULES = List.of(new UsersModule(), new ItemsModule());
+  private static final List<ERPModule> MODULES = AllModules.create(Settings.empty(), new PasswordHasher(1_000));
 
   @Test
   void allModuleEntitiesRegisterAndFreeze() {
-    EntityRegistry registry = new EntityRegistry();
-    MODULES.forEach(m -> m.registerEntities(registry));
-    registry.freeze(); // throws on a relation to an unregistered entity
+    new ModuleHost(MODULES); // registers and freezes: throws on a relation to an unregistered entity
   }
 
   @Test

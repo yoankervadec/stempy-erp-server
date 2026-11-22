@@ -10,9 +10,9 @@ public final class DatabaseMigrator {
   private DatabaseMigrator() {
   }
 
-  public static void migrate(String jdbcUrl, String user, String password) {
+  public static void migrate(DatabaseConfig db) {
     Flyway.configure()
-        .dataSource(jdbcUrl, user, password)
+        .dataSource(db.jdbcUrl(), db.user(), db.password())
         .locations("classpath:db/migration")
         .load()
         .migrate();

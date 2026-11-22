@@ -10,7 +10,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.web.Routes;
  * Master data: products and product categories.
  *
  * Depends on the users module (created_by / updated_by relations), so it must
- * be listed after it in Main.
+ * come after it in AllModules.
  */
 public class ItemsModule implements ERPModule {
 

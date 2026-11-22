@@ -26,8 +26,8 @@ import com.lesconstructionssapete.stempyerpserver.platform.web.Routes;
  * - SessionAuthenticator, used by the platform's AuthFilter on every request
  * - UsersApi, the module's public API
  *
- * Most other entities point at User through created_by / updated_by, so list
- * this module first in Main.
+ * Most other entities point at User through created_by / updated_by, so it
+ * comes first in AllModules.
  */
 public class UsersModule implements ERPModule {
 
@@ -36,14 +36,6 @@ public class UsersModule implements ERPModule {
   private final Clock clock;
 
   private AuthService authService; // built in registerServices, used by registerRoutes
-
-  public UsersModule() {
-    this(AuthSettings.defaults());
-  }
-
-  public UsersModule(AuthSettings settings) {
-    this(settings, new PasswordHasher(), Clock.systemUTC());
-  }
 
   /** Tests pass a cheap hasher so seeding and logging in stay fast. */
   public UsersModule(AuthSettings settings, PasswordHasher hasher, Clock clock) {
