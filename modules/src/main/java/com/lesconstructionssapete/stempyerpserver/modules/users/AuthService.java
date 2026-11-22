@@ -2,9 +2,6 @@ package com.lesconstructionssapete.stempyerpserver.modules.users;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
@@ -19,15 +16,17 @@ import com.lesconstructionssapete.stempyerpserver.modules.users.operations.GetUs
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.RevokeSessionOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.SetPasswordOperation;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
-import com.lesconstructionssapete.stempyerpserver.platform.error.FieldError;
 import com.lesconstructionssapete.stempyerpserver.platform.error.UnauthenticatedException;
-import com.lesconstructionssapete.stempyerpserver.platform.error.ValidationFailedException;
+import com.lesconstructionssapete.stempyerpserver.platform.error.Validation;
 import com.lesconstructionssapete.stempyerpserver.platform.security.LoginThrottle;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PasswordHasher;
 import com.lesconstructionssapete.stempyerpserver.platform.web.RequestContext;
 
 /**
  * ORCHESTRATOR for login, logout, "who am I" and password changes.
+ *
+ * The clock must tick in whole seconds, what a MySQL TIMESTAMP column stores
+ * (UsersModule sets that up).
  *
  * Login runs in two short transactions with the slow password check between
  * them, so a burst of logins can't tie up the connection pool for ~0.3s each.
@@ -68,8 +67,11 @@ public class AuthService implements UsersApi {
   }
 
   public LoginResponse login(LoginRequest request, String clientIp, String userAgent) {
-    validateLogin(request);
-    String userNo = request.userNo().trim();
+    String userNo = trimmed(request.userNo());
+    Validation.check()
+        .required("userNo", userNo).maxLength("userNo", userNo, MAX_USER_NO_LENGTH)
+        .required("password", request.password()).maxLength("password", request.password(), MAX_PASSWORD_LENGTH)
+        .throwIfInvalid();
     String throttleKey = userNo.toLowerCase(Locale.ROOT) + "|" + clientIp;
     throttle.checkAllowed(throttleKey);
 
@@ -106,21 +108,12 @@ public class AuthService implements UsersApi {
 
   @Override
   public void setPassword(String userNo, char[] password) {
-
-    String trimmedUserNo = userNo != null ? userNo.trim() : null;
-
+    String trimmedUserNo = trimmed(userNo);
     try {
-      List<FieldError> errors = new ArrayList<>();
-      if (trimmedUserNo == null || trimmedUserNo.isBlank()) {
-        errors.add(new FieldError("userNo", "REQUIRED", "is required"));
-      }
-      if (password == null || password.length < MIN_PASSWORD_LENGTH || password.length > MAX_PASSWORD_LENGTH) {
-        errors.add(new FieldError("password", "INVALID_LENGTH",
-            "must be " + MIN_PASSWORD_LENGTH + " to " + MAX_PASSWORD_LENGTH + " characters"));
-      }
-      if (!errors.isEmpty()) {
-        throw new ValidationFailedException("Validation failed", errors);
-      }
+      Validation.check()
+          .required("userNo", trimmedUserNo)
+          .lengthBetween("password", password, MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH)
+          .throwIfInvalid();
       String hash = hasher.hash(password); // before the transaction, like login
       uowFactory.execute(uow -> setPassword.execute(uow, new SetPasswordOperation.Input(trimmedUserNo, hash, now())));
     } finally {
@@ -128,27 +121,11 @@ public class AuthService implements UsersApi {
     }
   }
 
-  private static void validateLogin(LoginRequest r) {
-    List<FieldError> errors = new ArrayList<>();
-    if (r.userNo() == null || r.userNo().isBlank()) {
-      errors.add(new FieldError("userNo", "REQUIRED", "is required"));
-    } else if (r.userNo().length() > MAX_USER_NO_LENGTH) {
-      errors.add(new FieldError("userNo", "TOO_LONG", "must be at most " + MAX_USER_NO_LENGTH + " characters"));
-    }
-    if (r.password() == null || r.password().isEmpty()) {
-      errors.add(new FieldError("password", "REQUIRED", "is required"));
-    } else if (r.password().length() > MAX_PASSWORD_LENGTH) {
-      errors.add(new FieldError("password", "TOO_LONG", "must be at most " + MAX_PASSWORD_LENGTH + " characters"));
-    }
-    if (!errors.isEmpty()) {
-      throw new ValidationFailedException("Validation failed", errors);
-    }
+  private static String trimmed(String s) {
+    return s == null ? null : s.trim();
   }
 
-  /**
-   * Whole seconds: what a MySQL TIMESTAMP column stores (it rounds otherwise).
-   */
   private Instant now() {
-    return clock.instant().truncatedTo(ChronoUnit.SECONDS);
+    return clock.instant();
   }
 }

@@ -1,53 +1,21 @@
 package com.lesconstructionssapete.stempyerpserver.modules.users;
 
-import java.time.Instant;
-
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityDefinition;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Field;
+import com.lesconstructionssapete.stempyerpserver.platform.entity.StandardEntity;
 
-public class User {
-
-  private Long id;
-  private Long companyId;
-  private Long version;
-  private Instant createdAt;
-  private Long createdBy;
-  private Instant updatedAt;
-  private Long updatedBy;
-  private Instant deletedAt;
+/**
+ * Uses StandardEntity.define rather than Entities.define: it is the target of
+ * the createdByUser / updatedByUser relations, not a holder of them.
+ */
+public class User extends StandardEntity {
 
   private boolean isEnabled;
   private String userNo;
   private String name;
 
-  public static final EntityDefinition<User> DEF = EntityDefinition.of(
-      "user", "users", User::new)
-      .softDelete("deleted_at")
-      .updatedAt("updated_at");
-
-  public static final Field<User, Long> ID = DEF.id(
-      "id", User::id, User::setId);
-
-  public static final Field<User, Long> COMPANY_ID = DEF.companyId(
-      User::companyId, User::setCompanyId);
-
-  public static final Field<User, Long> VERSION = DEF.version(
-      "version", User::version, User::setVersion);
-
-  public static final Field<User, Instant> CREATED_AT = DEF.instant(
-      "createdAt", "created_at", User::createdAt, User::setCreatedAt);
-
-  public static final Field<User, Long> CREATED_BY = DEF.integer(
-      "createdBy", "created_by", User::createdBy, User::setCreatedBy);
-
-  public static final Field<User, Instant> UPDATED_AT = DEF.instant(
-      "updatedAt", "updated_at", User::updatedAt, User::setUpdatedAt);
-
-  public static final Field<User, Long> UPDATED_BY = DEF.integer(
-      "updatedBy", "updated_by", User::updatedBy, User::setUpdatedBy);
-
-  public static final Field<User, Instant> DELETED_AT = DEF.instant(
-      "deletedAt", "deleted_at", User::deletedAt, User::setDeletedAt);
+  public static final EntityDefinition<User> DEF = StandardEntity.define(
+      "user", "users", User::new);
 
   public static final Field<User, Boolean> IS_ENABLED = DEF.bool(
       "isEnabled", "is_enabled", User::isEnabled, User::setEnabled);
@@ -59,70 +27,6 @@ public class User {
   public static final Field<User, String> NAME = DEF.string(
       "name", "name", User::name, User::setName)
       .filterable().sortable();
-
-  public Long id() {
-    return id;
-  }
-
-  public void setId(Long id) {
-    this.id = id;
-  }
-
-  public Long companyId() {
-    return companyId;
-  }
-
-  public void setCompanyId(Long companyId) {
-    this.companyId = companyId;
-  }
-
-  public Long version() {
-    return version;
-  }
-
-  public void setVersion(Long version) {
-    this.version = version;
-  }
-
-  public Instant createdAt() {
-    return createdAt;
-  }
-
-  public void setCreatedAt(Instant createdAt) {
-    this.createdAt = createdAt;
-  }
-
-  public Long createdBy() {
-    return createdBy;
-  }
-
-  public void setCreatedBy(Long createdBy) {
-    this.createdBy = createdBy;
-  }
-
-  public Instant updatedAt() {
-    return updatedAt;
-  }
-
-  public void setUpdatedAt(Instant updatedAt) {
-    this.updatedAt = updatedAt;
-  }
-
-  public Long updatedBy() {
-    return updatedBy;
-  }
-
-  public void setUpdatedBy(Long updatedBy) {
-    this.updatedBy = updatedBy;
-  }
-
-  public Instant deletedAt() {
-    return deletedAt;
-  }
-
-  public void setDeletedAt(Instant deletedAt) {
-    this.deletedAt = deletedAt;
-  }
 
   public boolean isEnabled() {
     return isEnabled;

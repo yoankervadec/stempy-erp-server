@@ -19,11 +19,12 @@ import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.Set;
 import java.util.function.Function;
+
+import com.lesconstructionssapete.stempyerpserver.platform.db.Timestamps;
 
 /**
  * One supported column type: how to read it from a ResultSet, bind it to a
@@ -90,11 +91,8 @@ public final class FieldType<T> {
 
   public static final FieldType<Instant> INSTANT = new FieldType<>(
       "timestamp", Instant.class,
-      (rs, c) -> {
-        OffsetDateTime odt = rs.getObject(c, OffsetDateTime.class);
-        return odt == null ? null : odt.toInstant();
-      },
-      (ps, i, v) -> ps.setObject(i, v == null ? null : OffsetDateTime.ofInstant(v, ZoneOffset.UTC)),
+      Timestamps::read,
+      Timestamps::bind,
       FieldType::toInstant,
       ORDERED);
 

@@ -1,7 +1,6 @@
 package com.lesconstructionssapete.stempyerpserver.modules.masterdata.items;
 
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityRegistry;
-import com.lesconstructionssapete.stempyerpserver.platform.events.EventBus;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ERPModule;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ServiceRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.web.EntityQueryEndpoint;
@@ -27,11 +26,6 @@ public class ItemsModule implements ERPModule {
   }
 
   @Override
-  public void registerServices(ServiceRegistry serviceRegistry) {
-    // No public API yet.
-  }
-
-  @Override
   public void registerRoutes(Routes routes, ServiceRegistry serviceRegistry) {
     EntityQueryEndpoint queries = serviceRegistry.get(EntityQueryEndpoint.class);
 
@@ -39,11 +33,6 @@ public class ItemsModule implements ERPModule {
     // PermissionChecker exists.
     routes.query("/masterdata/products", queries.handler(Product.DEF));
     routes.query("/masterdata/product-categories", queries.handler(ProductCategory.DEF));
-  }
-
-  @Override
-  public void registerEventHandlers(EventBus eventBus, ServiceRegistry serviceRegistry) {
-    // Nothing to listen to yet.
   }
 
 }

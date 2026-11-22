@@ -1,6 +1,7 @@
 package com.lesconstructionssapete.stempyerpserver.modules.users;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.util.Objects;
 
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.CreateSessionOperation;
@@ -11,7 +12,6 @@ import com.lesconstructionssapete.stempyerpserver.modules.users.operations.Revok
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.SetPasswordOperation;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityRegistry;
-import com.lesconstructionssapete.stempyerpserver.platform.events.EventBus;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ERPModule;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ServiceRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.security.LoginThrottle;
@@ -49,7 +49,9 @@ public class UsersModule implements ERPModule {
   public UsersModule(AuthSettings settings, PasswordHasher hasher, Clock clock) {
     this.settings = Objects.requireNonNull(settings, "settings");
     this.hasher = Objects.requireNonNull(hasher, "hasher");
-    this.clock = Objects.requireNonNull(clock, "clock");
+    // Whole seconds everywhere: what a MySQL TIMESTAMP column stores (it rounds
+    // otherwise), so a time we compute equals the time we read back.
+    this.clock = Clock.tick(Objects.requireNonNull(clock, "clock"), Duration.ofSeconds(1));
   }
 
   @Override
@@ -84,9 +86,5 @@ public class UsersModule implements ERPModule {
   @Override
   public void registerRoutes(Routes routes, ServiceRegistry serviceRegistry) {
     new AuthController(authService).register(routes);
-  }
-
-  @Override
-  public void registerEventHandlers(EventBus eventBus, ServiceRegistry serviceRegistry) {
   }
 }

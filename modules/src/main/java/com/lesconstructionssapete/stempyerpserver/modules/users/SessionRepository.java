@@ -1,12 +1,10 @@
 package com.lesconstructionssapete.stempyerpserver.modules.users;
 
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.time.Instant;
 import java.util.Optional;
 
-import com.lesconstructionssapete.stempyerpserver.platform.db.DataAccessException;
+import com.lesconstructionssapete.stempyerpserver.platform.db.Jdbc;
+import com.lesconstructionssapete.stempyerpserver.platform.db.Timestamps;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWork;
 
 /**
@@ -23,23 +21,12 @@ public class SessionRepository {
   }
 
   public void insert(UnitOfWork uow, NewSession s) {
-    String sql = """
+    Jdbc.update(uow, """
         INSERT INTO user_sessions (company_id, user_id, token_hash, created_at, last_seen_at, expires_at,
                                    client_ip, user_agent)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""";
-    try (PreparedStatement ps = uow.connection().prepareStatement(sql)) {
-      ps.setLong(1, s.companyId());
-      ps.setLong(2, s.userId());
-      ps.setBytes(3, s.tokenHash());
-      Timestamps.set(ps, 4, s.createdAt());
-      Timestamps.set(ps, 5, s.createdAt());
-      Timestamps.set(ps, 6, s.expiresAt());
-      ps.setString(7, truncate(s.clientIp(), 45));
-      ps.setString(8, truncate(s.userAgent(), 255));
-      ps.executeUpdate();
-    } catch (SQLException e) {
-      throw new DataAccessException(e);
-    }
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        s.companyId(), s.userId(), s.tokenHash(), s.createdAt(), s.createdAt(), s.expiresAt(),
+        truncate(s.clientIp(), 45), truncate(s.userAgent(), 255));
   }
 
   /**
@@ -48,7 +35,7 @@ public class SessionRepository {
    * enabled.
    */
   public Optional<ActiveSession> findActive(UnitOfWork uow, byte[] tokenHash, Instant now, Instant idleCutoff) {
-    String sql = """
+    return Jdbc.queryFirst(uow, """
         SELECT s.id, s.user_id, s.company_id, s.last_seen_at
         FROM user_sessions s
         JOIN users u ON u.id = s.user_id AND u.company_id = s.company_id
@@ -58,68 +45,30 @@ public class SessionRepository {
           AND s.expires_at > ?
           AND s.last_seen_at > ?
           AND u.is_enabled = TRUE AND u.deleted_at IS NULL
-          AND c.is_enabled = TRUE""";
-    try (PreparedStatement ps = uow.connection().prepareStatement(sql)) {
-      ps.setBytes(1, tokenHash);
-      Timestamps.set(ps, 2, now);
-      Timestamps.set(ps, 3, idleCutoff);
-      try (ResultSet rs = ps.executeQuery()) {
-        if (!rs.next()) {
-          return Optional.empty();
-        }
-        return Optional.of(new ActiveSession(rs.getLong("id"), rs.getLong("user_id"), rs.getLong("company_id"),
-            Timestamps.get(rs, "last_seen_at")));
-      }
-    } catch (SQLException e) {
-      throw new DataAccessException(e);
-    }
+          AND c.is_enabled = TRUE""",
+        rs -> new ActiveSession(rs.getLong("id"), rs.getLong("user_id"), rs.getLong("company_id"),
+            Timestamps.read(rs, "last_seen_at")),
+        tokenHash, now, idleCutoff);
   }
 
   public void touch(UnitOfWork uow, long sessionId, Instant now) {
-    try (PreparedStatement ps = uow.connection().prepareStatement(
-        "UPDATE user_sessions SET last_seen_at = ? WHERE id = ?")) {
-      Timestamps.set(ps, 1, now);
-      ps.setLong(2, sessionId);
-      ps.executeUpdate();
-    } catch (SQLException e) {
-      throw new DataAccessException(e);
-    }
+    Jdbc.update(uow, "UPDATE user_sessions SET last_seen_at = ? WHERE id = ?", now, sessionId);
   }
 
   public int revoke(UnitOfWork uow, byte[] tokenHash, Instant now) {
-    try (PreparedStatement ps = uow.connection().prepareStatement(
-        "UPDATE user_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL")) {
-      Timestamps.set(ps, 1, now);
-      ps.setBytes(2, tokenHash);
-      return ps.executeUpdate();
-    } catch (SQLException e) {
-      throw new DataAccessException(e);
-    }
+    return Jdbc.update(uow,
+        "UPDATE user_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL", now, tokenHash);
   }
 
   public int revokeAllForUser(UnitOfWork uow, long userId, Instant now) {
-    try (PreparedStatement ps = uow.connection().prepareStatement(
-        "UPDATE user_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL")) {
-      Timestamps.set(ps, 1, now);
-      ps.setLong(2, userId);
-      return ps.executeUpdate();
-    } catch (SQLException e) {
-      throw new DataAccessException(e);
-    }
+    return Jdbc.update(uow,
+        "UPDATE user_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL", now, userId);
   }
 
   /** Housekeeping at login: drops this user's sessions that can never be used again. */
   public int deleteDeadForUser(UnitOfWork uow, long userId, Instant now, Instant idleCutoff) {
-    try (PreparedStatement ps = uow.connection().prepareStatement(
-        "DELETE FROM user_sessions WHERE user_id = ?"
-            + " AND (revoked_at IS NOT NULL OR expires_at <= ? OR last_seen_at <= ?)")) {
-      ps.setLong(1, userId);
-      Timestamps.set(ps, 2, now);
-      Timestamps.set(ps, 3, idleCutoff);
-      return ps.executeUpdate();
-    } catch (SQLException e) {
-      throw new DataAccessException(e);
-    }
+    return Jdbc.update(uow, "DELETE FROM user_sessions WHERE user_id = ?"
+        + " AND (revoked_at IS NOT NULL OR expires_at <= ? OR last_seen_at <= ?)", userId, now, idleCutoff);
   }
 
   private static String truncate(String s, int max) {

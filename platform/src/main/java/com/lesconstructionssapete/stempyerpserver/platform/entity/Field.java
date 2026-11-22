@@ -9,6 +9,7 @@ import java.util.function.Function;
 import java.util.regex.Pattern;
 
 import com.lesconstructionssapete.stempyerpserver.platform.error.FieldError;
+import com.lesconstructionssapete.stempyerpserver.platform.error.Validation;
 
 /**
  * One persisted attribute of an entity: API name, column, type,
@@ -194,29 +195,28 @@ public final class Field<E, V> {
    * live in operations.
    */
   public void validate(V value, List<FieldError> errors) {
-    if (value == null) {
-      if (required) {
-        errors.add(new FieldError(name, "REQUIRED", "is required"));
-      }
-      return;
+    Validation v = Validation.into(errors);
+    if (required) {
+      v.required(name, value);
     }
     if (value instanceof String s) {
-      if (maxLength != null && s.length() > maxLength) {
-        errors.add(new FieldError(name, "TOO_LONG", "must be at most " + maxLength + " characters"));
+      if (maxLength != null) {
+        v.maxLength(name, s, maxLength);
       }
-      if (pattern != null && !pattern.matcher(s).matches()) {
-        errors.add(new FieldError(name, "INVALID_FORMAT", "has an invalid format"));
+      if (pattern != null) {
+        v.matches(name, s, pattern);
       }
     }
     if (value instanceof Number n && (min != null || max != null)) {
       BigDecimal d = value instanceof BigDecimal bd ? bd : new BigDecimal(n.toString());
-      if (min != null && d.compareTo(min) < 0) {
-        errors.add(new FieldError(name, "TOO_SMALL", "must be at least " + min.toPlainString()));
+      if (min != null) {
+        v.min(name, d, min);
       }
-      if (max != null && d.compareTo(max) > 0) {
-        errors.add(new FieldError(name, "TOO_LARGE", "must be at most " + max.toPlainString()));
+      if (max != null) {
+        v.max(name, d, max);
       }
     }
   }
+
 
 }

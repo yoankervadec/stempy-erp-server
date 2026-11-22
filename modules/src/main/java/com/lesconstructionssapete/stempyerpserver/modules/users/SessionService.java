@@ -1,7 +1,6 @@
 package com.lesconstructionssapete.stempyerpserver.modules.users;
 
 import java.time.Clock;
-import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.Set;
 
@@ -34,7 +33,7 @@ public class SessionService implements SessionAuthenticator {
     if (token == null || token.length() > MAX_TOKEN_LENGTH) {
       return Optional.empty();
     }
-    var now = clock.instant().truncatedTo(ChronoUnit.SECONDS);
+    var now = clock.instant(); // whole seconds, see UsersModule
     return uowFactory.execute(uow -> resolveSession.execute(uow, new ResolveSessionOperation.Input(token, now)))
         // TODO load the user's permissions once roles/permissions tables exist.
         .map(s -> new Principal(s.userId(), s.companyId(), Set.of()));
