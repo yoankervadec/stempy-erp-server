@@ -1,0 +1,1052 @@
+{
+  "info": {
+    "name": "Stempy ERP",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "See docs/API_GUIDE.md. Set userNo / password, run Auth > Login first; ids and versions are stored by the requests' test scripts. QUERY is a custom HTTP method (a GET with a body)."
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "userNo",
+      "value": "U1"
+    },
+    {
+      "key": "password",
+      "value": ""
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "companyId",
+      "value": "1"
+    },
+    {
+      "key": "unitOfMeasureId",
+      "value": "1"
+    },
+    {
+      "key": "currencyId",
+      "value": "1"
+    },
+    {
+      "key": "categoryId",
+      "value": ""
+    },
+    {
+      "key": "categoryVersion",
+      "value": "0"
+    },
+    {
+      "key": "productId",
+      "value": ""
+    },
+    {
+      "key": "productVersion",
+      "value": "0"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Live",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": true
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/health/live",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health",
+                "live"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Ready (checks the database)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": true
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/health/ready",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health",
+                "ready"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login (stores the token)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userNo\": \"{{userNo}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "No Authorization header on purpose: a stale token would be rejected (401) before login runs."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"logged in\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set(\"token\", body.token);",
+                  "if (body.defaultCompanyId) { pm.collectionVariables.set(\"companyId\", body.defaultCompanyId); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Me (user, company, permissions)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": true
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": true
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "logout"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Product categories",
+      "item": [
+        {
+          "name": "Create category",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/product-categories",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "product-categories"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"HW\",\n  \"description\": \"Hardware\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"categoryId\", row.id);",
+                  "  pm.collectionVariables.set(\"categoryVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Query categories",
+          "request": {
+            "method": "QUERY",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/product-categories",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "product-categories"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sort\": [\n    {\n      \"field\": \"code\",\n      \"dir\": \"asc\"\n    }\n  ],\n  \"page\": {\n    \"limit\": 50,\n    \"offset\": 0\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Get category",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": true
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/product-categories/{{categoryId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "product-categories",
+                "{{categoryId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"categoryId\", row.id);",
+                  "  pm.collectionVariables.set(\"categoryVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update category",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/product-categories/{{categoryId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "product-categories",
+                "{{categoryId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": {{categoryVersion}},\n  \"description\": \"Hardware and fasteners\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"categoryId\", row.id);",
+                  "  pm.collectionVariables.set(\"categoryVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete category (soft)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": true
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/product-categories/{{categoryId}}?version={{categoryVersion}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "product-categories",
+                "{{categoryId}}"
+              ],
+              "query": [
+                {
+                  "key": "version",
+                  "value": "{{categoryVersion}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Products",
+      "item": [
+        {
+          "name": "Create product",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/products",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "products"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productNo\": \"P-001\",\n  \"name\": \"Hex bolt M8\",\n  \"unitAmount\": \"0.25\",\n  \"unitOfMeasureId\": {{unitOfMeasureId}},\n  \"currencyId\": {{currencyId}},\n  \"productCategoryId\": {{categoryId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"productId\", row.id);",
+                  "  pm.collectionVariables.set(\"productVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Query: everything (first page)",
+          "request": {
+            "method": "QUERY",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/products",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "products"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Query: name contains, sorted",
+          "request": {
+            "method": "QUERY",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/products",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "products"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"where\": {\n    \"field\": \"name\",\n    \"op\": \"contains\",\n    \"value\": \"bolt\"\n  },\n  \"sort\": [\n    {\n      \"field\": \"unitAmount\",\n      \"dir\": \"desc\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Query: through relations, and/or/not",
+          "request": {
+            "method": "QUERY",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/products",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "products"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"where\": {\n    \"and\": [\n      {\n        \"field\": \"category.code\",\n        \"op\": \"equals\",\n        \"value\": \"HW\"\n      },\n      {\n        \"or\": [\n          {\n            \"field\": \"unitAmount\",\n            \"op\": \"lessThan\",\n            \"value\": \"1.00\"\n          },\n          {\n            \"field\": \"productNo\",\n            \"op\": \"in\",\n            \"value\": [\n              \"P-001\",\n              \"P-002\"\n            ]\n          }\n        ]\n      },\n      {\n        \"not\": {\n          \"field\": \"createdByUser.userNo\",\n          \"op\": \"equals\",\n          \"value\": \"NOBODY\"\n        }\n      }\n    ]\n  },\n  \"sort\": [\n    {\n      \"field\": \"category.code\"\n    },\n    {\n      \"field\": \"name\",\n      \"dir\": \"asc\"\n    }\n  ],\n  \"page\": {\n    \"limit\": 10,\n    \"offset\": 0\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Get product",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": true
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/products/{{productId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "products",
+                "{{productId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"productId\", row.id);",
+                  "  pm.collectionVariables.set(\"productVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update product (uses the last version read)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/products/{{productId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "products",
+                "{{productId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": {{productVersion}},\n  \"name\": \"Hex bolt M8 zinc\",\n  \"unitAmount\": \"0.30\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"productId\", row.id);",
+                  "  pm.collectionVariables.set(\"productVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete product (soft)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": true
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/products/{{productId}}?version={{productVersion}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "products",
+                "{{productId}}"
+              ],
+              "query": [
+                {
+                  "key": "version",
+                  "value": "{{productVersion}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Errors to provoke",
+      "item": [
+        {
+          "name": "422: create with an empty body",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/products",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "products"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "422: server-managed and unknown fields",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/products",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "products"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productNo\": \"P-X\",\n  \"name\": \"x\",\n  \"unitAmount\": \"-1\",\n  \"createdBy\": 99,\n  \"companyId\": 2,\n  \"colour\": \"red\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "409: stale version (run twice)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/products/{{productId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "products",
+                "{{productId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": 0,\n  \"name\": \"Stale write\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "422: filter on a non-filterable field",
+          "request": {
+            "method": "QUERY",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/products",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "products"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"where\": {\n    \"field\": \"currencyId\",\n    \"op\": \"equals\",\n    \"value\": 1\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "403: company you don't belong to",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": true
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Enable the X-Company-Id header and set it to 999."
+          }
+        },
+        {
+          "name": "401: no token",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": true
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "401: wrong password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userNo\": \"{{userNo}}\",\n  \"password\": \"not the password\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
