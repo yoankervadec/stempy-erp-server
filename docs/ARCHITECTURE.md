@@ -2,7 +2,7 @@
 
 A reference for the project layout, layer rules, and conventions: both **what exists today** and **the target shape** new code should grow into.
 
-Status legend used throughout: ✅ built · 🟡 partial / stub · ⬜ planned (not in the code yet)
+Status legend used throughout:  built ·  partial / stub · ⬜ planned (not in the code yet)
 
 _Last synced with the code: 2026-11-22 (after the bootstrap cleanup: Settings, AllModules, ModuleHost)._
 
@@ -34,7 +34,7 @@ Logging: slf4j + logback-classic (app/src/main/resources/logback.xml prints the 
 
 ```
 stempyerpserver/                 (parent POM, groupId com.lesconstructionssapete)
-├── shared/      stempyerpserver-shared     Tiny generic value types. No business meaning.   🟡 empty
+├── shared/      stempyerpserver-shared     Tiny generic value types. No business meaning.    empty
 ├── platform/    stempyerpserver-platform   Infrastructure + Flyway migrations. No business logic.
 ├── modules/     stempyerpserver-modules    Business domains.
 ├── app/         (app jar)                  Main: argument dispatch; AppSettings (config sources); set-password CLI.
@@ -85,14 +85,14 @@ modules.X  ->  modules.Y.<Entity>.DEF    (entity relations, read side only)
 
 ```
 platform/
-├── module/                                                         ✅
+├── module/                                                         
 │   ├── ERPModule.java              The contract every business module implements (see §4.1).
 │   ├── ServiceRegistry.java        Startup-time lookup of platform services + modules' public APIs.
 │   │                               Register under an interface; freeze(); never passed below XxxModule.
 │   ├── ModuleHost.java             Runs the module phases (entities, services, handlers, routes + web server) for Main AND tests.
 │   └── ServiceNotFoundException.java  Wiring bug at startup (hints at module order in AllModules).
 │
-├── db/                                                             ✅
+├── db/                                                             
 │   ├── UnitOfWork.java             One transaction on one pooled connection (autocommit off).
 │   │                               commit()/rollback()/close(); close() without commit = rollback.
 │   │                               withSavepoint(...) / runInSavepoint(...) for "skip the failures" batches.
@@ -104,7 +104,7 @@ platform/
 │   ├── DatabaseMigrator.java       Flyway migrate(DatabaseConfig) from classpath:db/migration, run before the pool is opened.
 │   └── DataAccessException.java    Unchecked SQLException wrapper; isRetryable() = deadlock / lock wait.
 │
-├── entity/                         Declarative entity metadata (see §5)                ✅
+├── entity/                         Declarative entity metadata (see §5)                
 │   ├── EntityDefinition.java       Table, fields, relations, company scope, soft delete, version, mapper.
 │   ├── Field.java                  API name <-> column, type, validation, filterable/sortable,
 │   │                               readOnly/internal, read/write permissions.
@@ -116,7 +116,7 @@ platform/
 │   ├── EntityRegistry.java         All entity DEFs; freeze() validates every DEF and relation target.
 │   └── EntityDefinitionScanner.java  TEST-ONLY: finds classes with a DEF constant (no startup scanning).
 │
-├── query/                          Safe client-driven SQL (see §5)                    ✅
+├── query/                          Safe client-driven SQL (see §5)                    
 │   ├── QuerySpecParser.java        JSON body {where, sort, page} -> QuerySpec. Shape + limits only.
 │   ├── QuerySpec.java, FilterNode.java   Parsed query (and/or/not/condition tree).
 │   ├── QueryLimits.java            Caps: depth 4, 20 conditions, 3 sorts, page ≤ 200 (default 50), ...
@@ -125,14 +125,14 @@ platform/
 │   ├── QueryExecutor.java          Runs an SQLQuery, maps rows, returns entities or visible-field maps.
 │   └── SQLQuery.java, SQLUpdate.java, Bind.java
 │
-├── error/                          HTTP-agnostic business failures                    ✅
+├── error/                          HTTP-agnostic business failures                    
 │   ├── ErpException.java           Base: stable UPPER_SNAKE_CASE code + client-safe message.
 │   ├── ErrorCategory.java          NOT_FOUND, VALIDATION, CONFLICT, FORBIDDEN, UNAUTHENTICATED, RATE_LIMITED.
 │   ├── ResourceNotFoundException, ValidationFailedException (+ FieldError list), ConflictException,
 │   │   ForbiddenException, UnauthenticatedException, RateLimitedException
 │   └── FieldError.java             (field, code, message) for per-field validation problems.
 │
-├── web/                                                                            ✅
+├── web/                                                                            
 │   ├── WebServer.java              The only class that assembles Javalin. Installs, in order:
 │   │                               JSON mapper -> RequestIdFilter -> auth filter -> ExceptionMapper -> routes.
 │   ├── WebServerConfig.java        host + port record.
@@ -150,7 +150,7 @@ platform/
 │   │                               alone (§5.3). register(routes, path, DEF, permissionPrefix).
 │   └── HealthChecks.java, HealthRoutes.java   GET /health/live, GET /health/ready (503 if a check fails).
 │
-├── security/                                                                       ✅ (no RBAC yet)
+├── security/                                                                        (no RBAC yet)
 │   ├── SessionAuthenticator.java   Interface: token -> Optional<Principal>. Implemented by modules.users.
 │   ├── AuthFilter.java             Bearer token -> RequestContext. No header = anonymous; bad token = 401.
 │   ├── SessionTokens.java          256-bit random tokens; only SHA-256(token) is stored.
@@ -158,7 +158,7 @@ platform/
 │   ├── LoginThrottle.java          In-memory lockout per user + IP (move to Redis if replicated).
 │   └── PermissionChecker.java      ⬜ SINGLE choke point for permission checks.
 │
-├── events/                                                                         ✅ (sync only)
+├── events/                                                                          (sync only)
 │   ├── DomainEvent.java            Marker: companyId(), eventType(). Use immutable records, past tense.
 │   ├── EventBus.java               subscribe() at startup, freeze(), publish(uow, event) synchronously
 │   │                               in the caller's transaction. Supertype subscriptions; loop guard (depth 8).
@@ -166,7 +166,7 @@ platform/
 │   └── outbox/                     ⬜ OutboxEntry, OutboxRepository, OutboxDispatcher (async, retries).
 │
 ├── scheduler/
-│   └── Scheduler.java              🟡 empty class. ERPModule.registerJobs(...) hook already exists.
+│   └── Scheduler.java               empty class. ERPModule.registerJobs(...) hook already exists.
 │                                   ⬜ JobDefinition, JobRun, JobRepository, DistributedLock (Redis).
 │
 ├── audit/          ⬜ AuditService (subscribes to events; who/what/when/old->new), AuditLogRepository
@@ -272,11 +272,11 @@ Plain master data (no business rules beyond field declarations) skips the contro
 
 ```
 modules/
-├── Operation.java   ✅ interface Operation<I, O> { O execute(UnitOfWork uow, I input); }
-├── common/          ✅ Entities.define: StandardEntity.define + createdByUser/updatedByUser relations to User
-├── users/           ✅ users, credentials, sessions, login/logout/me, set-password
+├── Operation.java    interface Operation<I, O> { O execute(UnitOfWork uow, I input); }
+├── common/           Entities.define: StandardEntity.define + createdByUser/updatedByUser relations to User
+├── users/            users, credentials, sessions, login/logout/me, set-password
 ├── masterdata/
-│   ├── items/       ✅ products + product categories (read/query only so far)
+│   ├── items/        products + product categories (read/query only so far)
 │   ├── customers/   ⬜
 │   └── vendors/     ⬜
 ├── company/         ⬜ legal entities, fiscal calendars, currencies, exchange rates (tables exist in V1)
@@ -482,7 +482,7 @@ Database constraint violations the checks can't see (a concurrent insert; a fore
 
 ---
 
-## 6. `shared/` 🟡
+## 6. `shared/` 
 
 Empty today. Planned contents:
 
@@ -645,7 +645,7 @@ Two event tiers:
 
 | Tier                            | When                                                            | Mechanism                                                                                        |
 | ------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| **Synchronous, in-transaction** | Financial postings, stock updates, anything that must be atomic | ✅ `EventBus` handlers run inside the caller's UoW                                               |
+| **Synchronous, in-transaction** | Financial postings, stock updates, anything that must be atomic |  `EventBus` handlers run inside the caller's UoW                                               |
 | **Async via outbox**            | Emails, webhooks, search index, notifications                   | ⬜ Row written to `outbox` in the same transaction; `OutboxDispatcher` processes later with retries |
 
 ---
@@ -664,7 +664,7 @@ The MySQL tests use a **local** MySQL configured through `.env`, not Testcontain
 
 ---
 
-## 11. Enforcing boundaries (ArchUnit) ✅
+## 11. Enforcing boundaries (ArchUnit) 
 
 Maven enforces `app -> modules -> platform -> shared`. `modules/src/test/.../ArchitectureTest.java` enforces what lives together inside the `modules` artifact, on every build.
 
@@ -696,13 +696,13 @@ Decide these early; they are painful to retrofit.
 - [x] **Multi-company:** every business table has `company_id`; `RequestContext` carries it; `QueryTranslator`/`WriteBuilder` always filter on it, and `WriteExecutor` rejects references to another company's rows. Hand-written repositories must do the same.
 - [ ] **Money:** `BigDecimal` + currency code everywhere; define rounding rules once (in `shared.Money`). JSON side done (BigDecimal serialized as string).
 - [x] **Soft deletes** on master data (`deleted_at`, honored by the entity framework).
-- [ ] **Audit trail** via events -> `audit_log`. Generic writes publish `EntityChanged` ✅ and fill `created_by` / `updated_by` ✅; the `audit_log` listener is still to do.
+- [ ] **Audit trail** via events -> `audit_log`. Generic writes publish `EntityChanged`  and fill `created_by` / `updated_by` ; the `audit_log` listener is still to do.
 - [x] **RBAC** through `PermissionChecker` only: roles + per-user GRANT/DENY overrides, per company (§16).
 - [ ] **Document numbering** per company / doc type / fiscal year, gapless where legally required.
 - [ ] **Idempotency keys** on POSTs that create financial documents.
 - [x] **Optimistic locking** (`version` column) on mutable entities; enforced by `WriteBuilder` / `WriteExecutor` (version in the PATCH body, `?version=` on DELETE).
 - [x] **Error format:** RFC 7807 everywhere (`ApiError` via `ExceptionMapper`).
-- [ ] **Observability:** request id in MDC and printed on every log line (logback) ✅; basic metrics (Micrometer) still to do.
+- [ ] **Observability:** request id in MDC and printed on every log line (logback) ; basic metrics (Micrometer) still to do.
 - [x] **Migrations:** Flyway, versioned, run at startup. Never edit an applied migration.
 - [x] **Tests:** unit + real-MySQL end-to-end + ArchUnit module/layer rules. (Testcontainers not needed: the MySQL tests use a local `_test` database.)
 
@@ -721,15 +721,15 @@ Decide these early; they are painful to retrofit.
 
 ## 14. Build order and progress
 
-1. ✅ `platform/db` (UnitOfWork, Hikari), `platform/web` (Javalin, errors, RequestContext), Flyway baseline.
-2. ✅ `platform/security` + `modules/users` (sessions, login throttle, set-password CLI), multi-company users + RBAC (§16). ⬜ Admin API for roles / overrides / memberships (with the generic write side).
-3. 🟡 `platform/events` (sync bus ✅), ⬜ `platform/audit`, `platform/numbering`, `platform/settings`.
-4. 🟡 `modules/masterdata/items` (query only) ✅; ⬜ `modules/company`, `masterdata/customers`, `masterdata/vendors`, `modules/tax`.
+1.  `platform/db` (UnitOfWork, Hikari), `platform/web` (Javalin, errors, RequestContext), Flyway baseline.
+2.  `platform/security` + `modules/users` (sessions, login throttle, set-password CLI), multi-company users + RBAC (§16). ⬜ Admin API for roles / overrides / memberships (with the generic write side).
+3.  `platform/events` (sync bus ), ⬜ `platform/audit`, `platform/numbering`, `platform/settings`.
+4.  `modules/masterdata/items` (query only) ; ⬜ `modules/company`, `masterdata/customers`, `masterdata/vendors`, `modules/tax`.
 5. ⬜ `modules/gl` (accounts, periods, journal posting, trial balance).
 6. ⬜ First transactional module (e.g. `sales` or `ap`) wired to GL through events, as the reference implementation for all later modules.
 7. ⬜ `platform/scheduler` + outbox dispatcher.
 8. ⬜ Remaining modules (inventory, purchasing, bank, fixed assets, approvals).
-9. ✅ ArchUnit rules (§11).
+9.  ArchUnit rules (§11).
 
 ---
 
@@ -752,7 +752,7 @@ Fixed on 2026-11-18:
 
 ---
 
-## 16. Multi-company users & permissions ✅
+## 16. Multi-company users & permissions 
 
 _Status: built 2026-11-22 (migration V4), steps 1-5 of §16.13; step 6 (admin API) comes with the generic write side. Where the code differs from the original design below, this note wins:_
 
