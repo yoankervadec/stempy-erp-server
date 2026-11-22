@@ -14,7 +14,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWork;
  *
  * Lifecycle:
  * 1. At startup, each module calls subscribe(...).
- * 2. Main calls freeze() once all modules are registered.
+ * 2. ModuleHost calls freeze() once all modules are registered.
  * 3. After that the subscriber list is immutable, so publish() needs no locking
  * and is safe to call from any number of request threads.
  *

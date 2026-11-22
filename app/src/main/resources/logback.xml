@@ -1,0 +1,15 @@
+<configuration>
+  <!-- One line per event; [requestId] is set by RequestIdFilter, empty outside a request. -->
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] [%X{requestId}] %logger{36} - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <!-- Jetty is chatty at INFO. -->
+  <logger name="org.eclipse.jetty" level="WARN"/>
+
+  <root level="INFO">
+    <appender-ref ref="CONSOLE"/>
+  </root>
+</configuration>

@@ -9,9 +9,7 @@ import io.javalin.http.Context;
  * stores it on the request (RequestContexts), echoes it in the X-Request-Id
  * response header, and puts it in the logging MDC as "requestId".
  *
- * The MDC only shows up in log lines once the logging backend prints it.
- * slf4j-simple does not; logback-classic does (pattern %X{requestId}). Until
- * then this is harmless.
+ * The app's logback.xml prints it on every log line (%X{requestId}).
  *
  * Registered by WebServer as the first before-handler and as an after-handler
  * (to clear the MDC).

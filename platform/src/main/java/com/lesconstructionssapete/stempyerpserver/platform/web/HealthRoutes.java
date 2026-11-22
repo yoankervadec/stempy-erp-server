@@ -9,10 +9,9 @@ import java.util.Map;
  * load balancers and Docker/Kubernetes health checks that decide whether to
  * send traffic.
  *
+ * Both are public: AuthFilter lets requests without a token through, and
+ * neither route calls RequestContexts.require.
  */
-
-// TODO Both are unauthenticated. When AuthFilter exists, make sure it lets
-// /health/ through.
 public final class HealthRoutes {
 
   private HealthRoutes() {

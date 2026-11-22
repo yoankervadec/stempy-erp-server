@@ -11,8 +11,8 @@ import java.util.TreeSet;
  * something orchestrators, operations or repositories should ever receive.
  *
  * What goes in:
- * - Platform services built by Main (UnitOfWorkFactory, EventBus, JwtService,
- * SettingsService...).
+ * - Platform services published by ModuleHost (UnitOfWorkFactory, EventBus,
+ * EntityRegistry, EntityQueryEndpoint).
  * - Each module's explicit PUBLIC API (e.g. GeneralLedgerApi), published in
  * registerServices().
  *
@@ -25,9 +25,9 @@ import java.util.TreeSet;
  * registry never travels deeper.
  *
  * Lifecycle (same idea as EventBus):
- * 1. Startup, single-threaded: Main and the modules register services (and may
- * read them).
- * 2. Main calls freeze(). Registration is closed and the contents become
+ * 1. Startup, single-threaded: ModuleHost and the modules register services
+ * (and may read them).
+ * 2. ModuleHost calls freeze(). Registration is closed and the contents become
  * immutable, so reads are safe from any thread afterwards.
  *
  * Lookup is by the exact registered type: register under the interface you want
