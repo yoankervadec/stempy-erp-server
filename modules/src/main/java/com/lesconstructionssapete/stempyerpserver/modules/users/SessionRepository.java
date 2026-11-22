@@ -8,46 +8,43 @@ import com.lesconstructionssapete.stempyerpserver.platform.db.Timestamps;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWork;
 
 /**
- * user_sessions. Every time comparison uses an instant bound from Java (never
- * NOW() in SQL), so the rules don't depend on the MySQL session time zone.
+ * user_sessions. A session identifies a user only; the company is chosen per
+ * request. Every time comparison uses an instant bound from Java (never NOW()
+ * in SQL), so the rules don't depend on the MySQL session time zone.
  */
 public class SessionRepository {
 
-  public record NewSession(long companyId, long userId, byte[] tokenHash, Instant createdAt, Instant expiresAt,
+  public record NewSession(long userId, byte[] tokenHash, Instant createdAt, Instant expiresAt,
       String clientIp, String userAgent) {
   }
 
-  public record ActiveSession(long id, long userId, long companyId, Instant lastSeenAt) {
+  public record ActiveSession(long id, long userId, Instant lastSeenAt) {
   }
 
   public void insert(UnitOfWork uow, NewSession s) {
     Jdbc.update(uow, """
-        INSERT INTO user_sessions (company_id, user_id, token_hash, created_at, last_seen_at, expires_at,
-                                   client_ip, user_agent)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        s.companyId(), s.userId(), s.tokenHash(), s.createdAt(), s.createdAt(), s.expiresAt(),
+        INSERT INTO user_sessions (user_id, token_hash, created_at, last_seen_at, expires_at, client_ip, user_agent)
+        VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        s.userId(), s.tokenHash(), s.createdAt(), s.createdAt(), s.expiresAt(),
         truncate(s.clientIp(), 45), truncate(s.userAgent(), 255));
   }
 
   /**
    * The session for this token if it is live: not revoked, not past its
-   * lifetime, used since {@code idleCutoff}, and its user and company still
-   * enabled.
+   * lifetime, used since {@code idleCutoff}, and its user still enabled.
+   * Company access is checked per request (CompanyAccess), not here.
    */
   public Optional<ActiveSession> findActive(UnitOfWork uow, byte[] tokenHash, Instant now, Instant idleCutoff) {
     return Jdbc.queryFirst(uow, """
-        SELECT s.id, s.user_id, s.company_id, s.last_seen_at
+        SELECT s.id, s.user_id, s.last_seen_at
         FROM user_sessions s
-        JOIN users u ON u.id = s.user_id AND u.company_id = s.company_id
-        JOIN companies c ON c.id = s.company_id
+        JOIN users u ON u.id = s.user_id
         WHERE s.token_hash = ?
           AND s.revoked_at IS NULL
           AND s.expires_at > ?
           AND s.last_seen_at > ?
-          AND u.is_enabled = TRUE AND u.deleted_at IS NULL
-          AND c.is_enabled = TRUE""",
-        rs -> new ActiveSession(rs.getLong("id"), rs.getLong("user_id"), rs.getLong("company_id"),
-            Timestamps.read(rs, "last_seen_at")),
+          AND u.is_enabled = TRUE AND u.deleted_at IS NULL""",
+        rs -> new ActiveSession(rs.getLong("id"), rs.getLong("user_id"), Timestamps.read(rs, "last_seen_at")),
         tokenHash, now, idleCutoff);
   }
 

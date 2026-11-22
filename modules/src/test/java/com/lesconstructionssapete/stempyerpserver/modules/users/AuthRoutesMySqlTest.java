@@ -62,9 +62,10 @@ class AuthRoutesMySqlTest {
   }
 
   private static void seed(Statement st) throws SQLException {
-    st.execute("INSERT INTO companies (id, code, is_enabled) VALUES (1, 'ACME', TRUE), (2, 'CLOSED', FALSE)");
+    st.execute("INSERT INTO companies (id, code, description, is_enabled) VALUES"
+        + " (1, 'ACME', 'Acme Inc.', TRUE), (2, 'CLOSED', 'Closed Ltd.', FALSE)");
     st.execute("""
-        INSERT INTO users (id, company_id, user_no, name, is_enabled, created_by, updated_by) VALUES
+        INSERT INTO users (id, default_company_id, user_no, name, is_enabled, created_by, updated_by) VALUES
           (1, 1, 'U1', 'Admin',               TRUE,  1, 1),
           (2, 1, 'U2', 'Disabled user',       FALSE, 1, 1),
           (3, 1, 'U3', 'Disabled later',      TRUE,  1, 1),
@@ -72,6 +73,13 @@ class AuthRoutesMySqlTest {
           (5, 2, 'U5', 'Closed company user', TRUE,  1, 1),
           (6, 1, 'U6', 'Credential disabled', TRUE,  1, 1),
           (7, 1, 'U7', 'Password changer',    TRUE,  1, 1)""");
+    st.execute("""
+        INSERT INTO user_companies (user_id, company_id) VALUES
+          (1, 1), (2, 1), (3, 1), (4, 1), (5, 2), (6, 1), (7, 1)""");
+    // U1 may read products in ACME
+    st.execute("INSERT INTO roles (id, code, name) VALUES (10, 'READER', 'Reader')");
+    st.execute("INSERT INTO role_permissions (role_id, permission) VALUES (10, 'masterdata.product.read')");
+    st.execute("INSERT INTO user_company_roles (user_id, company_id, role_id) VALUES (1, 1, 10)");
   }
 
   // ---- helpers ----
@@ -136,9 +144,11 @@ class AuthRoutesMySqlTest {
     assertTrue(!expiresAt.isBefore(before.plus(SETTINGS.maxLifetime())), "expiresAt " + expiresAt);
     JsonNode user = body.get("user");
     assertEquals(1, user.get("id").asLong());
-    assertEquals(1, user.get("companyId").asLong());
     assertEquals("U1", user.get("userNo").asText());
     assertEquals("Admin", user.get("name").asText());
+    assertEquals(1, body.get("companies").size());
+    assertEquals("ACME", body.get("companies").get(0).get("code").asText());
+    assertEquals(1, body.get("defaultCompanyId").asLong());
   }
 
   @Test
@@ -175,7 +185,7 @@ class AuthRoutesMySqlTest {
   @Test
   void disabledAccountsCannotLogInEvenWithTheRightPassword() throws Exception {
     assertRejected(401, "INVALID_CREDENTIALS", login("U2", PASSWORD)); // user disabled
-    assertRejected(401, "INVALID_CREDENTIALS", login("U5", PASSWORD)); // company disabled
+    assertRejected(401, "INVALID_CREDENTIALS", login("U5", PASSWORD)); // their only company is disabled
     assertRejected(401, "INVALID_CREDENTIALS", login("U6", PASSWORD)); // credential disabled
   }
 
@@ -208,7 +218,9 @@ class AuthRoutesMySqlTest {
     assertEquals(200, r.statusCode(), r.body());
     JsonNode body = MySqlTestStack.json(r);
     assertEquals("Admin", body.get("user").get("name").asText());
-    assertEquals(0, body.get("permissions").size()); // no permission tables yet
+    assertEquals("ACME", body.get("company").get("code").asText());
+    assertEquals("masterdata.product.read", body.get("permissions").get(0).asText());
+    assertEquals(1, body.get("permissions").size());
   }
 
   @Test

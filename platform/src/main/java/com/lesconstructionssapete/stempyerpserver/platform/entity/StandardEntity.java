@@ -20,7 +20,8 @@ import java.util.function.Supplier;
  * }
  * </pre>
  *
- * Tables shaped differently (global tables, link tables) use
+ * Install-wide tables with the same columns minus company_id use
+ * {@link #defineGlobal}; tables shaped differently (link tables) use
  * EntityDefinition.of directly.
  */
 public abstract class StandardEntity {
@@ -36,11 +37,24 @@ public abstract class StandardEntity {
 
   /** A definition with the standard fields already declared. */
   public static <E extends StandardEntity> EntityDefinition<E> define(String name, String table, Supplier<E> factory) {
-    EntityDefinition<E> def = EntityDefinition.of(name, table, factory)
-        .softDelete("deleted_at")
-        .updatedAt("updated_at");
+    return standard(EntityDefinition.of(name, table, factory), true);
+  }
+
+  /**
+   * For an install-wide table shared by every company (e.g. users): the
+   * standard columns minus company_id; companyId() stays null.
+   */
+  public static <E extends StandardEntity> EntityDefinition<E> defineGlobal(String name, String table,
+      Supplier<E> factory) {
+    return standard(EntityDefinition.of(name, table, factory).globalTable(), false);
+  }
+
+  private static <E extends StandardEntity> EntityDefinition<E> standard(EntityDefinition<E> def, boolean company) {
+    def.softDelete("deleted_at").updatedAt("updated_at");
     def.id("id", StandardEntity::id, StandardEntity::setId);
-    def.companyId(StandardEntity::companyId, StandardEntity::setCompanyId);
+    if (company) {
+      def.companyId(StandardEntity::companyId, StandardEntity::setCompanyId);
+    }
     def.version("version", StandardEntity::version, StandardEntity::setVersion);
     def.instant("createdAt", "created_at", StandardEntity::createdAt, StandardEntity::setCreatedAt);
     def.integer("createdBy", "created_by", StandardEntity::createdBy, StandardEntity::setCreatedBy);

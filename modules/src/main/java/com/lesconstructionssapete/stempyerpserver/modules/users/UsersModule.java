@@ -4,9 +4,12 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.Objects;
 
+import com.lesconstructionssapete.stempyerpserver.modules.users.operations.AssignRoleOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.CreateSessionOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.FindLoginCandidateOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.GetUserProfileOperation;
+import com.lesconstructionssapete.stempyerpserver.modules.users.operations.ListUserCompaniesOperation;
+import com.lesconstructionssapete.stempyerpserver.modules.users.operations.LoadEffectivePermissionsOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.ResolveSessionOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.RevokeSessionOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.SetPasswordOperation;
@@ -14,8 +17,11 @@ import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ERPModule;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ServiceRegistry;
+import com.lesconstructionssapete.stempyerpserver.platform.security.CachedCompanyAccess;
+import com.lesconstructionssapete.stempyerpserver.platform.security.CompanyAccess;
 import com.lesconstructionssapete.stempyerpserver.platform.security.LoginThrottle;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PasswordHasher;
+import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.security.SessionAuthenticator;
 import com.lesconstructionssapete.stempyerpserver.platform.web.Routes;
 
@@ -24,7 +30,9 @@ import com.lesconstructionssapete.stempyerpserver.platform.web.Routes;
  *
  * Publishes:
  * - SessionAuthenticator, used by the platform's AuthFilter on every request
- * - UsersApi, the module's public API
+ * - CompanyAccess (cached), used by the AuthFilter to pick the request's
+ * company and load the user's permissions in it
+ * - UsersApi, the module's public API (set-password, assign-role)
  *
  * Most other entities point at User through created_by / updated_by, so it
  * comes first in AllModules.
@@ -59,8 +67,11 @@ public class UsersModule implements ERPModule {
   @Override
   public void registerServices(ServiceRegistry serviceRegistry) {
     UnitOfWorkFactory uowFactory = serviceRegistry.get(UnitOfWorkFactory.class);
+    PermissionRegistry permissions = serviceRegistry.get(PermissionRegistry.class);
     var accounts = new UserAccountRepository();
     var sessions = new SessionRepository();
+    var access = new AccessRepository();
+    var listCompanies = new ListUserCompaniesOperation(access);
 
     authService = new AuthService(uowFactory, settings, hasher, new CredentialVerifier(hasher),
         new LoginThrottle(settings.maxFailedLogins(), settings.lockout(), clock), clock,
@@ -68,11 +79,19 @@ public class UsersModule implements ERPModule {
         new CreateSessionOperation(sessions, settings),
         new RevokeSessionOperation(sessions),
         new SetPasswordOperation(accounts, sessions),
-        new GetUserProfileOperation(accounts));
+        new GetUserProfileOperation(accounts),
+        listCompanies);
+
+    var companyAccess = new CachedCompanyAccess(
+        new CompanyAccessService(uowFactory, new LoadEffectivePermissionsOperation(access, permissions), listCompanies),
+        settings.permissionCacheTtl(), clock);
+    var authorization = new AuthorizationService(uowFactory, companyAccess, clock,
+        new AssignRoleOperation(accounts, access));
 
     serviceRegistry.register(SessionAuthenticator.class,
         new SessionService(uowFactory, new ResolveSessionOperation(sessions, settings), clock));
-    serviceRegistry.register(UsersApi.class, authService);
+    serviceRegistry.register(CompanyAccess.class, companyAccess);
+    serviceRegistry.register(UsersApi.class, new UsersApiService(authService, authorization));
   }
 
   @Override

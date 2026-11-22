@@ -4,8 +4,10 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.TreeSet;
 
 import com.lesconstructionssapete.stempyerpserver.modules.users.UserAccountRepository.LoginCandidate;
+import com.lesconstructionssapete.stempyerpserver.modules.users.dto.CompanySummary;
 import com.lesconstructionssapete.stempyerpserver.modules.users.dto.LoginRequest;
 import com.lesconstructionssapete.stempyerpserver.modules.users.dto.LoginResponse;
 import com.lesconstructionssapete.stempyerpserver.modules.users.dto.MeResponse;
@@ -13,9 +15,12 @@ import com.lesconstructionssapete.stempyerpserver.modules.users.dto.UserProfile;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.CreateSessionOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.FindLoginCandidateOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.GetUserProfileOperation;
+import com.lesconstructionssapete.stempyerpserver.modules.users.operations.ListUserCompaniesOperation;
+import com.lesconstructionssapete.stempyerpserver.modules.users.operations.ListUserCompaniesOperation.UserCompanies;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.RevokeSessionOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.SetPasswordOperation;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
+import com.lesconstructionssapete.stempyerpserver.platform.error.ForbiddenException;
 import com.lesconstructionssapete.stempyerpserver.platform.error.UnauthenticatedException;
 import com.lesconstructionssapete.stempyerpserver.platform.error.Validation;
 import com.lesconstructionssapete.stempyerpserver.platform.security.LoginThrottle;
@@ -31,7 +36,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.web.RequestContext;
  * Login runs in two short transactions with the slow password check between
  * them, so a burst of logins can't tie up the connection pool for ~0.3s each.
  */
-public class AuthService implements UsersApi {
+public class AuthService {
 
   public static final int MIN_PASSWORD_LENGTH = 8;
   public static final int MAX_PASSWORD_LENGTH = 256;
@@ -48,11 +53,13 @@ public class AuthService implements UsersApi {
   private final RevokeSessionOperation revokeSession;
   private final SetPasswordOperation setPassword;
   private final GetUserProfileOperation getProfile;
+  private final ListUserCompaniesOperation listCompanies;
 
   public AuthService(UnitOfWorkFactory uowFactory, AuthSettings settings, PasswordHasher hasher,
       CredentialVerifier verifier, LoginThrottle throttle, Clock clock,
       FindLoginCandidateOperation findLoginCandidate, CreateSessionOperation createSession,
-      RevokeSessionOperation revokeSession, SetPasswordOperation setPassword, GetUserProfileOperation getProfile) {
+      RevokeSessionOperation revokeSession, SetPasswordOperation setPassword, GetUserProfileOperation getProfile,
+      ListUserCompaniesOperation listCompanies) {
     this.uowFactory = uowFactory;
     this.settings = settings;
     this.hasher = hasher;
@@ -64,6 +71,7 @@ public class AuthService implements UsersApi {
     this.revokeSession = revokeSession;
     this.setPassword = setPassword;
     this.getProfile = getProfile;
+    this.listCompanies = listCompanies;
   }
 
   public LoginResponse login(LoginRequest request, String clientIp, String userAgent) {
@@ -89,9 +97,14 @@ public class AuthService implements UsersApi {
     throttle.recordSuccess(throttleKey);
 
     Instant now = now();
-    CreateSessionOperation.Created session = uowFactory.execute(
-        uow -> createSession.execute(uow, new CreateSessionOperation.Input(user, now, clientIp, userAgent)));
-    return new LoginResponse(session.token(), session.expiresAt(), settings.idleTimeout().toSeconds(), user);
+    record Started(CreateSessionOperation.Created session, UserCompanies companies) {
+    }
+    Started started = uowFactory.execute(uow -> new Started(
+        createSession.execute(uow, new CreateSessionOperation.Input(user, now, clientIp, userAgent)),
+        listCompanies.execute(uow, user.id())));
+    return new LoginResponse(started.session().token(), started.session().expiresAt(),
+        settings.idleTimeout().toSeconds(), user, started.companies().companies(),
+        started.companies().defaultCompanyId());
   }
 
   /** Ends the session; logging out twice is harmless. */
@@ -99,14 +112,20 @@ public class AuthService implements UsersApi {
     uowFactory.execute(uow -> revokeSession.execute(uow, new RevokeSessionOperation.Input(token, now())));
   }
 
+  /** The caller, the request's company and their permissions in it. */
   public MeResponse profile(RequestContext rc) {
-    UserProfile user = uowFactory.executeReadOnly(
-        uow -> getProfile.execute(uow, new GetUserProfileOperation.Input(rc.userId(), rc.companyId())))
+    record Loaded(Optional<UserProfile> user, UserCompanies companies) {
+    }
+    Loaded loaded = uowFactory.executeReadOnly(
+        uow -> new Loaded(getProfile.execute(uow, rc.userId()), listCompanies.execute(uow, rc.userId())));
+    UserProfile user = loaded.user()
         .orElseThrow(() -> new UnauthenticatedException("SESSION_INVALID", "The session is invalid or has expired"));
-    return new MeResponse(user, rc.permissions());
+    CompanySummary company = loaded.companies().companies().stream()
+        .filter(c -> c.id() == rc.companyId()).findFirst()
+        .orElseThrow(() -> new ForbiddenException("COMPANY_ACCESS_DENIED", "No access to company " + rc.companyId()));
+    return new MeResponse(user, company, new TreeSet<>(rc.permissions()));
   }
 
-  @Override
   public void setPassword(String userNo, char[] password) {
     String trimmedUserNo = trimmed(userNo);
     try {

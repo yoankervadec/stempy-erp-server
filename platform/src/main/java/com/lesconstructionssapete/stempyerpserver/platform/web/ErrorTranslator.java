@@ -65,6 +65,7 @@ public final class ErrorTranslator {
 
   public static int statusFor(ErrorCategory category) {
     return switch (category) {
+      case BAD_REQUEST -> 400;
       case NOT_FOUND -> 404;
       case VALIDATION -> 422;
       case CONFLICT -> 409;

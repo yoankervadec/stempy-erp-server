@@ -9,9 +9,11 @@ import com.lesconstructionssapete.stempyerpserver.platform.web.Routes;
 import io.javalin.http.Context;
 
 /**
- * POST /auth/login {"userNo","password"} -> 200 {token, expiresAt, idleTimeoutSeconds, user}
- * POST /auth/logout (Bearer token)       -> 204
- * GET  /auth/me     (Bearer token)       -> 200 {user, permissions}
+ * POST /auth/login {"userNo","password"} -> 200 {token, expiresAt, idleTimeoutSeconds, user, companies,
+ *                                                defaultCompanyId}
+ * POST /auth/logout (Bearer token)       -> 204   (no company needed)
+ * GET  /auth/me     (Bearer token)       -> 200 {user, company, permissions} for the request's company
+ *                                                (X-Company-Id, else the default)
  *
  * Login is public. Don't send an Authorization header with it: a stale token
  * is rejected (401 SESSION_INVALID) before login runs.
@@ -38,7 +40,7 @@ public class AuthController {
   }
 
   private void logout(Context ctx) {
-    RequestContexts.require(ctx); // 401 if no valid session
+    RequestContexts.requireUserId(ctx); // 401 if no valid session; any company is fine
     auth.logout(AuthFilter.bearerToken(ctx).orElseThrow());
     ctx.status(204);
   }

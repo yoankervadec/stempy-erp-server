@@ -7,10 +7,8 @@ import com.lesconstructionssapete.stempyerpserver.modules.users.UserAccountRepos
 import com.lesconstructionssapete.stempyerpserver.modules.users.dto.UserProfile;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWork;
 
-public class GetUserProfileOperation implements Operation<GetUserProfileOperation.Input, Optional<UserProfile>> {
-
-  public record Input(long userId, long companyId) {
-  }
+/** Input: the user id. */
+public class GetUserProfileOperation implements Operation<Long, Optional<UserProfile>> {
 
   private final UserAccountRepository accounts;
 
@@ -19,7 +17,7 @@ public class GetUserProfileOperation implements Operation<GetUserProfileOperatio
   }
 
   @Override
-  public Optional<UserProfile> execute(UnitOfWork uow, Input in) {
-    return accounts.findProfile(uow, in.userId(), in.companyId());
+  public Optional<UserProfile> execute(UnitOfWork uow, Long userId) {
+    return accounts.findProfile(uow, userId);
   }
 }

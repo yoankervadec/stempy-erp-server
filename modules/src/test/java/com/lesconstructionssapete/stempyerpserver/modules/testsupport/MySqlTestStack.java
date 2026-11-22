@@ -145,6 +145,12 @@ public final class MySqlTestStack implements AutoCloseable {
   /** Sends a request; {@code body} and {@code token} may be null. */
   public HttpResponse<String> send(String method, String path, String body, String token)
       throws IOException, InterruptedException {
+    return send(method, path, body, token, null);
+  }
+
+  /** As send(...), choosing the company with X-Company-Id when {@code companyId} isn't null. */
+  public HttpResponse<String> send(String method, String path, String body, String token, Long companyId)
+      throws IOException, InterruptedException {
     HttpRequest.Builder b = HttpRequest.newBuilder(uri(path))
         .method(method, body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body));
     if (body != null) {
@@ -152,6 +158,9 @@ public final class MySqlTestStack implements AutoCloseable {
     }
     if (token != null) {
       b.header(AuthFilter.HEADER, "Bearer " + token);
+    }
+    if (companyId != null) {
+      b.header(AuthFilter.COMPANY_HEADER, companyId.toString());
     }
     return HTTP.send(b.build(), HttpResponse.BodyHandlers.ofString());
   }
@@ -208,7 +217,8 @@ public final class MySqlTestStack implements AutoCloseable {
         "auth.session.idleTimeout", a.idleTimeout().toString(),
         "auth.session.maxLifetime", a.maxLifetime().toString(),
         "auth.login.maxFailures", Integer.toString(a.maxFailedLogins()),
-        "auth.login.lockout", a.lockout().toString()));
+        "auth.login.lockout", a.lockout().toString(),
+        "auth.permissions.cacheTtl", a.permissionCacheTtl().toString()));
   }
 
   private static void assumeReachable(Class<?> testClass, DatabaseConfig db) {

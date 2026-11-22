@@ -41,7 +41,7 @@ public class CreateSessionOperation implements Operation<CreateSessionOperation.
 
     String token = SessionTokens.newToken();
     Instant expiresAt = in.now().plus(settings.maxLifetime());
-    sessions.insert(uow, new NewSession(in.user().companyId(), in.user().id(), SessionTokens.hash(token),
+    sessions.insert(uow, new NewSession(in.user().id(), SessionTokens.hash(token),
         in.now(), expiresAt, in.clientIp(), in.userAgent()));
     return new Created(token, expiresAt);
   }

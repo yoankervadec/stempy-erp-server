@@ -9,6 +9,9 @@ import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityRegistry
 import com.lesconstructionssapete.stempyerpserver.platform.events.EventBus;
 import com.lesconstructionssapete.stempyerpserver.platform.query.QueryLimits;
 import com.lesconstructionssapete.stempyerpserver.platform.security.AuthFilter;
+import com.lesconstructionssapete.stempyerpserver.platform.security.CompanyAccess;
+import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionChecker;
+import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.security.SessionAuthenticator;
 import com.lesconstructionssapete.stempyerpserver.platform.web.EntityQueryEndpoint;
 import com.lesconstructionssapete.stempyerpserver.platform.web.ErrorTranslator;
@@ -23,11 +26,13 @@ import com.lesconstructionssapete.stempyerpserver.platform.web.WebServerConfig;
  * commands and integration tests:
  *
  * <pre>
- * var host = new ModuleHost(modules);        1. entities (fails fast on a broken DEF, before any DB work)
+ * var host = new ModuleHost(modules);        0. permissions, 1. entities (fail fast on a broken DEF or an
+ *                                            undeclared field permission, before any DB work)
  *   ... migrate, open the pool ...
  * host.start(uowFactory);                    2. platform services + module services, then 3. event handlers
  * host.services().get(UsersApi.class)        (a CLI command stops here)
- * host.startWebServer(config);               4. health + module routes behind the AuthFilter
+ * host.startWebServer(config);               4. health + module routes behind the AuthFilter (session from
+ *                                            SessionAuthenticator, company + permissions from CompanyAccess)
  * </pre>
  *
  * Modules are driven in list order: a module may only use what the modules
@@ -36,14 +41,21 @@ import com.lesconstructionssapete.stempyerpserver.platform.web.WebServerConfig;
 public final class ModuleHost {
 
   private final List<ERPModule> modules;
+  private final PermissionRegistry permissions = new PermissionRegistry();
   private final EntityRegistry entities = new EntityRegistry();
   private UnitOfWorkFactory uowFactory;
   private ServiceRegistry services;
 
   public ModuleHost(List<ERPModule> modules) {
     this.modules = List.copyOf(modules);
+    this.modules.forEach(m -> m.registerPermissions(permissions));
+    permissions.freeze();
     this.modules.forEach(m -> m.registerEntities(entities));
-    entities.freeze(); // throws on a relation to an unregistered entity
+    entities.freeze(permissions::contains); // throws on a bad relation or undeclared field permission
+  }
+
+  public PermissionRegistry permissions() {
+    return permissions;
   }
 
   public EntityRegistry entities() {
@@ -52,7 +64,8 @@ public final class ModuleHost {
 
   /**
    * Publishes the platform services every module may use (UnitOfWorkFactory,
-   * EventBus, EntityRegistry, EntityQueryEndpoint), then each module's own, then
+   * EventBus, EntityRegistry, PermissionRegistry, PermissionChecker,
+   * EntityQueryEndpoint), then each module's own, then
    * wires event handlers. Both registries are frozen afterwards.
    */
   public synchronized ServiceRegistry start(UnitOfWorkFactory uowFactory) {
@@ -65,7 +78,11 @@ public final class ModuleHost {
     registry.register(UnitOfWorkFactory.class, uowFactory);
     registry.register(EventBus.class, eventBus);
     registry.register(EntityRegistry.class, entities);
-    registry.register(EntityQueryEndpoint.class, new EntityQueryEndpoint(uowFactory, QueryLimits.defaults()));
+    var checker = new PermissionChecker(permissions);
+    registry.register(PermissionRegistry.class, permissions);
+    registry.register(PermissionChecker.class, checker);
+    registry.register(EntityQueryEndpoint.class,
+        new EntityQueryEndpoint(uowFactory, QueryLimits.defaults(), checker));
     modules.forEach(m -> m.registerServices(registry));
     registry.freeze();
 
@@ -85,13 +102,14 @@ public final class ModuleHost {
 
   /**
    * Starts the HTTP API: /health (with a database check) and every module's
-   * routes, authenticated through the SessionAuthenticator a module published.
+   * routes, authenticated through the SessionAuthenticator and CompanyAccess a
+   * module published.
    */
   public WebServer startWebServer(WebServerConfig config) {
     ServiceRegistry s = services();
     var health = new HealthChecks().add("database",
         () -> uowFactory.executeReadOnly(uow -> Jdbc.queryFirst(uow, "SELECT 1", rs -> rs.getInt(1))));
-    var authFilter = new AuthFilter(s.get(SessionAuthenticator.class));
+    var authFilter = new AuthFilter(s.get(SessionAuthenticator.class), s.get(CompanyAccess.class));
     var server = new WebServer(config, new ExceptionMapper(new ErrorTranslator()), authFilter::handle);
     server.start(routes -> {
       HealthRoutes.register(routes, health);

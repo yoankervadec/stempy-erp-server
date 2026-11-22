@@ -70,9 +70,15 @@ class ItemRoutesMySqlTest {
     st.execute("INSERT INTO currencies (id, code, is_enabled) VALUES (1, 'CAD', TRUE)");
     st.execute("INSERT INTO units_of_measure (id, code, is_enabled) VALUES (1, 'UN', TRUE)");
     st.execute("""
-        INSERT INTO users (id, company_id, user_no, name, created_by, updated_by) VALUES
+        INSERT INTO users (id, default_company_id, user_no, name, created_by, updated_by) VALUES
           (1, 1, 'U1', 'Admin', 1, 1),
           (2, 2, 'U2', 'Other admin', 2, 2)""");
+    st.execute("INSERT INTO user_companies (user_id, company_id) VALUES (1, 1), (2, 2)");
+    st.execute("INSERT INTO roles (id, code, name) VALUES (10, 'CATALOG', 'Catalog reader')");
+    st.execute("""
+        INSERT INTO role_permissions (role_id, permission) VALUES
+          (10, 'masterdata.product.read'), (10, 'masterdata.productCategory.read')""");
+    st.execute("INSERT INTO user_company_roles (user_id, company_id, role_id) VALUES (1, 1, 10), (2, 2, 10)");
     st.execute("""
         INSERT INTO product_categories (id, company_id, code, description, created_by, updated_by) VALUES
           (1, 1, 'HW', 'Hardware', 1, 1),

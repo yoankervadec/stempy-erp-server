@@ -7,6 +7,11 @@ package com.lesconstructionssapete.stempyerpserver.platform.error;
  * free of any HTTP knowledge.
  */
 public enum ErrorCategory {
+  /**
+   * The request itself is malformed outside the body (e.g. a bad header), so
+   * there are no field errors to report.
+   */
+  BAD_REQUEST,
   /** The thing asked for doesn't exist (or isn't visible to this company). */
   NOT_FOUND,
   /**

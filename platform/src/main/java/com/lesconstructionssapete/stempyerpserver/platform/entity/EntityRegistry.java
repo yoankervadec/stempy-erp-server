@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Predicate;
 
 /**
  * Every EntityDef in the application. Modules register theirs from their
@@ -63,11 +64,28 @@ public class EntityRegistry {
 
   /**
    * Validates every definition and that every relation points at a registered
-   * entity.
+   * entity. Field permissions aren't checked; ModuleHost uses
+   * freeze(Predicate).
    */
   public void freeze() {
+    freeze(permission -> true);
+  }
+
+  /**
+   * As freeze(), and also fails on a field read/write permission that no module
+   * declared (a typo there would hide the field from everyone, silently).
+   */
+  public void freeze(Predicate<String> permissionDeclared) {
     for (EntityDefinition<?> def : byName.values()) {
       def.validateDefinition();
+      for (Field<?, ?> f : def.fields()) {
+        for (String p : new String[] { f.readPermission(), f.writePermission() }) {
+          if (p != null && !permissionDeclared.test(p)) {
+            throw new IllegalStateException(def.name() + "." + f.name()
+                + " uses permission '" + p + "', which no module declares");
+          }
+        }
+      }
       for (Relation<?, ?> r : def.relations()) {
         EntityDefinition<?> target = r.target();
         if (byName.get(target.name()) != target) {

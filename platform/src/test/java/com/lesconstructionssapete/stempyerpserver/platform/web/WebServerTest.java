@@ -2,6 +2,7 @@ package com.lesconstructionssapete.stempyerpserver.platform.web;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -22,6 +23,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.error.ValidationFailedException;
 import com.lesconstructionssapete.stempyerpserver.platform.query.QueryLimits;
+import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionChecker;
+import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.testsupport.FakeDataSource;
 import com.lesconstructionssapete.stempyerpserver.platform.testsupport.TestWidget;
 
@@ -59,8 +62,10 @@ class WebServerTest {
     return http.send(b.build(), HttpResponse.BodyHandlers.ofString());
   }
 
+  /** May query widgets, but not see their cost. */
   private static final String[] DEV_USER = {
-      DevAuthFilter.USER_HEADER, "7", DevAuthFilter.COMPANY_HEADER, "42" };
+      DevAuthFilter.USER_HEADER, "7", DevAuthFilter.COMPANY_HEADER, "42",
+      DevAuthFilter.PERMISSIONS_HEADER, "widget.widget.read" };
 
   private static JsonNode json(HttpResponse<String> r) throws IOException {
     return JSON.readTree(r.body());
@@ -145,8 +150,12 @@ class WebServerTest {
 
   private FakeDataSource startWidgetQueries(List<Map<String, Object>> rows) {
     FakeDataSource db = new FakeDataSource(rows);
-    var endpoint = new EntityQueryEndpoint(new UnitOfWorkFactory(db), QueryLimits.defaults());
-    start(routes -> routes.query("/widgets", endpoint.handler(TestWidget.DEF)));
+    var permissions = new PermissionRegistry()
+        .declare("widget.widget.read", "View widgets")
+        .declare("widget.cost.read", "See widget costs");
+    var endpoint = new EntityQueryEndpoint(new UnitOfWorkFactory(db), QueryLimits.defaults(),
+        new PermissionChecker(permissions));
+    start(routes -> routes.query("/widgets", endpoint.handler(TestWidget.DEF, "widget.widget.read")));
     return db;
   }
 
@@ -178,7 +187,7 @@ class WebServerTest {
 
     HttpResponse<String> r = send("QUERY", "/widgets", "",
         DevAuthFilter.USER_HEADER, "7", DevAuthFilter.COMPANY_HEADER, "42",
-        DevAuthFilter.PERMISSIONS_HEADER, "widget.cost.read");
+        DevAuthFilter.PERMISSIONS_HEADER, "widget.widget.read, widget.cost.read");
 
     assertEquals(200, r.statusCode(), r.body());
     JsonNode cost = json(r).get("data").get(0).get("cost");
@@ -216,5 +225,24 @@ class WebServerTest {
 
     assertEquals(401, r.statusCode());
     assertEquals(0, db.connectionsOpened());
+  }
+
+  @Test
+  void queryWithoutTheRoutePermissionIs403AndNeverTakesAConnection() throws Exception {
+    FakeDataSource db = startWidgetQueries(List.of());
+
+    HttpResponse<String> r = send("QUERY", "/widgets", "",
+        DevAuthFilter.USER_HEADER, "7", DevAuthFilter.COMPANY_HEADER, "42");
+
+    assertEquals(403, r.statusCode());
+    assertEquals("PERMISSION_DENIED", json(r).get("code").asText());
+    assertEquals(0, db.connectionsOpened());
+  }
+
+  @Test
+  void routeWithAnUndeclaredPermissionFailsAtRegistration() {
+    var endpoint = new EntityQueryEndpoint(new UnitOfWorkFactory(new FakeDataSource(List.of())),
+        QueryLimits.defaults(), new PermissionChecker(new PermissionRegistry()));
+    assertThrows(IllegalStateException.class, () -> endpoint.handler(TestWidget.DEF, "widget.widget.reed"));
   }
 }

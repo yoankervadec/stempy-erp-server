@@ -2,7 +2,7 @@ package com.lesconstructionssapete.stempyerpserver.modules.users;
 
 /**
  * Public API of the users module, published in the ServiceRegistry. Used by
- * the server's set-password command; later by a user administration screen.
+ * the server's CLI commands; later by the administration screens.
  */
 public interface UsersApi {
 
@@ -16,4 +16,14 @@ public interface UsersApi {
    *         if the password is too short or too long
    */
   void setPassword(String userNo, char[] password);
+
+  /**
+   * Gives a user a role in a company, adding (or re-enabling) their membership
+   * of it, and making it their default company if they had none. Idempotent;
+   * effective on the user's next request.
+   *
+   * @throws com.lesconstructionssapete.stempyerpserver.platform.error.ResourceNotFoundException
+   *         USER_NOT_FOUND, COMPANY_NOT_FOUND or ROLE_NOT_FOUND
+   */
+  void assignRole(String userNo, String companyCode, String roleCode);
 }

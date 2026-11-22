@@ -2,7 +2,6 @@ package com.lesconstructionssapete.stempyerpserver.modules.users;
 
 import java.time.Clock;
 import java.util.Optional;
-import java.util.Set;
 
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.ResolveSessionOperation;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
@@ -35,7 +34,6 @@ public class SessionService implements SessionAuthenticator {
     }
     var now = clock.instant(); // whole seconds, see UsersModule
     return uowFactory.execute(uow -> resolveSession.execute(uow, new ResolveSessionOperation.Input(token, now)))
-        // TODO load the user's permissions once roles/permissions tables exist.
-        .map(s -> new Principal(s.userId(), s.companyId(), Set.of()));
+        .map(s -> new Principal(s.userId()));
   }
 }
