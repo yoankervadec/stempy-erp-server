@@ -2,8 +2,6 @@
 
 A reference for the project layout, layer rules, and conventions: both **what exists today** and **the target shape** new code should grow into.
 
-Status legend used throughout:  built ·  partial / stub · ⬜ planned (not in the code yet)
-
 _Last synced with the code: 2026-11-22 (after the bootstrap cleanup: Settings, AllModules, ModuleHost)._
 
 **Stack (as declared in the root `pom.xml`):** Java 25 (enforced `[25,26)`), Maven multi-module, Javalin 7, Jackson 2.17, HikariCP 7, **MySQL 8** (Connector/J), Flyway 11 (`flyway-mysql`), slf4j + logback, JUnit 6.
@@ -24,7 +22,7 @@ Logging: slf4j + logback-classic (app/src/main/resources/logback.xml prints the 
 5. **Financial side effects are synchronous and in-transaction.** If a GL posting fails, the originating business transaction fails too. Non-critical work (emails, webhooks, search indexing) goes through the outbox and is processed asynchronously.
 6. **Business code is HTTP-agnostic.** It throws `ErpException` subclasses carrying an `ErrorCategory`; only the web layer maps categories to status codes.
 7. **Wiring is explicit and fails fast at startup.** Registries (`EntityRegistry`, `ServiceRegistry`, `EventBus`) are filled during startup, then frozen. No classpath scanning in production.
-8. **Boundaries are enforced by tests (ArchUnit), not by memory.** ⬜ (dependency is declared, no rules yet)
+8. **Boundaries are enforced by tests (ArchUnit), not by memory.**  (dependency is declared, no rules yet)
 
 ---
 
@@ -156,24 +154,24 @@ platform/
 │   ├── SessionTokens.java          256-bit random tokens; only SHA-256(token) is stored.
 │   ├── PasswordHasher.java         PBKDF2-HMAC-SHA256, 600k iterations, self-describing format, needsRehash().
 │   ├── LoginThrottle.java          In-memory lockout per user + IP (move to Redis if replicated).
-│   └── PermissionChecker.java      ⬜ SINGLE choke point for permission checks.
+│   └── PermissionChecker.java       SINGLE choke point for permission checks.
 │
 ├── events/                                                                          (sync only)
 │   ├── DomainEvent.java            Marker: companyId(), eventType(). Use immutable records, past tense.
 │   ├── EventBus.java               subscribe() at startup, freeze(), publish(uow, event) synchronously
 │   │                               in the caller's transaction. Supertype subscriptions; loop guard (depth 8).
 │   ├── EventHandler.java           handle(uow, event).
-│   └── outbox/                     ⬜ OutboxEntry, OutboxRepository, OutboxDispatcher (async, retries).
+│   └── outbox/                      OutboxEntry, OutboxRepository, OutboxDispatcher (async, retries).
 │
 ├── scheduler/
 │   └── Scheduler.java               empty class. ERPModule.registerJobs(...) hook already exists.
-│                                   ⬜ JobDefinition, JobRun, JobRepository, DistributedLock (Redis).
+│                                    JobDefinition, JobRun, JobRepository, DistributedLock (Redis).
 │
-├── audit/          ⬜ AuditService (subscribes to events; who/what/when/old->new), AuditLogRepository
-├── numbering/      ⬜ DocumentNumberService (per company + doc type + fiscal year, gapless option)
-├── settings/       ⬜ SettingsService (company-scoped key/value with global defaults)
-├── idempotency/    ⬜ IdempotencyService (Idempotency-Key on document-creating POSTs)
-└── files/          ⬜ FileStorage interface, LocalFileStorage (S3-compatible later)
+├── audit/           AuditService (subscribes to events; who/what/when/old->new), AuditLogRepository
+├── numbering/       DocumentNumberService (per company + doc type + fiscal year, gapless option)
+├── settings/        SettingsService (company-scoped key/value with global defaults)
+├── idempotency/     IdempotencyService (Idempotency-Key on document-creating POSTs)
+└── files/           FileStorage interface, LocalFileStorage (S3-compatible later)
 ```
 
 ### 3.1 Resources owned by `platform`
@@ -236,7 +234,7 @@ Every module has one `XxxModule` class implementing `platform.module.ERPModule`,
 2. registerServices(serviceRegistry)           -> serviceRegistry.freeze()
 3. registerEventHandlers(eventBus, services)   -> eventBus.freeze()
 4. registerRoutes(routes, services)            (inside webServer.start)
-   registerJobs(scheduler, services)           ⬜ not called by Main yet
+   registerJobs(scheduler, services)            not called by Main yet
 ```
 
 Only `name()` and `registerEntities` are abstract; every other phase is a default no-op, so a module overrides just the phases it takes part in.
@@ -261,7 +259,7 @@ modules/<module>/
 ├── <Thing>Repository.java           PERSISTENCE (layer 3). Hand-written SQL through platform.db.Jdbc. No business rules.
 ├── <Thing>.java                     Entity: `extends StandardEntity`, `DEF = Entities.define(...)`, and one
 │                                    Field/Relation constant per column of its OWN (standard columns are inherited).
-├── events/                          ⬜ PUBLIC contract with other modules.
+├── events/                           PUBLIC contract with other modules.
 │   └── <Thing><PastTense>Event.java
 └── dto/                             Request/response records for the web layer only.
 ```
@@ -277,19 +275,19 @@ modules/
 ├── users/            users, credentials, sessions, login/logout/me, set-password
 ├── masterdata/
 │   ├── items/        products + product categories (read/query only so far)
-│   ├── customers/   ⬜
-│   └── vendors/     ⬜
-├── company/         ⬜ legal entities, fiscal calendars, currencies, exchange rates (tables exist in V1)
-├── tax/             ⬜ rates, groups, rules per jurisdiction, tax postings (tables exist in V1)
-├── gl/              ⬜ chart of accounts, journals, periods, reports
-├── sales/           ⬜ quotes, sales orders, fulfillment, invoicing
-├── ar/              ⬜ customer invoices, receipts, aging
-├── ap/              ⬜ vendor bills, payments, aging
-├── inventory/       ⬜ warehouses, locations, stock moves, costing (FIFO / weighted avg)
-├── purchasing/      ⬜ POs, goods receipts, 3-way match
-├── fixedassets/     ⬜ asset register, depreciation schedules, disposal
-├── bank/            ⬜ bank accounts, statements, reconciliation, payment runs
-└── approvals/       ⬜ generic approval workflows (states, approvers, thresholds)
+│   ├── customers/   
+│   └── vendors/     
+├── company/          legal entities, fiscal calendars, currencies, exchange rates (tables exist in V1)
+├── tax/              rates, groups, rules per jurisdiction, tax postings (tables exist in V1)
+├── gl/               chart of accounts, journals, periods, reports
+├── sales/            quotes, sales orders, fulfillment, invoicing
+├── ar/               customer invoices, receipts, aging
+├── ap/               vendor bills, payments, aging
+├── inventory/        warehouses, locations, stock moves, costing (FIFO / weighted avg)
+├── purchasing/       POs, goods receipts, 3-way match
+├── fixedassets/      asset register, depreciation schedules, disposal
+├── bank/             bank accounts, statements, reconciliation, payment runs
+└── approvals/        generic approval workflows (states, approvers, thresholds)
 ```
 
 Roles and permissions will land in `users` (the module that already owns identity) rather than a separate `auth` module.
@@ -355,7 +353,7 @@ modules/masterdata/items/
 
 The whole module is entity declarations, `declareEntity(...)` permissions and two `EntityEndpoints.register(...)` lines: QUERY / GET / POST / PATCH / DELETE on both entities.
 
-### 4.6 Target example: `sales` ⬜
+### 4.6 Target example: `sales` 
 
 ```
 modules/sales/
@@ -376,7 +374,7 @@ modules/sales/
     └── OrderResponse.java
 ```
 
-### 4.7 Target example: `gl` ⬜
+### 4.7 Target example: `gl` 
 
 ```
 modules/gl/
@@ -625,7 +623,7 @@ Use savepoints (`uow.withSavepoint(...)` / `uow.runInSavepoint(...)`) for "proce
 
 ---
 
-## 9. Event flow: sales order to GL ⬜
+## 9. Event flow: sales order to GL 
 
 The `EventBus` is built; no module publishes events yet. Target flow:
 
@@ -646,7 +644,7 @@ Two event tiers:
 | Tier                            | When                                                            | Mechanism                                                                                        |
 | ------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | **Synchronous, in-transaction** | Financial postings, stock updates, anything that must be atomic |  `EventBus` handlers run inside the caller's UoW                                               |
-| **Async via outbox**            | Emails, webhooks, search index, notifications                   | ⬜ Row written to `outbox` in the same transaction; `OutboxDispatcher` processes later with retries |
+| **Async via outbox**            | Emails, webhooks, search index, notifications                   |  Row written to `outbox` in the same transaction; `OutboxDispatcher` processes later with retries |
 
 ---
 
@@ -658,7 +656,7 @@ Two event tiers:
 | Web plumbing                 | `platform/.../web/WebServerTest`, `AuthFilterTest` | Real Jetty on a random port; `DevAuthFilter` (test sources only) fakes identities; `FakeDataSource` fakes JDBC |
 | Wiring                       | `modules/.../ModuleEntitiesTest`           | Every module's entities register and freeze; scanner proves no DEF was forgotten         |
 | End-to-end against MySQL     | `AuthRoutesMySqlTest`, `ItemRoutesMySqlTest` | `MySqlTestStack`: full server started like Main (AllModules + ModuleHost), Flyway clean + migrate on `TEST_DATABASE_NAME` (must end in `_test`), seeded data, real logins. Skipped if the DB is unavailable |
-| Architecture                 | ⬜                                         | ArchUnit rules (§11)                                                                     |
+| Architecture                 |                                          | ArchUnit rules (§11)                                                                     |
 
 The MySQL tests use a **local** MySQL configured through `.env`, not Testcontainers (the BOM is declared for a later switch).
 
@@ -722,13 +720,13 @@ Decide these early; they are painful to retrofit.
 ## 14. Build order and progress
 
 1.  `platform/db` (UnitOfWork, Hikari), `platform/web` (Javalin, errors, RequestContext), Flyway baseline.
-2.  `platform/security` + `modules/users` (sessions, login throttle, set-password CLI), multi-company users + RBAC (§16). ⬜ Admin API for roles / overrides / memberships (with the generic write side).
-3.  `platform/events` (sync bus ), ⬜ `platform/audit`, `platform/numbering`, `platform/settings`.
-4.  `modules/masterdata/items` (query only) ; ⬜ `modules/company`, `masterdata/customers`, `masterdata/vendors`, `modules/tax`.
-5. ⬜ `modules/gl` (accounts, periods, journal posting, trial balance).
-6. ⬜ First transactional module (e.g. `sales` or `ap`) wired to GL through events, as the reference implementation for all later modules.
-7. ⬜ `platform/scheduler` + outbox dispatcher.
-8. ⬜ Remaining modules (inventory, purchasing, bank, fixed assets, approvals).
+2.  `platform/security` + `modules/users` (sessions, login throttle, set-password CLI), multi-company users + RBAC (§16).  Admin API for roles / overrides / memberships (with the generic write side).
+3.  `platform/events` (sync bus ),  `platform/audit`, `platform/numbering`, `platform/settings`.
+4.  `modules/masterdata/items` (query only) ;  `modules/company`, `masterdata/customers`, `masterdata/vendors`, `modules/tax`.
+5.  `modules/gl` (accounts, periods, journal posting, trial balance).
+6.  First transactional module (e.g. `sales` or `ap`) wired to GL through events, as the reference implementation for all later modules.
+7.  `platform/scheduler` + outbox dispatcher.
+8.  Remaining modules (inventory, purchasing, bank, fixed assets, approvals).
 9.  ArchUnit rules (§11).
 
 ---
