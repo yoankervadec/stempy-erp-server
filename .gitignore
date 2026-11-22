@@ -40,9 +40,8 @@ replay_pid*
 # Logs
 *.log
 
-# Notes
-notes/
-
-
 # Ignore temporary files
 *.tmp.*
+
+# Claude
+.claude/
