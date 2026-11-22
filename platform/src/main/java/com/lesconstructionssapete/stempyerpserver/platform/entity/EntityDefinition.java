@@ -34,7 +34,10 @@ public class EntityDefinition<E> {
 
   private String companyColumn = "company_id";
   private String softDeleteColumn;
+  private String createdAtColumn;
+  private String createdByColumn;
   private String updatedAtColumn;
+  private String updatedByColumn;
   private Field<E, Long> idField;
   private Field<E, Long> versionField;
 
@@ -71,9 +74,15 @@ public class EntityDefinition<E> {
     return this;
   }
 
-  /** Column set to now() on every patch. */
-  public EntityDefinition<E> updatedAt(String column) {
-    this.updatedAtColumn = sqlName(column);
+  /**
+   * Columns the server fills on writes: created_* on insert, updated_* on
+   * insert and every update / soft delete, from the request's user and clock.
+   */
+  public EntityDefinition<E> audit(String createdAt, String createdBy, String updatedAt, String updatedBy) {
+    this.createdAtColumn = sqlName(createdAt);
+    this.createdByColumn = sqlName(createdBy);
+    this.updatedAtColumn = sqlName(updatedAt);
+    this.updatedByColumn = sqlName(updatedBy);
     return this;
   }
 
@@ -190,8 +199,21 @@ public class EntityDefinition<E> {
     return softDeleteColumn;
   }
 
+  /** The audit columns are null when the entity has no audit(...). */
+  public String createdAtColumn() {
+    return createdAtColumn;
+  }
+
+  public String createdByColumn() {
+    return createdByColumn;
+  }
+
   public String updatedAtColumn() {
     return updatedAtColumn;
+  }
+
+  public String updatedByColumn() {
+    return updatedByColumn;
   }
 
   public Field<E, Long> id() {

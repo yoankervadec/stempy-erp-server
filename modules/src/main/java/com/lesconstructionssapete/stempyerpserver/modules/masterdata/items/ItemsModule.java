@@ -4,11 +4,18 @@ import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityRegistry
 import com.lesconstructionssapete.stempyerpserver.platform.module.ERPModule;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ServiceRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionRegistry;
-import com.lesconstructionssapete.stempyerpserver.platform.web.EntityQueryEndpoint;
+import com.lesconstructionssapete.stempyerpserver.platform.web.EntityEndpoints;
 import com.lesconstructionssapete.stempyerpserver.platform.web.Routes;
 
 /**
- * Master data: products and product categories.
+ * Master data: products and product categories. Plain records with no
+ * business rules beyond their field declarations, so the generic
+ * EntityEndpoints serve them entirely:
+ *
+ * <pre>
+ * QUERY /masterdata/products            GET / PATCH / DELETE /masterdata/products/{id}            POST
+ * QUERY /masterdata/product-categories  GET / PATCH / DELETE /masterdata/product-categories/{id}  POST
+ * </pre>
  *
  * Depends on the users module (created_by / updated_by relations), so it must
  * come after it in AllModules.
@@ -23,23 +30,19 @@ public class ItemsModule implements ERPModule {
   @Override
   public void registerPermissions(PermissionRegistry permissions) {
     permissions
-        .declare("masterdata.product.read", "View products")
-        .declare("masterdata.productCategory.read", "View product categories");
+        .declareEntity("masterdata.product", "products")
+        .declareEntity("masterdata.productCategory", "product categories");
   }
 
   @Override
   public void registerEntities(EntityRegistry entityRegistry) {
-    entityRegistry.registerAll(
-        Product.class, ProductCategory.class);
+    entityRegistry.registerAll(Product.class, ProductCategory.class);
   }
 
   @Override
   public void registerRoutes(Routes routes, ServiceRegistry serviceRegistry) {
-    EntityQueryEndpoint queries = serviceRegistry.get(EntityQueryEndpoint.class);
-
-    routes.query("/masterdata/products", queries.handler(Product.DEF, "masterdata.product.read"));
-    routes.query("/masterdata/product-categories",
-        queries.handler(ProductCategory.DEF, "masterdata.productCategory.read"));
+    EntityEndpoints crud = serviceRegistry.get(EntityEndpoints.class);
+    crud.register(routes, "/masterdata/products", Product.DEF, "masterdata.product");
+    crud.register(routes, "/masterdata/product-categories", ProductCategory.DEF, "masterdata.productCategory");
   }
-
 }

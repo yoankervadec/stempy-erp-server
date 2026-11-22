@@ -23,25 +23,27 @@ public class Product extends StandardEntity {
 
   public static final Field<Product, String> PRODUCT_NO = DEF.string(
       "productNo", "product_no", Product::productNo, Product::setProductNo)
-      .filterable().sortable();
+      .required().unique().maxLength(50).filterable().sortable();
 
   public static final Field<Product, String> NAME = DEF.string(
       "name", "name", Product::name, Product::setName)
-      .filterable().sortable();
+      .required().maxLength(255).filterable().sortable();
 
   public static final Field<Product, Long> UNIT_OF_MEASURE_ID = DEF.integer(
-      "unitOfMeasureId", "unit_of_measure_id", Product::unitOfMeasureId, Product::setUnitOfMeasureId);
+      "unitOfMeasureId", "unit_of_measure_id", Product::unitOfMeasureId, Product::setUnitOfMeasureId)
+      .required();
 
   public static final Field<Product, BigDecimal> UNIT_AMOUNT = DEF.decimal(
       "unitAmount", "unit_amount", Product::unitAmount, Product::setUnitAmount)
-      .filterable().sortable();
+      .required().min("0").filterable().sortable();
 
   public static final Field<Product, Long> CURRENCY_ID = DEF.integer(
-      "currencyId", "currency_id", Product::currencyId, Product::setCurrencyId);
+      "currencyId", "currency_id", Product::currencyId, Product::setCurrencyId)
+      .required();
 
   public static final Field<Product, Long> PRODUCT_CATEGORY_ID = DEF.integer(
       "productCategoryId", "product_category_id", Product::productCategoryId, Product::setProductCategoryId)
-      .filterable();
+      .required().filterable();
 
   /** Lets clients filter and sort on the category, e.g. "category.code". */
   public static final Relation<Product, ProductCategory> CATEGORY_REL = DEF.manyToOne(

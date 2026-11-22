@@ -123,8 +123,6 @@ platform/
 │   ├── QueryTranslator.java        QuerySpec + EntityDefinition -> parameterized SELECT. Adds company
 │   │                               and soft-delete predicates first; to-one = LEFT JOIN, to-many = EXISTS.
 │   ├── QueryExecutor.java          Runs an SQLQuery, maps rows, returns entities or visible-field maps.
-│   ├── PatchBuilder.java           {field: value} -> partial UPDATE, validated per field, version-guarded.
-│   ├── PatchExecutor.java          Runs an SQLUpdate; 0 rows -> 404 (missing) or 409 (stale version).
 │   └── SQLQuery.java, SQLUpdate.java, Bind.java
 │
 ├── error/                          HTTP-agnostic business failures                    ✅
@@ -148,7 +146,8 @@ platform/
 │   ├── JsonMapperFactory.java      Jackson rules: BigDecimal as string, ISO dates, reject unknown props,
 │   │                               reject null primitives and fractional ints.
 │   ├── JsonBodies.java             Read a body; any parse problem -> generic 400 (no input echo).
-│   ├── EntityQueryEndpoint.java    Generic list/filter/sort/page handler from an EntityDefinition alone.
+│   ├── EntityEndpoints.java        Generic QUERY / GET / POST / PATCH / DELETE routes from an EntityDefinition
+│   │                               alone (§5.3). register(routes, path, DEF, permissionPrefix).
 │   └── HealthChecks.java, HealthRoutes.java   GET /health/live, GET /health/ready (503 if a check fails).
 │
 ├── security/                                                                       ✅ (no RBAC yet)
@@ -205,7 +204,7 @@ All migrations currently live in `platform`, including tables owned by business 
 | `UnitOfWorkFactory`     | ModuleHost              |
 | `EventBus`              | ModuleHost              |
 | `EntityRegistry`        | ModuleHost              |
-| `EntityQueryEndpoint`   | ModuleHost              |
+| `EntityEndpoints`       | ModuleHost              |
 | `PermissionRegistry`    | ModuleHost              |
 | `PermissionChecker`     | ModuleHost              |
 | `SessionAuthenticator`  | `UsersModule`           |
@@ -267,7 +266,7 @@ modules/<module>/
 └── dto/                             Request/response records for the web layer only.
 ```
 
-Simple read-only master data may skip the controller/service/repository layers entirely and expose `EntityQueryEndpoint` handlers from its DEFs (see `masterdata.items`, §4.5).
+Plain master data (no business rules beyond field declarations) skips the controller/service/repository layers entirely: one `EntityEndpoints.register(...)` line per entity (see `masterdata.items`, §4.5, and §5.3). An entity whose writes need business rules gets a hand-written controller + orchestrator, and registers only `Action.READ` generically.
 
 ### 4.3 Module list
 
@@ -347,14 +346,14 @@ Note: `CredentialVerifier` and `EffectivePermissions` show the pattern for logic
 ```
 modules/masterdata/items/
 ├── ItemsModule.java                 ERPModule (name "masterdata.items"). No services, no handlers yet.
-│                                    QUERY /masterdata/products
-│                                    QUERY /masterdata/product-categories
+│                                    QUERY/POST /masterdata/products, GET/PATCH/DELETE .../{id}
+│                                    the same on /masterdata/product-categories
 ├── Product.java                     DEF on `products`; relations category -> ProductCategory,
 │                                    createdByUser / updatedByUser -> User
 └── ProductCategory.java             DEF on `product_categories`
 ```
 
-Routes use HTTP `QUERY` with the `QuerySpecParser` body; the whole module is entity declarations plus `EntityQueryEndpoint`.
+The whole module is entity declarations, `declareEntity(...)` permissions and two `EntityEndpoints.register(...)` lines: QUERY / GET / POST / PATCH / DELETE on both entities.
 
 ### 4.6 Target example: `sales` ⬜
 
@@ -456,9 +455,30 @@ QUERY /masterdata/products
 
 Safety model (`QueryTranslator`): client text never reaches the SQL string (only identifiers from the DEF and `?` placeholders); the company and soft-delete predicates are added first and can't be removed; a field the caller can't read is "unknown" for filters and sorts; the query is parsed and translated **before** a connection is taken from the pool.
 
-### 5.3 Patching
+### 5.3 Writing (generic create / update / soft delete)
 
-`PatchBuilder` + `PatchExecutor` give version-guarded partial updates (`UPDATE ... SET ..., version = version + 1 WHERE id = ? AND company_id = ? AND deleted_at IS NULL AND version = ?`), returning 404 vs. 409 correctly. Built and tested, not exposed through any route yet.
+`platform.web.EntityEndpoints.register(routes, "/masterdata/products", Product.DEF, "masterdata.product")` gives:
+
+```
+QUERY  /masterdata/products              search                      .read     200 { data, page }
+GET    /masterdata/products/{id}         one row                     .read     200 row | 404
+POST   /masterdata/products              { field: value }            .create   201 row + Location
+PATCH  /masterdata/products/{id}         { version, field: value }   .update   200 row | 404 | 409
+DELETE /masterdata/products/{id}?version=N  soft delete              .delete   204 | 404 | 409
+```
+
+Permissions are `{prefix}.read/.create/.update/.delete`, declared with `PermissionRegistry.declareEntity(prefix, "products")`; `register(..., Action.READ)` limits the route set.
+
+How a write runs (`platform.write`):
+
+1. `WriteBuilder` (pure, before any connection): accepts only declared, non-internal fields the caller may read and write, and that the operation allows; coerces and validates each (`Field` options); reports every problem at once (422). Adds `company_id`, `created_at/by`, `updated_at/by` from the request and the server clock (`WriteContext`), never from the body. Updates and deletes are `... WHERE id = ? AND company_id = ? AND deleted_at IS NULL AND version = ?` with `version = version + 1`.
+2. `WriteExecutor` (in the transaction): `unique()` fields are free in the company (soft-deleted rows count, like the database index) -> 422 `ALREADY_EXISTS`; a value written to a many-to-one relation's foreign key points at a live row of the SAME company -> 422 `INVALID_REFERENCE` (a client can't link to another company's data). 0 rows updated -> 404 `NOT_FOUND` or 409 `VERSION_CONFLICT`.
+3. `EntityChanged.Created/Updated/Deleted` is published in the same transaction (entity, id, company, user, time, changed field names). Subscribe to `EntityChanged` for all of them (the future audit log).
+4. The response is the row re-read as the caller sees it.
+
+Field options for writes: `required()` (on create), `readOnly()` (server-set: audit columns, totals), `immutable()` (settable on create only), `unique()` (per company), plus `maxLength / min / max / pattern / writePermission`. `StandardEntity`'s audit and soft-delete fields are `readOnly()`.
+
+Database constraint violations the checks can't see (a concurrent insert; a foreign key to a table without an entity, like `currencies`) still become clean errors: `ErrorTranslator` maps MySQL 1062 -> 409 `DUPLICATE_VALUE` and 1452 -> 422 `INVALID_REFERENCE`.
 
 ---
 
@@ -584,7 +604,7 @@ public class SalesOrderRepository {
 
 `Jdbc` binds parameters in order by type (Instant through `Timestamps` in UTC, enums by name, the rest via `setObject`) and wraps `SQLException` in `DataAccessException`. Drop to `uow.connection()` only for what it can't do (batches, generated keys, streaming).
 
-Bind times from Java (`Instant`), never `NOW()` in SQL, so rules don't depend on the MySQL session time zone. Optimistic locking: `UPDATE ... WHERE id = ? AND version = ?`, and 0 rows updated = conflict (`PatchExecutor` already does this generically).
+Bind times from Java (`Instant`), never `NOW()` in SQL, so rules don't depend on the MySQL session time zone. Optimistic locking: `UPDATE ... WHERE id = ? AND version = ?`, and 0 rows updated = conflict (`WriteExecutor` already does this generically).
 
 ### 8.5 Request lifecycle (Javalin)
 
@@ -683,14 +703,14 @@ Only consider JPMS (`module-info.java`) if you have a strong reason; it adds fri
 
 Decide these early; they are painful to retrofit.
 
-- [x] **Multi-company:** every business table has `company_id`; `RequestContext` carries it; `QueryTranslator`/`PatchBuilder` always filter on it. Hand-written repositories must do the same.
+- [x] **Multi-company:** every business table has `company_id`; `RequestContext` carries it; `QueryTranslator`/`WriteBuilder` always filter on it, and `WriteExecutor` rejects references to another company's rows. Hand-written repositories must do the same.
 - [ ] **Money:** `BigDecimal` + currency code everywhere; define rounding rules once (in `shared.Money`). JSON side done (BigDecimal serialized as string).
 - [x] **Soft deletes** on master data (`deleted_at`, honored by the entity framework).
-- [ ] **Audit trail** via events -> `audit_log`. (`created_by` / `updated_by` columns exist.)
+- [ ] **Audit trail** via events -> `audit_log`. Generic writes publish `EntityChanged` ✅ and fill `created_by` / `updated_by` ✅; the `audit_log` listener is still to do.
 - [x] **RBAC** through `PermissionChecker` only: roles + per-user GRANT/DENY overrides, per company (§16).
 - [ ] **Document numbering** per company / doc type / fiscal year, gapless where legally required.
 - [ ] **Idempotency keys** on POSTs that create financial documents.
-- [x] **Optimistic locking** (`version` column) on mutable entities; enforced by `PatchExecutor`.
+- [x] **Optimistic locking** (`version` column) on mutable entities; enforced by `WriteBuilder` / `WriteExecutor` (version in the PATCH body, `?version=` on DELETE).
 - [x] **Error format:** RFC 7807 everywhere (`ApiError` via `ExceptionMapper`).
 - [ ] **Observability:** request id in MDC and printed on every log line (logback) ✅; basic metrics (Micrometer) still to do.
 - [x] **Migrations:** Flyway, versioned, run at startup. Never edit an applied migration.
@@ -749,7 +769,7 @@ _Status: built 2026-11-22 (migration V4), steps 1-5 of §16.13; step 6 (admin AP
 - _The company is resolved **lazily**: AuthFilter only validates the session; the first `RequestContexts.require(ctx)` picks the company and loads permissions. Routes that need no company (`/auth/logout`) call `RequestContexts.requireUserId(ctx)` and work for a multi-company user without a default._
 - _`PermissionSource` + `PermissionCache` became one interface, `platform.security.CompanyAccess` (`permissions(user, company)`, `defaultCompany(user)`), implemented by `CompanyAccessService` and wrapped in the `CachedCompanyAccess` decorator (TTL `auth.permissions.cacheTtl`, default PT5M). `Principal` is just `(userId)`._
 - _`PermissionRegistry.entity(def, prefix)` isn't built: modules `declare(...)` each permission they actually check. CRUD permissions arrive with the write side._
-- _`PermissionChecker.require` fails on an undeclared permission (a typo would otherwise deny everyone); `EntityQueryEndpoint.handler(def, permission)` checks that at startup._
+- _`PermissionChecker.require` fails on an undeclared permission (a typo would otherwise deny everyone); `EntityEndpoints` checks that at route registration._
 - _`/auth/login` returns `companies` + `defaultCompanyId` so the client can pick; `/auth/me` returns the request's company and its sorted permissions. 400s use the new `BadRequestException` (`ErrorCategory.BAD_REQUEST`)._
 - _`assign-role` re-enables a disabled membership. Run from the CLI (another process), it reaches a running server within the cache TTL._
 
@@ -916,9 +936,9 @@ AuthFilter
         miss -> PermissionSource.load(userId, company)             users module, one query batch
         not a member -> 403 COMPANY_ACCESS_DENIED
   4. RequestContexts.set(ctx, new RequestContext(requestId, userId, company, permissions))
-Controller / EntityQueryEndpoint
+Controller / EntityEndpoints
   PermissionChecker.require(rc, "masterdata.product.read")         403 PERMISSION_DENIED if missing
-  FieldAccess.forPermissions(rc::hasPermission)                    already wired in EntityQueryEndpoint
+  FieldAccess.forPermissions(rc::hasPermission)                    already wired in EntityEndpoints
 ```
 
 `/auth/login`, `/auth/logout` and `/health/*` stay company-independent.

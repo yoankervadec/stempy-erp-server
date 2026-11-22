@@ -50,17 +50,18 @@ public abstract class StandardEntity {
   }
 
   private static <E extends StandardEntity> EntityDefinition<E> standard(EntityDefinition<E> def, boolean company) {
-    def.softDelete("deleted_at").updatedAt("updated_at");
+    def.softDelete("deleted_at").audit("created_at", "created_by", "updated_at", "updated_by");
     def.id("id", StandardEntity::id, StandardEntity::setId);
     if (company) {
       def.companyId(StandardEntity::companyId, StandardEntity::setCompanyId);
     }
     def.version("version", StandardEntity::version, StandardEntity::setVersion);
-    def.instant("createdAt", "created_at", StandardEntity::createdAt, StandardEntity::setCreatedAt);
-    def.integer("createdBy", "created_by", StandardEntity::createdBy, StandardEntity::setCreatedBy);
-    def.instant("updatedAt", "updated_at", StandardEntity::updatedAt, StandardEntity::setUpdatedAt);
-    def.integer("updatedBy", "updated_by", StandardEntity::updatedBy, StandardEntity::setUpdatedBy);
-    def.instant("deletedAt", "deleted_at", StandardEntity::deletedAt, StandardEntity::setDeletedAt);
+    // Server-managed: clients read them, never write them.
+    def.instant("createdAt", "created_at", StandardEntity::createdAt, StandardEntity::setCreatedAt).readOnly();
+    def.integer("createdBy", "created_by", StandardEntity::createdBy, StandardEntity::setCreatedBy).readOnly();
+    def.instant("updatedAt", "updated_at", StandardEntity::updatedAt, StandardEntity::setUpdatedAt).readOnly();
+    def.integer("updatedBy", "updated_by", StandardEntity::updatedBy, StandardEntity::setUpdatedBy).readOnly();
+    def.instant("deletedAt", "deleted_at", StandardEntity::deletedAt, StandardEntity::setDeletedAt).readOnly();
     return def;
   }
 

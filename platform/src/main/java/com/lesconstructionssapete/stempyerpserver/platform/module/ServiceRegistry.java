@@ -12,7 +12,7 @@ import java.util.TreeSet;
  *
  * What goes in:
  * - Platform services published by ModuleHost (UnitOfWorkFactory, EventBus,
- * EntityRegistry, EntityQueryEndpoint).
+ * EntityRegistry, PermissionRegistry, PermissionChecker, EntityEndpoints).
  * - Each module's explicit PUBLIC API (e.g. GeneralLedgerApi), published in
  * registerServices().
  *

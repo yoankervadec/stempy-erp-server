@@ -11,6 +11,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Clock;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -22,6 +23,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.error.ValidationFailedException;
+import com.lesconstructionssapete.stempyerpserver.platform.events.EventBus;
 import com.lesconstructionssapete.stempyerpserver.platform.query.QueryLimits;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionChecker;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionRegistry;
@@ -146,16 +148,15 @@ class WebServerTest {
     assertFalse(r.body().contains("secret"));
   }
 
-  // ---- EntityQueryEndpoint ----
+  // ---- EntityEndpoints (QUERY; writes are covered against MySQL) ----
 
   private FakeDataSource startWidgetQueries(List<Map<String, Object>> rows) {
     FakeDataSource db = new FakeDataSource(rows);
     var permissions = new PermissionRegistry()
         .declare("widget.widget.read", "View widgets")
         .declare("widget.cost.read", "See widget costs");
-    var endpoint = new EntityQueryEndpoint(new UnitOfWorkFactory(db), QueryLimits.defaults(),
-        new PermissionChecker(permissions));
-    start(routes -> routes.query("/widgets", endpoint.handler(TestWidget.DEF, "widget.widget.read")));
+    var endpoint = endpoints(new UnitOfWorkFactory(db), permissions);
+    start(routes -> routes.query("/widgets", endpoint.query(TestWidget.DEF, "widget.widget.read")));
     return db;
   }
 
@@ -241,8 +242,14 @@ class WebServerTest {
 
   @Test
   void routeWithAnUndeclaredPermissionFailsAtRegistration() {
-    var endpoint = new EntityQueryEndpoint(new UnitOfWorkFactory(new FakeDataSource(List.of())),
-        QueryLimits.defaults(), new PermissionChecker(new PermissionRegistry()));
-    assertThrows(IllegalStateException.class, () -> endpoint.handler(TestWidget.DEF, "widget.widget.reed"));
+    var endpoint = endpoints(new UnitOfWorkFactory(new FakeDataSource(List.of())), new PermissionRegistry());
+    assertThrows(IllegalStateException.class, () -> endpoint.query(TestWidget.DEF, "widget.widget.reed"));
+  }
+
+  private static EntityEndpoints endpoints(UnitOfWorkFactory uowFactory, PermissionRegistry permissions) {
+    var eventBus = new EventBus();
+    eventBus.freeze();
+    return new EntityEndpoints(uowFactory, QueryLimits.defaults(), new PermissionChecker(permissions), eventBus,
+        Clock.systemUTC());
   }
 }

@@ -28,7 +28,9 @@ public final class Field<E, V> {
   private boolean required;
   private boolean filterable;
   private boolean sortable;
+  private boolean creatable = true;
   private boolean updatable = true;
+  private boolean unique;
   private boolean internal;
   private boolean id;
   private boolean version;
@@ -69,9 +71,30 @@ public final class Field<E, V> {
     return this;
   }
 
-  /** Cannot be changed through the patch endpoint (still readable). */
+  /**
+   * Never written by clients, on create or update (still readable). For values
+   * the server sets: audit columns, computed totals.
+   */
   public Field<E, V> readOnly() {
+    this.creatable = false;
     this.updatable = false;
+    return this;
+  }
+
+  /** Set when the row is created, never changed afterwards. */
+  public Field<E, V> immutable() {
+    this.updatable = false;
+    return this;
+  }
+
+  /**
+   * No two rows of the company (of the table, for a global table) share this
+   * value, soft-deleted rows included, matching the database's unique index.
+   * Checked before writing, so the client gets a field error instead of a
+   * constraint violation.
+   */
+  public Field<E, V> unique() {
+    this.unique = true;
     return this;
   }
 
@@ -81,6 +104,7 @@ public final class Field<E, V> {
    */
   public Field<E, V> internal() {
     this.internal = true;
+    this.creatable = false;
     this.updatable = false;
     return this;
   }
@@ -118,6 +142,7 @@ public final class Field<E, V> {
 
   Field<E, V> markId() {
     this.id = true;
+    this.creatable = false;
     this.updatable = false;
     this.filterable = true;
     this.sortable = true;
@@ -126,6 +151,7 @@ public final class Field<E, V> {
 
   Field<E, V> markVersion() {
     this.version = true;
+    this.creatable = false;
     this.updatable = false;
     return this;
   }
@@ -156,8 +182,16 @@ public final class Field<E, V> {
     return sortable;
   }
 
+  public boolean isCreatable() {
+    return creatable;
+  }
+
   public boolean isUpdatable() {
     return updatable;
+  }
+
+  public boolean isUnique() {
+    return unique;
   }
 
   public boolean isInternal() {

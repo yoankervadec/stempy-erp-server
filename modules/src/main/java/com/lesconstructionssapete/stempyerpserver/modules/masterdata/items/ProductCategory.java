@@ -20,11 +20,11 @@ public class ProductCategory extends StandardEntity {
 
   public static final Field<ProductCategory, String> CODE = DEF.string(
       "code", "code", ProductCategory::code, ProductCategory::setCode)
-      .filterable().sortable();
+      .required().unique().maxLength(50).filterable().sortable();
 
   public static final Field<ProductCategory, String> DESCRIPTION = DEF.string(
       "description", "description", ProductCategory::description, ProductCategory::setDescription)
-      .filterable().sortable();
+      .required().maxLength(255).filterable().sortable();
 
   public boolean isEnabled() {
     return isEnabled;

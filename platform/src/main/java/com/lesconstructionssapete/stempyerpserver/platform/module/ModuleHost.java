@@ -1,5 +1,7 @@
 package com.lesconstructionssapete.stempyerpserver.platform.module;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 
@@ -13,7 +15,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.security.CompanyAcces
 import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionChecker;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.security.SessionAuthenticator;
-import com.lesconstructionssapete.stempyerpserver.platform.web.EntityQueryEndpoint;
+import com.lesconstructionssapete.stempyerpserver.platform.web.EntityEndpoints;
 import com.lesconstructionssapete.stempyerpserver.platform.web.ErrorTranslator;
 import com.lesconstructionssapete.stempyerpserver.platform.web.ExceptionMapper;
 import com.lesconstructionssapete.stempyerpserver.platform.web.HealthChecks;
@@ -65,7 +67,7 @@ public final class ModuleHost {
   /**
    * Publishes the platform services every module may use (UnitOfWorkFactory,
    * EventBus, EntityRegistry, PermissionRegistry, PermissionChecker,
-   * EntityQueryEndpoint), then each module's own, then
+   * EntityEndpoints), then each module's own, then
    * wires event handlers. Both registries are frozen afterwards.
    */
   public synchronized ServiceRegistry start(UnitOfWorkFactory uowFactory) {
@@ -81,8 +83,10 @@ public final class ModuleHost {
     var checker = new PermissionChecker(permissions);
     registry.register(PermissionRegistry.class, permissions);
     registry.register(PermissionChecker.class, checker);
-    registry.register(EntityQueryEndpoint.class,
-        new EntityQueryEndpoint(uowFactory, QueryLimits.defaults(), checker));
+    // Whole seconds, like a MySQL TIMESTAMP, so a time written equals the time read back.
+    Clock clock = Clock.tick(Clock.systemUTC(), Duration.ofSeconds(1));
+    registry.register(EntityEndpoints.class,
+        new EntityEndpoints(uowFactory, QueryLimits.defaults(), checker, eventBus, clock));
     modules.forEach(m -> m.registerServices(registry));
     registry.freeze();
 

@@ -9,6 +9,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +27,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.db.DataSources;
 import com.lesconstructionssapete.stempyerpserver.platform.db.DatabaseConfig;
 import com.lesconstructionssapete.stempyerpserver.platform.db.DatabaseMigrator;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
+import com.lesconstructionssapete.stempyerpserver.platform.module.ERPModule;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ModuleHost;
 import com.lesconstructionssapete.stempyerpserver.platform.security.AuthFilter;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PasswordHasher;
@@ -90,6 +92,12 @@ public final class MySqlTestStack implements AutoCloseable {
   }
 
   public static MySqlTestStack start(Class<?> testClass, AuthSettings auth, Seeder seeder) throws SQLException {
+    return start(testClass, auth, seeder, List.of());
+  }
+
+  /** As start(...), with test-only modules (e.g. an event recorder) after the real ones. */
+  public static MySqlTestStack start(Class<?> testClass, AuthSettings auth, Seeder seeder, List<ERPModule> extra)
+      throws SQLException {
     DatabaseConfig db = config(testClass);
     assumeReachable(testClass, db);
 
@@ -100,7 +108,9 @@ public final class MySqlTestStack implements AutoCloseable {
         .clean();
 
     // The same startup as Main, apart from the hasher and the auth settings.
-    var host = new ModuleHost(AllModules.create(authSettings(auth), FAST_HASHER));
+    List<ERPModule> modules = new ArrayList<>(AllModules.create(authSettings(auth), FAST_HASHER));
+    modules.addAll(extra);
+    var host = new ModuleHost(modules);
     DatabaseMigrator.migrate(db);
     HikariDataSource dataSource = DataSources.create(db);
     try {

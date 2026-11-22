@@ -55,6 +55,19 @@ public final class PermissionRegistry {
     return this;
   }
 
+  /**
+   * The four permissions EntityEndpoints checks for an entity:
+   * {prefix}.read, .create, .update, .delete.
+   *
+   * @param things plural, lowercase, for the descriptions ("products")
+   */
+  public PermissionRegistry declareEntity(String prefix, String things) {
+    return declare(prefix + ".read", "View " + things)
+        .declare(prefix + ".create", "Create " + things)
+        .declare(prefix + ".update", "Change " + things)
+        .declare(prefix + ".delete", "Delete " + things);
+  }
+
   public void freeze() {
     frozen = true;
   }

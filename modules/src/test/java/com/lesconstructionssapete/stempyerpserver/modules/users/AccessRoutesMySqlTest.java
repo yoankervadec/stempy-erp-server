@@ -25,8 +25,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.error.ResourceNotFoun
  * taking effect at once (cache invalidation). The permission cache uses its
  * production TTL here, so "at once" really tests invalidation.
  *
- * Declared permissions today: masterdata.product.read and
- * masterdata.productCategory.read.
+ * Uses the masterdata product / productCategory permissions.
  */
 class AccessRoutesMySqlTest {
 
@@ -139,7 +138,10 @@ class AccessRoutesMySqlTest {
   void administratorGetsEveryPermissionExceptADeniedOne() throws Exception {
     String token = stack.login("ADMIN", PASSWORD);
 
-    assertEquals(List.of(PRODUCT_READ), permissions(ok(send("GET", "/auth/me", token, null))));
+    // every declared permission (including ones added by later releases) but the denied one
+    List<String> granted = permissions(ok(send("GET", "/auth/me", token, null)));
+    assertTrue(granted.contains(PRODUCT_READ) && granted.contains("masterdata.product.create"), granted.toString());
+    assertTrue(!granted.contains(CATEGORY_READ), granted.toString());
     ok(send("QUERY", "/masterdata/products", token, null));
     assertRejected(403, "PERMISSION_DENIED", send("QUERY", "/masterdata/product-categories", token, null));
   }

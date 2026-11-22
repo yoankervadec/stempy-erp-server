@@ -1,5 +1,7 @@
 package com.lesconstructionssapete.stempyerpserver.platform.web;
 
+import java.sql.SQLException;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,6 +31,11 @@ import com.lesconstructionssapete.stempyerpserver.platform.error.ValidationFaile
 public final class ErrorTranslator {
 
   private static final Logger log = LoggerFactory.getLogger(ErrorTranslator.class);
+
+  /** ER_DUP_ENTRY */
+  private static final int MYSQL_DUPLICATE_KEY = 1062;
+  /** ER_NO_REFERENCED_ROW_2: a foreign key points at a missing row. */
+  private static final int MYSQL_NO_REFERENCED_ROW = 1452;
 
   /** What to send back. */
   public record Translation(int status, ApiError body) {
@@ -91,6 +98,19 @@ public final class ErrorTranslator {
   }
 
   private Translation translateDataAccess(DataAccessException e, String requestId, String path) {
+    // Constraint violations the pre-write checks couldn't see (a concurrent
+    // write, a reference to a table without an entity). Generic messages: the
+    // database's own name the constraint and echo values.
+    if (e.getCause() instanceof SQLException sql && sql.getErrorCode() == MYSQL_DUPLICATE_KEY) {
+      log.info("Duplicate key [requestId={}, path={}]: {}", requestId, path, sql.getMessage());
+      return new Translation(409, ApiError.of(409, titleFor(409), "DUPLICATE_VALUE",
+          "A value that must be unique is already used.", path, requestId, null));
+    }
+    if (e.getCause() instanceof SQLException sql && sql.getErrorCode() == MYSQL_NO_REFERENCED_ROW) {
+      log.info("Invalid reference [requestId={}, path={}]: {}", requestId, path, sql.getMessage());
+      return new Translation(422, ApiError.of(422, titleFor(422), "INVALID_REFERENCE",
+          "A referenced record does not exist.", path, requestId, null));
+    }
     if (e.isRetryable()) {
       log.warn("Retryable database failure [requestId={}, path={}]: {}", requestId, path, e.getMessage());
       return new Translation(503, ApiError.of(503, titleFor(503), "DATABASE_BUSY",
