@@ -18,16 +18,18 @@
             <groupId>${project.groupId}</groupId>
             <artifactId>stempyerpserver-modules</artifactId>
         </dependency>
-
         <dependency>
             <groupId>io.github.cdimascio</groupId>
             <artifactId>dotenv-java</artifactId>
         </dependency>
-
         <!-- Logging backend; prints the request id from the MDC (logback.xml) -->
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
         </dependency>
     </dependencies>
 
