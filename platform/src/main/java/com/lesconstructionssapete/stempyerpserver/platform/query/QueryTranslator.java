@@ -126,9 +126,9 @@ public final class QueryTranslator {
     return switch (op) {
       case EQUALS -> "=";
       case GREATER_THAN -> ">";
-      case GREATER_THAN_OR_EQUAL -> ">=";
+      case GREATER_THAN_OR_EQUALS -> ">=";
       case LESS_THAN -> "<";
-      case LESS_THAN_OR_EQUAL -> "<=";
+      case LESS_THAN_OR_EQUALS -> "<=";
       default -> throw new IllegalStateException("No simple SQL form for " + op);
     };
   }

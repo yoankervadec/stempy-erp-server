@@ -1,5 +1,16 @@
 package com.lesconstructionssapete.stempyerpserver.platform.entity;
 
+import static com.lesconstructionssapete.stempyerpserver.platform.entity.Operator.CONTAINS;
+import static com.lesconstructionssapete.stempyerpserver.platform.entity.Operator.EQUALS;
+import static com.lesconstructionssapete.stempyerpserver.platform.entity.Operator.GREATER_THAN;
+import static com.lesconstructionssapete.stempyerpserver.platform.entity.Operator.GREATER_THAN_OR_EQUALS;
+import static com.lesconstructionssapete.stempyerpserver.platform.entity.Operator.IN;
+import static com.lesconstructionssapete.stempyerpserver.platform.entity.Operator.IS_NULL;
+import static com.lesconstructionssapete.stempyerpserver.platform.entity.Operator.LESS_THAN;
+import static com.lesconstructionssapete.stempyerpserver.platform.entity.Operator.LESS_THAN_OR_EQUALS;
+import static com.lesconstructionssapete.stempyerpserver.platform.entity.Operator.NOT_EQUALS;
+import static com.lesconstructionssapete.stempyerpserver.platform.entity.Operator.STARTS_WITH;
+
 import java.math.BigDecimal;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -13,17 +24,6 @@ import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.Set;
 import java.util.function.Function;
-
-import static com.lesconstructionssapete.stempyerpserver.platform.entity.Operator.CONTAINS;
-import static com.lesconstructionssapete.stempyerpserver.platform.entity.Operator.EQUALS;
-import static com.lesconstructionssapete.stempyerpserver.platform.entity.Operator.GREATER_THAN;
-import static com.lesconstructionssapete.stempyerpserver.platform.entity.Operator.GREATER_THAN_OR_EQUAL;
-import static com.lesconstructionssapete.stempyerpserver.platform.entity.Operator.IN;
-import static com.lesconstructionssapete.stempyerpserver.platform.entity.Operator.IS_NULL;
-import static com.lesconstructionssapete.stempyerpserver.platform.entity.Operator.LESS_THAN;
-import static com.lesconstructionssapete.stempyerpserver.platform.entity.Operator.LESS_THAN_OR_EQUAL;
-import static com.lesconstructionssapete.stempyerpserver.platform.entity.Operator.NOT_EQUALS;
-import static com.lesconstructionssapete.stempyerpserver.platform.entity.Operator.STARTS_WITH;
 
 /**
  * One supported column type: how to read it from a ResultSet, bind it to a
@@ -43,8 +43,8 @@ public final class FieldType<T> {
   }
 
   private static final Set<Operator> EQUALITY = EnumSet.of(EQUALS, NOT_EQUALS, IN, IS_NULL);
-  private static final Set<Operator> ORDERED = EnumSet.of(EQUALS, NOT_EQUALS, GREATER_THAN, GREATER_THAN_OR_EQUAL,
-      LESS_THAN, LESS_THAN_OR_EQUAL, IN, IS_NULL);
+  private static final Set<Operator> ORDERED = EnumSet.of(EQUALS, NOT_EQUALS, GREATER_THAN, GREATER_THAN_OR_EQUALS,
+      LESS_THAN, LESS_THAN_OR_EQUALS, IN, IS_NULL);
   private static final Set<Operator> TEXT = EnumSet.of(EQUALS, NOT_EQUALS, IN, IS_NULL, CONTAINS, STARTS_WITH);
 
   public static final FieldType<String> STRING = new FieldType<>(
