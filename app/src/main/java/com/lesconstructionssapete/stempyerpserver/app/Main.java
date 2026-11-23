@@ -12,6 +12,8 @@ import com.lesconstructionssapete.stempyerpserver.platform.db.DatabaseMigrator;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ModuleHost;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ServiceRegistry;
+import com.lesconstructionssapete.stempyerpserver.platform.scheduler.Scheduler;
+import com.lesconstructionssapete.stempyerpserver.platform.scheduler.SchedulerSettings;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PasswordHasher;
 import com.lesconstructionssapete.stempyerpserver.platform.web.WebServer;
 import com.lesconstructionssapete.stempyerpserver.platform.web.WebServerConfig;
@@ -27,7 +29,7 @@ import com.zaxxer.hikari.HikariDataSource;
  * </pre>
  *
  * Every mode runs the same startup (modules, migrations, pool, services); a
- * command then stops short of the web server.
+ * command then stops short of the web server and the scheduler.
  */
 public class Main {
 
@@ -57,10 +59,15 @@ public class Main {
     }
 
     WebServer webServer = host.startWebServer(WebServerConfig.ofPort(settings.getInt("server.port")));
-    // Stop taking requests first, then release the pool they were using.
+    Scheduler scheduler = host.startScheduler(SchedulerSettings.from(settings));
+    // Stop taking requests and starting jobs first, then release the pool they were using.
     Runtime.getRuntime().addShutdownHook(new Thread(() -> {
       try (dataSource) {
-        webServer.stop();
+        try {
+          webServer.stop();
+        } finally {
+          scheduler.stop();
+        }
       }
     }, "shutdown"));
   }

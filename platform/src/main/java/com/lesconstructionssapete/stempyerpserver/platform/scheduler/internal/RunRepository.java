@@ -3,6 +3,7 @@ package com.lesconstructionssapete.stempyerpserver.platform.scheduler.internal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -76,7 +77,8 @@ public class RunRepository {
       error_message, error_detail""";
 
   /**
-   * Inserts a run and returns its id.
+   * Inserts a run and returns its id. A run inserted already finished (SKIPPED)
+   * gets finished_at = createdAt.
    *
    * @throws com.lesconstructionssapete.stempyerpserver.platform.db.DataAccessException
    *         on a duplicate fire (same schedule, fire time and attempt)
@@ -84,10 +86,12 @@ public class RunRepository {
   public long insert(UnitOfWork uow, NewRun r) {
     return Jdbc.insert(uow, """
         INSERT INTO scheduled_job_runs (schedule_id, job_key, company_id, trigger_type, requested_by,
-          parameters_override, status, attempt, scheduled_for, fire_key, created_at, started_at, instance_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+          parameters_override, status, attempt, scheduled_for, fire_key, created_at, started_at, finished_at,
+          instance_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         r.scheduleId(), r.jobKey(), r.companyId(), r.trigger(), r.requestedBy(), r.parametersOverride(),
-        r.status(), r.attempt(), r.scheduledFor(), r.fireKey(), r.createdAt(), r.startedAt(), r.instanceId());
+        r.status(), r.attempt(), r.scheduledFor(), r.fireKey(), r.createdAt(), r.startedAt(),
+        r.status().isFinished() ? r.createdAt() : null, r.instanceId());
   }
 
   /**
@@ -95,19 +99,18 @@ public class RunRepository {
    * oldest first, with their schedule row. Several runs of one schedule can
    * come back: start only the first, the others stay queued.
    */
-  public List<QueuedRun> lockQueued(UnitOfWork uow, Instant now, int limit) {
-    return Jdbc.queryList(uow, "SELECT r.id AS run_id, r.requested_by, r.parameters_override, r.scheduled_for AS requested_at, "
-        + ScheduleRepository.columns("s") + """
-         FROM scheduled_job_runs r
-        JOIN scheduled_jobs s ON s.id = r.schedule_id
-        WHERE r.status = 'QUEUED' AND s.deleted_at IS NULL
-          AND (s.locked_until IS NULL OR s.locked_until < ?)
-        ORDER BY r.id
-        LIMIT ?
-        FOR UPDATE SKIP LOCKED""",
+  public List<QueuedRun> lockQueued(UnitOfWork uow, Instant now, int limit, Collection<String> jobKeys) {
+    String sql = "SELECT r.id AS run_id, r.requested_by, r.parameters_override, r.scheduled_for AS requested_at, "
+        + ScheduleRepository.columns("s")
+        + " FROM scheduled_job_runs r JOIN scheduled_jobs s ON s.id = r.schedule_id"
+        + " WHERE r.status = 'QUEUED' AND s.deleted_at IS NULL"
+        + " AND (s.locked_until IS NULL OR s.locked_until < ?)"
+        + " AND s.job_key IN (" + ScheduleRepository.placeholders(jobKeys) + ")"
+        + " ORDER BY r.id LIMIT ? FOR UPDATE SKIP LOCKED";
+    return Jdbc.queryList(uow, sql,
         rs -> new QueuedRun(rs.getLong("run_id"), rs.getObject("requested_by", Long.class),
             rs.getString("parameters_override"), Timestamps.read(rs, "requested_at"), ScheduleRepository.map(rs)),
-        now, limit);
+        ScheduleRepository.params(List.of(now), jobKeys, limit));
   }
 
   /** QUEUED -> RUNNING on this instance. */
@@ -118,18 +121,22 @@ public class RunRepository {
         instanceId, startedAt, runId);
   }
 
-  /** Records the end of a run. Texts are cut to fit their columns. */
-  public void finish(UnitOfWork uow, long runId, RunStatus status, Instant finishedAt, Long durationMs,
+  /**
+   * Records the end of a RUNNING run. Texts are cut to fit their columns.
+   * Returns false if the run was no longer RUNNING (e.g. already marked
+   * ABANDONED by another instance): nothing is changed then.
+   */
+  public boolean finish(UnitOfWork uow, long runId, RunStatus status, Instant finishedAt, Long durationMs,
       String resultSummary, String errorMessage, String errorDetail) {
     if (!status.isFinished()) {
       throw new IllegalArgumentException("not a final status: " + status);
     }
-    Jdbc.update(uow, """
+    return Jdbc.update(uow, """
         UPDATE scheduled_job_runs
         SET status = ?, finished_at = ?, duration_ms = ?, result_summary = ?, error_message = ?, error_detail = ?
-        WHERE id = ?""",
+        WHERE id = ? AND status = 'RUNNING'""",
         status, finishedAt, durationMs, truncate(resultSummary, MAX_MESSAGE), truncate(errorMessage, MAX_MESSAGE),
-        truncate(errorDetail, MAX_DETAIL), runId);
+        truncate(errorDetail, MAX_DETAIL), runId) == 1;
   }
 
   /**

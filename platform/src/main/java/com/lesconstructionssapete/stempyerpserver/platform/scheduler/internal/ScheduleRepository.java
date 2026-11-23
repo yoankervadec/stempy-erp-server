@@ -5,6 +5,10 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -70,14 +74,56 @@ public class ScheduleRepository {
    * first. Rows another instance is claiming right now are skipped, not waited
    * for. Call in a short transaction that leases each row before committing.
    */
-  public List<ScheduleRow> lockDue(UnitOfWork uow, Instant now, int limit) {
-    return Jdbc.queryList(uow, SELECT + """
-         AND s.is_enabled AND s.next_run_at <= ?
-         AND (s.locked_until IS NULL OR s.locked_until < ?)
-        ORDER BY s.next_run_at, s.id
-        LIMIT ?
-        FOR UPDATE SKIP LOCKED""",
-        ScheduleRepository::map, now, now, limit);
+  public List<ScheduleRow> lockDue(UnitOfWork uow, Instant now, int limit, Collection<String> jobKeys) {
+    String sql = SELECT
+        + " AND s.is_enabled AND s.next_run_at <= ?"
+        + " AND (s.locked_until IS NULL OR s.locked_until < ?)"
+        + " AND s.job_key IN (" + placeholders(jobKeys) + ")"
+        + " ORDER BY s.next_run_at, s.id LIMIT ? FOR UPDATE SKIP LOCKED";
+    return Jdbc.queryList(uow, sql, ScheduleRepository::map, params(List.of(now, now), jobKeys, limit));
+  }
+
+  /** Moves next_run_at without leasing (a skipped misfire). */
+  public void advance(UnitOfWork uow, long id, Instant nextRunAt) {
+    Jdbc.update(uow, "UPDATE scheduled_jobs SET next_run_at = ? WHERE id = ?", nextRunAt, id);
+  }
+
+  /** Stops a row from firing until its next recompute (it became invalid after being claimed as due). */
+  public void clearNextRun(UnitOfWork uow, long id) {
+    Jdbc.update(uow, "UPDATE scheduled_jobs SET next_run_at = NULL WHERE id = ?", id);
+  }
+
+  /** Whether any row, deleted or not, uses this job key. */
+  public boolean existsForJobKey(UnitOfWork uow, String jobKey) {
+    return Jdbc.queryFirst(uow, "SELECT 1 FROM scheduled_jobs WHERE job_key = ? LIMIT 1", rs -> true, jobKey)
+        .isPresent();
+  }
+
+  /** Inserts a system schedule; ignored if a concurrent instance inserted it (unique name). */
+  public void insertDefault(UnitOfWork uow, String jobKey, String name, ScheduleType type, String expression,
+      String timeZone, long createdBy) {
+    Jdbc.update(uow, """
+        INSERT IGNORE INTO scheduled_jobs (job_key, name, schedule_type, cron_expression, interval_value, time_zone,
+          created_by, updated_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        jobKey, name, type, type == ScheduleType.CRON ? expression : null,
+        type == ScheduleType.INTERVAL ? expression : null, timeZone, createdBy, createdBy);
+  }
+
+  /** "?, ?, ?" for a non-empty IN list. */
+  static String placeholders(Collection<?> values) {
+    if (values.isEmpty()) {
+      throw new IllegalArgumentException("empty IN list");
+    }
+    return String.join(", ", Collections.nCopies(values.size(), "?"));
+  }
+
+  /** before..., values..., after... as one parameter array. */
+  static Object[] params(List<?> before, Collection<?> values, Object... after) {
+    List<Object> all = new ArrayList<>(before);
+    all.addAll(values);
+    all.addAll(Arrays.asList(after));
+    return all.toArray();
   }
 
   /** Takes the lease and moves next_run_at on to the following fire time (NULL: none). */

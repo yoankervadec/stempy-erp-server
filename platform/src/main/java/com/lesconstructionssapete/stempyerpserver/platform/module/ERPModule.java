@@ -8,8 +8,9 @@ import com.lesconstructionssapete.stempyerpserver.platform.web.Routes;
 
 /**
  * A business module. ModuleHost calls every module through each phase, in order:
- * permissions, entities, services, event handlers, routes, jobs. Override only the phases
- * the module takes part in; the others do nothing.
+ * permissions, entities, services, event handlers, jobs (registered in every mode, run only
+ * in server mode), routes. Override only the phases the module takes part in; the others do
+ * nothing.
  */
 public interface ERPModule {
 

@@ -44,6 +44,9 @@ import com.lesconstructionssapete.stempyerpserver.platform.security.SystemActor;
  */
 class SchedulerStoreMySqlTest {
 
+  /** The job keys this "instance" knows; rows with other keys are left for other instances. */
+  private static final List<String> KEYS = List.of("test.job");
+
   private static MySqlTestStack stack;
   private static UnitOfWorkFactory uow;
   private final ScheduleRepository schedules = new ScheduleRepository();
@@ -183,15 +186,15 @@ class SchedulerStoreMySqlTest {
     long id = insertDue("Contended");
     Instant now = now();
     try (UnitOfWork first = uow.begin(); UnitOfWork second = uow.begin()) {
-      List<ScheduleRow> a = schedules.lockDue(first, now, 10);
+      List<ScheduleRow> a = schedules.lockDue(first, now, 10, KEYS);
       assertEquals(List.of(id), a.stream().map(ScheduleRow::id).toList());
       // the row is locked by the first transaction: skipped, not waited for
-      assertEquals(List.of(), schedules.lockDue(second, now, 10));
+      assertEquals(List.of(), schedules.lockDue(second, now, 10, KEYS));
 
       schedules.lease(first, id, "instance-a", now.plusSeconds(60), now.plusSeconds(900));
       first.commit();
       // committed and leased: still not due for anyone else
-      assertEquals(List.of(), schedules.lockDue(second, now, 10));
+      assertEquals(List.of(), schedules.lockDue(second, now, 10, KEYS));
       second.commit();
     }
     ScheduleRow row = find(id);
@@ -207,7 +210,7 @@ class SchedulerStoreMySqlTest {
       Jdbc.update(u, "UPDATE scheduled_jobs SET is_enabled = FALSE WHERE id = ?", disabled);
       Jdbc.update(u, "UPDATE scheduled_jobs SET next_run_at = UTC_TIMESTAMP() + INTERVAL 1 HOUR WHERE id = ?", future);
     });
-    assertEquals(List.of(), uow.execute(u -> schedules.lockDue(u, schedules.now(u), 10)));
+    assertEquals(List.of(), uow.execute(u -> schedules.lockDue(u, schedules.now(u), 10, KEYS)));
   }
 
   @Test
@@ -277,10 +280,10 @@ class SchedulerStoreMySqlTest {
 
     // schedule leased by a running fire: the manual run stays queued
     uow.run(u -> schedules.lease(u, id, "instance-a", now.plusSeconds(60)));
-    assertEquals(List.of(), uow.execute(u -> runs.lockQueued(u, now, 10)));
+    assertEquals(List.of(), uow.execute(u -> runs.lockQueued(u, now, 10, KEYS)));
 
     uow.run(u -> schedules.release(u, id, "instance-a", now, RunStatus.SUCCEEDED));
-    var queued = uow.execute(u -> runs.lockQueued(u, now, 10));
+    var queued = uow.execute(u -> runs.lockQueued(u, now, 10, KEYS));
     assertEquals(1, queued.size());
     assertEquals(runId, queued.getFirst().runId());
     assertEquals(2L, queued.getFirst().requestedBy());

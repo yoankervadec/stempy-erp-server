@@ -5,16 +5,21 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 
+import org.slf4j.LoggerFactory;
+
 import com.lesconstructionssapete.stempyerpserver.platform.db.Jdbc;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.events.EventBus;
 import com.lesconstructionssapete.stempyerpserver.platform.query.QueryLimits;
+import com.lesconstructionssapete.stempyerpserver.platform.scheduler.Scheduler;
+import com.lesconstructionssapete.stempyerpserver.platform.scheduler.SchedulerSettings;
 import com.lesconstructionssapete.stempyerpserver.platform.security.AuthFilter;
 import com.lesconstructionssapete.stempyerpserver.platform.security.CompanyAccess;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionChecker;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.security.SessionAuthenticator;
+import com.lesconstructionssapete.stempyerpserver.platform.security.SystemActor;
 import com.lesconstructionssapete.stempyerpserver.platform.web.EntityEndpoints;
 import com.lesconstructionssapete.stempyerpserver.platform.web.ErrorTranslator;
 import com.lesconstructionssapete.stempyerpserver.platform.web.ExceptionMapper;
@@ -35,6 +40,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.web.WebServerConfig;
  * host.services().get(UsersApi.class)        (a CLI command stops here)
  * host.startWebServer(config);               4. health + module routes behind the AuthFilter (session from
  *                                            SessionAuthenticator, company + permissions from CompanyAccess)
+ * host.startScheduler(settings);             5. server mode only: start running jobs (registered in start())
  * </pre>
  *
  * Modules are driven in list order: a module may only use what the modules
@@ -47,6 +53,7 @@ public final class ModuleHost {
   private final EntityRegistry entities = new EntityRegistry();
   private UnitOfWorkFactory uowFactory;
   private ServiceRegistry services;
+  private final Scheduler scheduler = new Scheduler();
 
   public ModuleHost(List<ERPModule> modules) {
     this.modules = List.copyOf(modules);
@@ -67,8 +74,9 @@ public final class ModuleHost {
   /**
    * Publishes the platform services every module may use (UnitOfWorkFactory,
    * EventBus, EntityRegistry, PermissionRegistry, PermissionChecker,
-   * EntityEndpoints), then each module's own, then
-   * wires event handlers. Both registries are frozen afterwards.
+   * EntityEndpoints, Scheduler), then each module's own, then
+   * wires event handlers, then job types. The registries are frozen afterwards.
+   * Nothing runs yet: see startScheduler().
    */
   public synchronized ServiceRegistry start(UnitOfWorkFactory uowFactory) {
     if (services != null) {
@@ -87,11 +95,15 @@ public final class ModuleHost {
     Clock clock = Clock.tick(Clock.systemUTC(), Duration.ofSeconds(1));
     registry.register(EntityEndpoints.class,
         new EntityEndpoints(uowFactory, QueryLimits.defaults(), checker, eventBus, clock));
+    registry.register(Scheduler.class, scheduler);
     modules.forEach(m -> m.registerServices(registry));
     registry.freeze();
 
     modules.forEach(m -> m.registerEventHandlers(eventBus, registry));
     eventBus.freeze();
+
+    modules.forEach(m -> m.registerJobs(scheduler, registry));
+    scheduler.freeze();
 
     services = registry;
     return registry;
@@ -102,6 +114,21 @@ public final class ModuleHost {
       throw new IllegalStateException("ModuleHost not started");
     }
     return services;
+  }
+
+  /**
+   * Starts running jobs, unless {@code settings.enabled()} is false. Server
+   * mode only: CLI commands and most tests never call it. Call
+   * {@code scheduler.stop()} before closing the connection pool.
+   */
+  public Scheduler startScheduler(SchedulerSettings settings) {
+    ServiceRegistry s = services();
+    if (!settings.enabled()) {
+      LoggerFactory.getLogger(ModuleHost.class).info("Scheduler disabled (scheduler.enabled=false)");
+      return scheduler;
+    }
+    scheduler.start(settings, uowFactory, s.get(SystemActor.class), s.get(CompanyAccess.class), permissions);
+    return scheduler;
   }
 
   /**

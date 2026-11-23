@@ -30,6 +30,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ERPModule;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ModuleHost;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ServiceRegistry;
+import com.lesconstructionssapete.stempyerpserver.platform.scheduler.Scheduler;
 import com.lesconstructionssapete.stempyerpserver.platform.security.AuthFilter;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PasswordHasher;
 import com.lesconstructionssapete.stempyerpserver.platform.web.JsonMapperFactory;
@@ -84,12 +85,12 @@ public final class MySqlTestStack implements AutoCloseable {
 
   private final HikariDataSource dataSource;
   private final WebServer server;
-  private final ServiceRegistry services;
+  private final ModuleHost host;
 
-  private MySqlTestStack(HikariDataSource dataSource, WebServer server, ServiceRegistry services) {
+  private MySqlTestStack(HikariDataSource dataSource, WebServer server, ModuleHost host) {
     this.dataSource = dataSource;
     this.server = server;
-    this.services = services;
+    this.host = host;
   }
 
   public static MySqlTestStack start(Class<?> testClass, AuthSettings auth, Seeder seeder) throws SQLException {
@@ -118,7 +119,7 @@ public final class MySqlTestStack implements AutoCloseable {
       seed(dataSource, seeder);
       host.start(new UnitOfWorkFactory(dataSource));
       WebServer server = host.startWebServer(new WebServerConfig("127.0.0.1", 0));
-      return new MySqlTestStack(dataSource, server, host.services());
+      return new MySqlTestStack(dataSource, server, host);
     } catch (RuntimeException | SQLException e) {
       dataSource.close();
       throw e;
@@ -126,12 +127,17 @@ public final class MySqlTestStack implements AutoCloseable {
   }
 
   public UsersApi users() {
-    return services.get(UsersApi.class);
+    return host.services().get(UsersApi.class);
   }
 
   /** Everything the modules published, as the server would see it. */
   public ServiceRegistry services() {
-    return services;
+    return host.services();
+  }
+
+  /** For what the server does beyond HTTP, e.g. host().startScheduler(...). Stop the scheduler before close(). */
+  public ModuleHost host() {
+    return host;
   }
 
   public HikariDataSource dataSource() {
@@ -188,7 +194,11 @@ public final class MySqlTestStack implements AutoCloseable {
   @Override
   public void close() {
     try (dataSource) {
-      server.stop();
+      try {
+        server.stop();
+      } finally {
+        host.services().get(Scheduler.class).stop(); // no-op unless a test started it
+      }
     }
   }
 
