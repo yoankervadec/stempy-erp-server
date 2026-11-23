@@ -22,6 +22,7 @@ Early and evolving. Expect breaking changes.
 - A declarative entity framework: describe an entity once and get safe, filterable, sortable, paginated queries plus create / update / soft delete endpoints
 - Optimistic locking (`version`), soft deletes, RFC 7807 error responses, request ids in logs
 - Master data: products and product categories
+- A scheduler for recurring jobs (cron or fixed interval, per company or install-wide), configured in the database and editable while the server runs, safe with several server instances, with retries, timeouts, "run now" and run history (see [docs/API_GUIDE.md](docs/API_GUIDE.md) §7)
 - Flyway database migrations run at startup
 - Tests: unit, end-to-end against MySQL, and ArchUnit rules that enforce module boundaries
 
@@ -30,7 +31,7 @@ Early and evolving. Expect breaking changes.
 - Customers, vendors, companies, taxes
 - General ledger (accounts, periods, journal posting, trial balance)
 - Sales, purchasing, inventory, AR / AP, banking, fixed assets, approvals
-- Audit log, document numbering, scheduler and outbox
+- Audit log, document numbering, outbox
 
 ---
 
