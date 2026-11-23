@@ -49,6 +49,25 @@ public class UserAccountRepository {
         rs -> new UserRef(rs.getLong("id")), userNo);
   }
 
+  /** The user with this user number, deleted or not (user numbers are unique across both). */
+  public Optional<UserRef> findAnyByUserNo(UnitOfWork uow, String userNo) {
+    return Jdbc.queryFirst(uow, "SELECT id FROM users WHERE user_no = ?", rs -> new UserRef(rs.getLong("id")), userNo);
+  }
+
+  /**
+   * Inserts a disabled user that is its own creator (created_by / updated_by
+   * point at itself, like the first user of an install), with the next free
+   * id. Does nothing if the user number, or that id, was taken meanwhile by a
+   * concurrent insert: read it back with findAnyByUserNo.
+   */
+  public void insertSelfCreatedDisabledUser(UnitOfWork uow, String userNo, String name) {
+    Jdbc.update(uow, """
+        INSERT IGNORE INTO users (id, user_no, name, is_enabled, created_by, updated_by)
+        SELECT n.id, ?, ?, FALSE, n.id, n.id
+        FROM (SELECT COALESCE(MAX(id), 0) + 1 AS id FROM users) n""",
+        userNo, name);
+  }
+
   /** Soft-deletes the current credential(s) and inserts the new one (keeps history). */
   public void replacePassword(UnitOfWork uow, UserRef user, String passwordHash, Instant now) {
     Jdbc.update(uow, "UPDATE user_credentials SET deleted_at = ? WHERE user_id = ? AND deleted_at IS NULL",

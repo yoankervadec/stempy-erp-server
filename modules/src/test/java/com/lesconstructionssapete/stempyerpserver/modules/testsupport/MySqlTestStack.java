@@ -29,6 +29,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.db.DatabaseMigrator;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ERPModule;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ModuleHost;
+import com.lesconstructionssapete.stempyerpserver.platform.module.ServiceRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.security.AuthFilter;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PasswordHasher;
 import com.lesconstructionssapete.stempyerpserver.platform.web.JsonMapperFactory;
@@ -83,12 +84,12 @@ public final class MySqlTestStack implements AutoCloseable {
 
   private final HikariDataSource dataSource;
   private final WebServer server;
-  private final UsersApi users;
+  private final ServiceRegistry services;
 
-  private MySqlTestStack(HikariDataSource dataSource, WebServer server, UsersApi users) {
+  private MySqlTestStack(HikariDataSource dataSource, WebServer server, ServiceRegistry services) {
     this.dataSource = dataSource;
     this.server = server;
-    this.users = users;
+    this.services = services;
   }
 
   public static MySqlTestStack start(Class<?> testClass, AuthSettings auth, Seeder seeder) throws SQLException {
@@ -117,7 +118,7 @@ public final class MySqlTestStack implements AutoCloseable {
       seed(dataSource, seeder);
       host.start(new UnitOfWorkFactory(dataSource));
       WebServer server = host.startWebServer(new WebServerConfig("127.0.0.1", 0));
-      return new MySqlTestStack(dataSource, server, host.services().get(UsersApi.class));
+      return new MySqlTestStack(dataSource, server, host.services());
     } catch (RuntimeException | SQLException e) {
       dataSource.close();
       throw e;
@@ -125,7 +126,12 @@ public final class MySqlTestStack implements AutoCloseable {
   }
 
   public UsersApi users() {
-    return users;
+    return services.get(UsersApi.class);
+  }
+
+  /** Everything the modules published, as the server would see it. */
+  public ServiceRegistry services() {
+    return services;
   }
 
   public HikariDataSource dataSource() {

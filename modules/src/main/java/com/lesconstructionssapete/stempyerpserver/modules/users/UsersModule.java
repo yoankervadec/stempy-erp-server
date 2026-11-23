@@ -6,6 +6,7 @@ import java.util.Objects;
 
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.AssignRoleOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.CreateSessionOperation;
+import com.lesconstructionssapete.stempyerpserver.modules.users.operations.EnsureSystemUserOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.FindLoginCandidateOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.GetUserProfileOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.ListUserCompaniesOperation;
@@ -23,6 +24,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.security.LoginThrottl
 import com.lesconstructionssapete.stempyerpserver.platform.security.PasswordHasher;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.security.SessionAuthenticator;
+import com.lesconstructionssapete.stempyerpserver.platform.security.SystemActor;
 import com.lesconstructionssapete.stempyerpserver.platform.web.Routes;
 
 /**
@@ -33,6 +35,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.web.Routes;
  * - CompanyAccess (cached), used by the AuthFilter to pick the request's
  * company and load the user's permissions in it
  * - UsersApi, the module's public API (set-password, assign-role)
+ * - SystemActor, the SYSTEM user scheduled work runs as (created on first use)
  *
  * Most other entities point at User through created_by / updated_by, so it
  * comes first in AllModules.
@@ -92,6 +95,8 @@ public class UsersModule implements ERPModule {
         new SessionService(uowFactory, new ResolveSessionOperation(sessions, settings), clock));
     serviceRegistry.register(CompanyAccess.class, companyAccess);
     serviceRegistry.register(UsersApi.class, new UsersApiService(authService, authorization));
+    serviceRegistry.register(SystemActor.class,
+        new SystemUserService(uowFactory, new EnsureSystemUserOperation(accounts)));
   }
 
   @Override

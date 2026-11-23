@@ -3,6 +3,7 @@ package com.lesconstructionssapete.stempyerpserver.platform.db;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -39,6 +40,22 @@ public final class Jdbc {
     try (PreparedStatement ps = uow.connection().prepareStatement(sql)) {
       bind(ps, params);
       return ps.executeUpdate();
+    } catch (SQLException e) {
+      throw new DataAccessException(e);
+    }
+  }
+
+  /** A single-row INSERT into a table with an AUTO_INCREMENT key. Returns the new key. */
+  public static long insert(UnitOfWork uow, String sql, Object... params) {
+    try (PreparedStatement ps = uow.connection().prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+      bind(ps, params);
+      ps.executeUpdate();
+      try (ResultSet keys = ps.getGeneratedKeys()) {
+        if (!keys.next()) {
+          throw new DataAccessException("INSERT returned no generated key", new SQLException(sql));
+        }
+        return keys.getLong(1);
+      }
     } catch (SQLException e) {
       throw new DataAccessException(e);
     }

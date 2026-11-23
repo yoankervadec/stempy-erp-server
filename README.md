@@ -101,7 +101,10 @@ There is no command to create users or companies yet, so on a fresh database ins
 INSERT INTO companies (code, description, is_enabled) VALUES ('MYCO', 'My company', TRUE);
 
 -- The first user is its own creator: created_by / updated_by point at itself.
-INSERT INTO users (id, user_no, name, created_by, updated_by) VALUES (1, 'ADMIN', 'Administrator', 1, 1);
+-- It takes the next free id: the server may already have created its SYSTEM user.
+INSERT INTO users (id, user_no, name, created_by, updated_by)
+SELECT n.id, 'ADMIN', 'Administrator', n.id, n.id
+FROM (SELECT COALESCE(MAX(id), 0) + 1 AS id FROM users) n;
 ```
 
 Then give it a password and the built-in `ADMINISTRATOR` role in that company:
