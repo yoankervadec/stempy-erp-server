@@ -11,6 +11,7 @@ import com.lesconstructionssapete.stempyerpserver.modules.users.operations.FindL
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.GetUserProfileOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.ListUserCompaniesOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.LoadEffectivePermissionsOperation;
+import com.lesconstructionssapete.stempyerpserver.modules.users.operations.PurgeDeadSessionsOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.ResolveSessionOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.RevokeSessionOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.SetPasswordOperation;
@@ -18,6 +19,9 @@ import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ERPModule;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ServiceRegistry;
+import com.lesconstructionssapete.stempyerpserver.platform.scheduler.DefaultSchedule;
+import com.lesconstructionssapete.stempyerpserver.platform.scheduler.JobType;
+import com.lesconstructionssapete.stempyerpserver.platform.scheduler.Scheduler;
 import com.lesconstructionssapete.stempyerpserver.platform.security.CachedCompanyAccess;
 import com.lesconstructionssapete.stempyerpserver.platform.security.CompanyAccess;
 import com.lesconstructionssapete.stempyerpserver.platform.security.LoginThrottle;
@@ -37,6 +41,8 @@ import com.lesconstructionssapete.stempyerpserver.platform.web.Routes;
  * - UsersApi, the module's public API (set-password, assign-role)
  * - SystemActor, the SYSTEM user scheduled work runs as (created on first use)
  *
+ * Jobs: users.purge-expired-sessions (hourly by default).
+ *
  * Most other entities point at User through created_by / updated_by, so it
  * comes first in AllModules.
  */
@@ -47,6 +53,7 @@ public class UsersModule implements ERPModule {
   private final Clock clock;
 
   private AuthService authService; // built in registerServices, used by registerRoutes
+  private SessionCleanupService sessionCleanup; // built in registerServices, used by registerJobs
 
   /** Tests pass a cheap hasher so seeding and logging in stay fast. */
   public UsersModule(AuthSettings settings, PasswordHasher hasher, Clock clock) {
@@ -95,8 +102,22 @@ public class UsersModule implements ERPModule {
         new SessionService(uowFactory, new ResolveSessionOperation(sessions, settings), clock));
     serviceRegistry.register(CompanyAccess.class, companyAccess);
     serviceRegistry.register(UsersApi.class, new UsersApiService(authService, authorization));
+    sessionCleanup = new SessionCleanupService(uowFactory, settings, clock,
+        new PurgeDeadSessionsOperation(sessions));
+
     serviceRegistry.register(SystemActor.class,
         new SystemUserService(uowFactory, new EnsureSystemUserOperation(accounts)));
+  }
+
+  @Override
+  public void registerJobs(Scheduler scheduler, ServiceRegistry serviceRegistry) {
+    scheduler.register(JobType.of(SessionCleanupService.JOB_KEY,
+        "Deletes sessions that can no longer be used (logged out, expired or idle)", ctx -> {
+          int deleted = sessionCleanup.purgeDeadSessions(ctx::throwIfCancelled);
+          ctx.setResultSummary(deleted + " session(s) deleted");
+        })
+        .withTimeout(Duration.ofMinutes(10))
+        .withDefaultSchedule(DefaultSchedule.cron("Purge dead sessions", "15 * * * *", "America/Toronto")));
   }
 
   @Override

@@ -39,6 +39,7 @@ public final class Scheduler {
   private final Map<String, JobType> pending = new LinkedHashMap<>();
   private volatile Map<String, JobType> jobTypes; // null until frozen
   private SchedulerEngine engine;
+  private volatile SchedulerSettings settings; // set by start(); read by running jobs
 
   /** Registers a job type. Only allowed before freeze(); keys are unique. */
   public synchronized void register(JobType type) {
@@ -80,8 +81,21 @@ public final class Scheduler {
     if (engine != null) {
       throw new IllegalStateException("Scheduler already started");
     }
+    this.settings = Objects.requireNonNull(settings, "settings");
     engine = new SchedulerEngine(settings, frozen(), uowFactory, systemActor, companyAccess, permissions.names());
     engine.start();
+  }
+
+  /**
+   * The settings it was started with. Not synchronized: jobs call it, and
+   * stop() holds the lock while it waits for them.
+   */
+  public SchedulerSettings settings() {
+    SchedulerSettings settings = this.settings;
+    if (settings == null) {
+      throw new IllegalStateException("Scheduler not started");
+    }
+    return settings;
   }
 
   public synchronized boolean isRunning() {

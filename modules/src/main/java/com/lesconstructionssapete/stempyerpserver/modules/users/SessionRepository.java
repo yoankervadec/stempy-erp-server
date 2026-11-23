@@ -68,6 +68,19 @@ public class SessionRepository {
         + " AND (revoked_at IS NOT NULL OR expires_at <= ? OR last_seen_at <= ?)", userId, now, idleCutoff);
   }
 
+  /**
+   * Housekeeping for everyone: deletes up to {@code limit} sessions that can
+   * never be used again (revoked, past their lifetime, or idle since
+   * {@code idleCutoff}). Call in a loop until it returns less than the limit.
+   */
+  public int deleteDead(UnitOfWork uow, Instant now, Instant idleCutoff, int limit) {
+    return Jdbc.update(uow, """
+        DELETE FROM user_sessions
+        WHERE revoked_at IS NOT NULL OR expires_at <= ? OR last_seen_at <= ?
+        ORDER BY id
+        LIMIT ?""", now, idleCutoff, limit);
+  }
+
   private static String truncate(String s, int max) {
     return (s == null || s.length() <= max) ? s : s.substring(0, max);
   }

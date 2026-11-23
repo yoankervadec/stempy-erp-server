@@ -14,6 +14,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.events.EventBus;
 import com.lesconstructionssapete.stempyerpserver.platform.query.QueryLimits;
 import com.lesconstructionssapete.stempyerpserver.platform.scheduler.Scheduler;
 import com.lesconstructionssapete.stempyerpserver.platform.scheduler.SchedulerSettings;
+import com.lesconstructionssapete.stempyerpserver.platform.scheduler.internal.PruneRunsJob;
 import com.lesconstructionssapete.stempyerpserver.platform.security.AuthFilter;
 import com.lesconstructionssapete.stempyerpserver.platform.security.CompanyAccess;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionChecker;
@@ -102,6 +103,8 @@ public final class ModuleHost {
     modules.forEach(m -> m.registerEventHandlers(eventBus, registry));
     eventBus.freeze();
 
+    // The scheduler's own housekeeping first, then the modules' jobs.
+    scheduler.register(PruneRunsJob.type(uowFactory, () -> scheduler.settings().runRetention()));
     modules.forEach(m -> m.registerJobs(scheduler, registry));
     scheduler.freeze();
 
