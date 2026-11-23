@@ -21,9 +21,9 @@ import com.zaxxer.hikari.HikariDataSource;
  * Usage:
  *
  * <pre>
- * java -jar stempy.jar                                            start the server
- * java -jar stempy.jar set-password USER_NO                       set a user's password (prompts, no echo)
- * java -jar stempy.jar assign-role USER_NO COMPANY_CODE ROLE_CODE give a user a role in a company
+ * java -jar stempy.jar                                            // start the server
+ * java -jar stempy.jar set-password USER_NO                       // set a user's password (prompts, no echo)
+ * java -jar stempy.jar assign-role USER_NO COMPANY_CODE ROLE_CODE // give a user a role in a company
  * </pre>
  *
  * Every mode runs the same startup (modules, migrations, pool, services); a
@@ -65,7 +65,9 @@ public class Main {
     }, "shutdown"));
   }
 
-  /** The CLI command to run, or null to start the server; exits 2 on bad usage. */
+  /**
+   * The CLI command to run, or null to start the server; exits 2 on bad usage.
+   */
   private static ToIntFunction<ServiceRegistry> command(String[] args) {
     if (args.length == 0) {
       return null;
