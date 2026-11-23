@@ -32,7 +32,7 @@ INSERT INTO units_of_measure (code, description, is_enabled) VALUES ('UN', 'Unit
 -- note the ids (SELECT id, code FROM currencies; ...): the collection assumes 1 and 1
 ```
 
-Optional, to test permissions and multiple companies, see §7.
+Optional, to test permissions and multiple companies, see §8.
 
 ---
 
@@ -75,11 +75,11 @@ Every error has the same shape (RFC 7807, `Content-Type: application/problem+jso
 
 | Status | Typical `code` | Meaning |
 | --- | --- | --- |
-| 400 | `BAD_REQUEST`, `COMPANY_REQUIRED`, `INVALID_COMPANY_ID` | Malformed JSON / unknown property in a fixed body (login), no company chosen when you have several, bad `X-Company-Id` |
+| 400 | `BAD_REQUEST`, `COMPANY_REQUIRED`, `INVALID_COMPANY_ID`, `INVALID_PARAMETER` | Malformed JSON / unknown property in a fixed body (login), no company chosen when you have several, bad `X-Company-Id`, bad query parameter (`limit`, `status`, ...) |
 | 401 | `UNAUTHENTICATED`, `SESSION_INVALID`, `AUTH_HEADER_INVALID`, `INVALID_CREDENTIALS` | No / bad / expired token, wrong login |
 | 403 | `PERMISSION_DENIED`, `COMPANY_ACCESS_DENIED` | Missing permission (named in `detail`), not a member of that company |
 | 404 | `NOT_FOUND` | No such row **in your company** (another company's row is also 404) |
-| 409 | `VERSION_CONFLICT`, `DUPLICATE_VALUE` | Someone changed the row since you read it; concurrent duplicate |
+| 409 | `VERSION_CONFLICT`, `DUPLICATE_VALUE`, `RUN_ALREADY_QUEUED` | Someone changed the row since you read it; concurrent duplicate; a manual run of that schedule is already waiting |
 | 422 | `VALIDATION_FAILED` (see `errors`: `REQUIRED`, `ALREADY_EXISTS`, `INVALID_REFERENCE`, ...), `INVALID_REFERENCE` | Field problems; a reference the pre-checks couldn't see (e.g. an unknown `currencyId`) |
 | 429 | `LOGIN_RATE_LIMITED` | 5 failed logins for one user from one IP: locked 15 minutes |
 | 503 | `DATABASE_BUSY` | Retry |
@@ -255,7 +255,96 @@ Errors in the body are `422` with per-path codes, e.g. `UNKNOWN_FIELD`, `NOT_FIL
 
 ---
 
-## 7. Optional: a second user and company, to test permissions
+## 7. Scheduler
+
+Recurring jobs ("every 15 minutes", "daily at 07:00", "first Monday of the month"). **Job types** are code: each module registers what it can run (`GET /scheduler/job-types`). **Schedules** are rows of `scheduled_jobs` saying which job runs when, for which company, with which parameters. The server re-reads them every poll (`scheduler.pollInterval`, 5 s), so a change applies without a restart, also when made with plain SQL.
+
+| Method | Path | Body | Permission | Returns |
+| --- | --- | --- | --- | --- |
+| `GET` | `/scheduler/job-types` | – | `.read` or `system` | `200 [jobType]` |
+| `GET` | `/scheduler/schedules?scope=&limit=&offset=` | – | `.read` and/or `system` | `200 { "data": [schedule], "page": {limit, offset} }` |
+| `POST` | `/scheduler/schedules` | the schedule's fields | `.manage` (`system` for scope `SYSTEM`) | `201 schedule`, `Location` |
+| `GET` | `/scheduler/schedules/{id}` | – | `.read` (`system`) | `200 schedule` |
+| `PATCH` | `/scheduler/schedules/{id}` | `version` + only the fields to change | `.manage` (`system`) | `200 schedule` |
+| `DELETE` | `/scheduler/schedules/{id}?version=N` | – | `.manage` (`system`) | `204` |
+| `GET` | `/scheduler/schedules/{id}/preview?count=10` | – | `.read` (`system`) | `200 preview` |
+| `POST` | `/scheduler/preview` | `scheduleType`, `cronExpression` / `interval`, `timeZone`, `startAt`, `endAt`, `count` | `.manage` or `system` | `200 preview` (nothing saved) |
+| `POST` | `/scheduler/schedules/{id}/runs` | none, or `{ "parameters": {...} }` | `.run` (`system`) | `202 run`, `Location: /scheduler/runs/{id}` |
+| `GET` | `/scheduler/runs?scheduleId=&status=&limit=&offset=` | – | `.read` and/or `system` | `200 { "data": [run], "page": {...} }`, newest first |
+| `GET` | `/scheduler/runs/{id}` | – | `.read` (`system`) | `200 run` |
+
+Permissions: `scheduler.schedule.read`, `scheduler.schedule.manage`, `scheduler.schedule.run` act on **the request's company**. `scheduler.system.manage` (`system` above) covers **install-wide** schedules (scope `SYSTEM`, e.g. the server's own housekeeping). Without it they are invisible (`404`). Lists default to `limit` 50 (max 500).
+
+A job type may also name a **permission of its own** (`permission` in `GET /scheduler/job-types`). Creating, changing, deleting or running a schedule of that job then needs it too. Scheduled runs act as the `SYSTEM` user with every permission, so this check is what stops anyone from scheduling work they could not do themselves.
+
+### Schedule fields
+
+| Field | Type | Create | Rules |
+| --- | --- | --- | --- |
+| `name` | string | required | max 100, unique in the company (or among system schedules) |
+| `description` | string | optional | max 255 |
+| `jobKey` | string | required | a key from `GET /scheduler/job-types`; its `scope` must allow this schedule's scope |
+| `scope` | `COMPANY` \| `SYSTEM` | optional (default `COMPANY`) | cannot be changed afterwards |
+| `scheduleType` | `CRON` \| `INTERVAL` | required | |
+| `cronExpression` | string | for `CRON` | see below; must be empty (`null`) for `INTERVAL` |
+| `interval` | ISO-8601 duration | for `INTERVAL` | `PT1M` to `P366D`, e.g. `PT15M`, `PT2H`, `P1D`; must be empty for `CRON` |
+| `timeZone` | IANA zone | optional (default `America/Toronto`) | a `CRON` is evaluated in it: 07:00 stays 07:00 local across DST |
+| `parameters` | JSON object | optional | given to the job; checked by the job type |
+| `isEnabled` | boolean | optional (default `true`) | |
+| `startAt`, `endAt` | instant | optional | no run before `startAt` or after `endAt` |
+| `misfirePolicy` | `FIRE_ONCE` \| `SKIP` | optional (default `FIRE_ONCE`) | a fire time found more than `misfireThresholdSeconds` late (server down): run once now, or skip it |
+| `misfireThresholdSeconds` | int | optional (default 300) | 0 to 604800 |
+| `timeoutSeconds` | int | optional (default: the job type's, else `scheduler.defaultTimeout`) | 1 to 604800; past it the run is interrupted, `TIMED_OUT` |
+| `maxRetries`, `retryBackoffSeconds` | int | optional (0, 60) | 0 to 20; 1 to 86400. A failed run is retried after backoff × 2^n, capped at 1 hour |
+
+Returned only (sending one gives `READ_ONLY`): `id`, `version`, `jobRegistered` (false: no such job type on this server), `nextRunAt`, `lastRunAt`, `lastStatus`, `retryAttempt`, `runningOn` (the server instance running it now), `createdAt`, `createdBy`, `updatedAt`, `updatedBy`.
+
+On `PATCH`, a field left out keeps its value and `null` clears it. To switch a schedule from `CRON` to `INTERVAL`, send `"cronExpression": null` with the new `interval`. Every problem comes back in one `422`, with codes such as `INVALID_CRON`, `INVALID_TIME_ZONE`, `NOT_ALLOWED`, `UNKNOWN_JOB`, `NOT_ALLOWED_FOR_JOB`, `ALREADY_EXISTS`, `OUT_OF_RANGE`.
+
+**Cron expressions**: five fields, `minute hour day-of-month month day-of-week`.
+
+| Example | Means |
+| --- | --- |
+| `*/15 * * * *` | every 15 minutes |
+| `0 7 * * *` | every day at 07:00 |
+| `30 8 * * MON-FRI` | weekdays at 08:30 |
+| `0 0 * * TUE` | every Tuesday at midnight |
+| `0 9 * * MON#1` | the first Monday of the month at 09:00 |
+| `0 17 * * 5L` | the last Friday of the month at 17:00 |
+| `0 0 L * *` | the last day of the month |
+| `0 6 1,15 * *` | the 1st and 15th at 06:00 |
+| `@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly` | shortcuts |
+
+Names (`JAN`, `MON`) are case-insensitive; `0` and `7` are both Sunday; `?` means "any day". When **both** day-of-month and day-of-week are restricted, a day matching **either** fires (`0 0 1 * MON` = the 1st and every Monday), as in standard cron. During DST changes, a time skipped by the spring-forward runs at 03:00, and a time that happens twice in the fall runs once. Use `GET .../preview` or `POST /scheduler/preview` to check an expression before relying on it.
+
+```http
+POST /scheduler/schedules
+{
+  "name": "Daily sales summary",
+  "jobKey": "<a key from /scheduler/job-types>",
+  "scheduleType": "CRON",
+  "cronExpression": "0 7 * * MON-FRI",
+  "timeZone": "America/Toronto",
+  "maxRetries": 2
+}
+```
+
+### Runs
+
+A run is one execution: `trigger` is `SCHEDULE`, `RETRY` or `MANUAL`; `status` goes `QUEUED` (manual, waiting) → `RUNNING` → `SUCCEEDED`, `FAILED`, `TIMED_OUT` or `ABANDONED` (its server stopped). `SKIPPED` is a missed fire under `misfirePolicy: SKIP`, or a queued run whose schedule was deleted. A run also carries `resultSummary` and `errorMessage`. `errorDetail` (the stack trace) is shown only to holders of `scheduler.system.manage`.
+
+**Run now** (`POST /scheduler/schedules/{id}/runs`) queues a run that acts **as you**. In a company it gets your own permissions there, checked again when it starts, and `requestedBy` records you. It works on a disabled schedule too, to try a job before turning it on, and it does not change the regular schedule. One queued run per schedule at a time: a second request gets `409 RUN_ALREADY_QUEUED`. If the schedule is running at that moment, the queued run starts when that run ends. Poll `GET /scheduler/runs/{id}` (the `Location` header) to see the outcome.
+
+**Jobs that ship with the server** (install-wide, created on first start; change or delete them like any schedule):
+
+| Job key | Default schedule | Does |
+| --- | --- | --- |
+| `scheduler.prune-runs` | `30 3 * * *` America/Toronto | deletes finished runs older than `scheduler.runRetention` (P90D); parameter `{"retention": "P30D"}` overrides it |
+| `users.purge-expired-sessions` | `15 * * * *` America/Toronto | deletes sessions that are logged out, expired or idle |
+
+---
+
+## 8. Optional: a second user and company, to test permissions
 
 ```sql
 INSERT INTO companies (code, description, is_enabled) VALUES ('DEMO', 'Demo company', TRUE);
@@ -289,7 +378,7 @@ WHERE u.user_no = 'U1' AND c.code = 'LCS';
 
 ---
 
-## 8. Things worth trying
+## 9. Things worth trying
 
 **Authentication**
 - [ ] Login with a wrong password, then an unknown user: same `401 INVALID_CREDENTIALS`, same message.
@@ -299,7 +388,7 @@ WHERE u.user_no = 'U1' AND c.code = 'LCS';
 - [ ] Logout, then reuse the token: `401`.
 - [ ] `set-password U1` while logged in: every session of U1 ends.
 
-**Companies and permissions** (after §7)
+**Companies and permissions** (after §8)
 - [ ] U1 with two companies: `GET /auth/me` without `X-Company-Id` uses the default; with `X-Company-Id: <DEMO id>` you see DEMO.
 - [ ] `X-Company-Id: 999` → `403 COMPANY_ACCESS_DENIED`; `X-Company-Id: abc` → `400 INVALID_COMPANY_ID`.
 - [ ] Data created in LCS is invisible (`404` / not listed) with `X-Company-Id: <DEMO id>`.
@@ -314,6 +403,14 @@ WHERE u.user_no = 'U1' AND c.code = 'LCS';
 - [ ] `productCategoryId` of a category from DEMO, or a deleted one → `INVALID_REFERENCE`. `currencyId: 999` → `422 INVALID_REFERENCE`.
 - [ ] Two PATCHes with the same `version`: the second is `409 VERSION_CONFLICT`.
 - [ ] Delete without `?version=` → `422`; with a wrong version → `409`; then `GET` → `404`.
+
+**Scheduler**
+- [ ] `POST /scheduler/preview` with `"cronExpression": "0 9 * * MON#1"`: the first Monday of each coming month. With `"0 0 30 2 *"`: `422 INVALID_CRON` ("never fires").
+- [ ] Create a schedule with `"cronExpression": "*/1 * * * *"` and a job from `/scheduler/job-types`; within a minute `GET /scheduler/runs?scheduleId=...` shows a `SUCCEEDED` run.
+- [ ] `PATCH` it with `"isEnabled": false`: `nextRunAt` becomes `null` within a few seconds, and no new runs appear.
+- [ ] Run now twice quickly: the second is `409 RUN_ALREADY_QUEUED`. The run's `requestedBy` is you.
+- [ ] As U2 (no `scheduler.system.manage`): the `SYSTEM` schedules are missing from the list, and `GET` on one is `404`.
+- [ ] Stop the server while a long job runs: its run ends `ABANDONED`, and a server still running takes the schedule over.
 
 **Searching**
 - [ ] `contains` with `"%"` or `"_"`: matched literally.

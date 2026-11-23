@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.util.List;
 
 import com.lesconstructionssapete.stempyerpserver.modules.masterdata.items.ItemsModule;
+import com.lesconstructionssapete.stempyerpserver.modules.system.scheduling.SchedulingModule;
 import com.lesconstructionssapete.stempyerpserver.modules.users.AuthSettings;
 import com.lesconstructionssapete.stempyerpserver.modules.users.UsersModule;
 import com.lesconstructionssapete.stempyerpserver.platform.config.Settings;
@@ -30,6 +31,7 @@ public final class AllModules {
   public static List<ERPModule> create(Settings settings, PasswordHasher hasher) {
     return List.of(
         new UsersModule(AuthSettings.from(settings), hasher, Clock.systemUTC()),
-        new ItemsModule());
+        new ItemsModule(),
+        new SchedulingModule(Clock.systemUTC()));
   }
 }

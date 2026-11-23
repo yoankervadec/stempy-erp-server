@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Predicate;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,8 +54,22 @@ public final class Scheduler {
   }
 
   /** Closes registration. Idempotent. */
-  public synchronized void freeze() {
+  public void freeze() {
+    freeze(permission -> true);
+  }
+
+  /**
+   * Closes registration, failing on a job type whose permission no module
+   * declared (a typo would otherwise lock everyone out of it). Idempotent.
+   */
+  public synchronized void freeze(Predicate<String> declaredPermission) {
     if (jobTypes == null) {
+      for (JobType type : pending.values()) {
+        if (type.permission() != null && !declaredPermission.test(type.permission())) {
+          throw new IllegalStateException("Job type " + type.key() + " requires permission " + type.permission()
+              + ", which no module declares");
+        }
+      }
       jobTypes = Map.copyOf(pending);
       LOGGER.info("Scheduler frozen with {} job type(s): {}", jobTypes.size(), jobTypes.keySet());
     }

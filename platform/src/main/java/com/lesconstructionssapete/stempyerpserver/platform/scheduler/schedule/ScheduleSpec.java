@@ -45,6 +45,40 @@ public sealed interface ScheduleSpec {
     return times;
   }
 
+  /**
+   * The first fire time strictly after {@code after} inside the active window
+   * [startAt, endAt] (either may be null), or empty if there is none: what the
+   * scheduler stores as next_run_at.
+   */
+  default Optional<Instant> nextFire(Instant startAt, Instant endAt, Instant after) {
+    Instant from = after;
+    if (startAt != null && startAt.isAfter(after)) {
+      // So a fire exactly at startAt counts. Strictly after: once "after" has reached
+      // startAt, startAt itself is in the past and must not come back.
+      from = startAt.minusSeconds(1);
+    }
+    Optional<Instant> next = nextAfter(from);
+    if (next.isPresent() && endAt != null && next.get().isAfter(endAt)) {
+      return Optional.empty();
+    }
+    return next;
+  }
+
+  /** Up to {@code count} fire times after {@code after} inside the window, for previews. */
+  default List<Instant> preview(Instant startAt, Instant endAt, Instant after, int count) {
+    List<Instant> times = new ArrayList<>(count);
+    Instant cursor = after;
+    while (times.size() < count) {
+      Optional<Instant> next = nextFire(startAt, endAt, cursor);
+      if (next.isEmpty()) {
+        break;
+      }
+      cursor = next.get();
+      times.add(cursor);
+    }
+    return times;
+  }
+
   /** A cron expression evaluated in a time zone (07:00 stays 07:00 local across DST). */
   record Cron(CronExpression expression, ZoneId zone) implements ScheduleSpec {
     public Cron {

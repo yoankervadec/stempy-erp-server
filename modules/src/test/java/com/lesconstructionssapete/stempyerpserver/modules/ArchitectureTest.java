@@ -179,6 +179,14 @@ class ArchitectureTest {
 
   @ArchTest
   @SuppressWarnings("unused")
+  static final ArchRule modules_use_only_the_public_scheduler_api = noClasses()
+      .that().resideInAPackage(ROOT + "..")
+      .should().dependOnClassesThat().resideInAPackage("..platform.scheduler.internal..")
+      .because("the scheduler's engine and its SQL are platform internals; modules use Scheduler, JobType, "
+          + "JobContext and the schedule package");
+
+  @ArchTest
+  @SuppressWarnings("unused")
   static final ArchRule only_module_classes_see_the_service_registry = noClasses()
       .that(not(partOfAModuleClass()))
       .should().dependOnClassesThat().belongToAnyOf(ServiceRegistry.class)

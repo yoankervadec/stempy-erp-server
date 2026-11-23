@@ -117,6 +117,7 @@ public class UsersModule implements ERPModule {
           ctx.setResultSummary(deleted + " session(s) deleted");
         })
         .withTimeout(Duration.ofMinutes(10))
+        .withScope(JobType.Scope.SYSTEM)
         .withDefaultSchedule(DefaultSchedule.cron("Purge dead sessions", "15 * * * *", "America/Toronto")));
   }
 

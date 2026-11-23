@@ -88,6 +88,19 @@ class ScheduleSpecTest {
         () -> ScheduleSpec.of(null, "* * * * *", null, "UTC", null))));
   }
 
+  // ---- window ----
+
+  @Test
+  void theWindowStartFiresOnceAndTheWindowEndStops() {
+    var spec = ScheduleSpec.of(ScheduleType.INTERVAL, null, "PT15M", null, ANCHOR);
+    Instant start = ANCHOR.plusSeconds(3600);
+    Instant end = start.plusSeconds(1800);
+    assertEquals(start, spec.nextFire(start, end, ANCHOR).orElseThrow());
+    // asked again from the start itself: the next one, not the start again
+    assertEquals(start.plusSeconds(900), spec.nextFire(start, end, start).orElseThrow());
+    assertEquals(List.of(start, start.plusSeconds(900), start.plusSeconds(1800)), spec.preview(start, end, ANCHOR, 10));
+  }
+
   // ---- preview and canonical form ----
 
   @Test

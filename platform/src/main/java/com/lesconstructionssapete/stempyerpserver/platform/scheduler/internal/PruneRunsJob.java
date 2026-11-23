@@ -51,6 +51,7 @@ public final class PruneRunsJob {
         })
         .withParameters(PruneRunsJob::validate)
         .withTimeout(Duration.ofMinutes(30))
+        .withScope(JobType.Scope.SYSTEM)
         .withDefaultSchedule(DefaultSchedule.cron("Prune scheduler run history", "30 3 * * *", "America/Toronto"));
   }
 

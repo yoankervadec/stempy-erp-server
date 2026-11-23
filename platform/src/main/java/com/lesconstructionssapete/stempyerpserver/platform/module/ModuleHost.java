@@ -106,7 +106,7 @@ public final class ModuleHost {
     // The scheduler's own housekeeping first, then the modules' jobs.
     scheduler.register(PruneRunsJob.type(uowFactory, () -> scheduler.settings().runRetention()));
     modules.forEach(m -> m.registerJobs(scheduler, registry));
-    scheduler.freeze();
+    scheduler.freeze(permissions::contains);
 
     services = registry;
     return registry;

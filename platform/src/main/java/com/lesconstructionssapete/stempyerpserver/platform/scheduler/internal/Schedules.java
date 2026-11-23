@@ -54,14 +54,6 @@ public final class Schedules {
    * [start_at, end_at] window, or empty if the schedule is over.
    */
   public static Optional<Instant> nextFire(ScheduleSpec spec, ScheduleRow r, Instant after) {
-    Instant from = after;
-    if (r.startAt() != null && !r.startAt().isBefore(after)) {
-      from = r.startAt().minusSeconds(1); // so a fire exactly at start_at counts
-    }
-    Optional<Instant> next = spec.nextAfter(from);
-    if (next.isPresent() && r.endAt() != null && next.get().isAfter(r.endAt())) {
-      return Optional.empty();
-    }
-    return next;
+    return spec.nextFire(r.startAt(), r.endAt(), after);
   }
 }

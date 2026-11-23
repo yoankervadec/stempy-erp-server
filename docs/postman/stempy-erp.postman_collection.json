@@ -58,6 +58,26 @@
     {
       "key": "productVersion",
       "value": "0"
+    },
+    {
+      "key": "jobKey",
+      "value": "users.purge-expired-sessions",
+      "description": "Job type used by the Scheduler requests (see List job types)"
+    },
+    {
+      "key": "scheduleId",
+      "value": "",
+      "description": "Set by Create / Get / Update schedule"
+    },
+    {
+      "key": "scheduleVersion",
+      "value": "",
+      "description": "Set by Create / Get / Update schedule"
+    },
+    {
+      "key": "runId",
+      "value": "",
+      "description": "Set by Run now"
     }
   ],
   "item": [
@@ -788,6 +808,476 @@
       ]
     },
     {
+      "name": "Scheduler",
+      "description": "Recurring jobs: job types, schedules, manual runs and history. See docs/API_GUIDE.md section 7.",
+      "item": [
+        {
+          "name": "List job types",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scheduler/job-types",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scheduler",
+                "job-types"
+              ]
+            },
+            "description": "What can be scheduled: key, scope (SYSTEM / COMPANY / ANY), required permission, default schedule."
+          }
+        },
+        {
+          "name": "Preview a cron before saving",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scheduler/preview",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scheduler",
+                "preview"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scheduleType\": \"CRON\",\n  \"cronExpression\": \"0 9 * * MON#1\",\n  \"timeZone\": \"America/Toronto\",\n  \"count\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Next fire times of an unsaved schedule (here: the first Monday of each month at 09:00). Nothing is stored."
+          }
+        },
+        {
+          "name": "Create schedule (stores id, version)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scheduler/schedules",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scheduler",
+                "schedules"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Purge sessions every 30 minutes (Postman)\",\n  \"description\": \"Created from the Postman collection\",\n  \"jobKey\": \"{{jobKey}}\",\n  \"scope\": \"SYSTEM\",\n  \"scheduleType\": \"INTERVAL\",\n  \"interval\": \"PT30M\",\n  \"maxRetries\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "scope SYSTEM needs scheduler.system.manage; drop it (default COMPANY) for a job whose scope allows companies."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"scheduleId\", row.id);",
+                  "  pm.collectionVariables.set(\"scheduleVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List schedules",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scheduler/schedules?limit=50&offset=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scheduler",
+                "schedules"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "Add scope=COMPANY or scope=SYSTEM to narrow."
+          }
+        },
+        {
+          "name": "Get schedule (stores version)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scheduler/schedules/{{scheduleId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scheduler",
+                "schedules",
+                "{{scheduleId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"scheduleVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Preview schedule",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scheduler/schedules/{{scheduleId}}/preview?count=5",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scheduler",
+                "schedules",
+                "{{scheduleId}}",
+                "preview"
+              ],
+              "query": [
+                {
+                  "key": "count",
+                  "value": "5"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update schedule (uses the last version read)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scheduler/schedules/{{scheduleId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scheduler",
+                "schedules",
+                "{{scheduleId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": {{scheduleVersion}},\n  \"scheduleType\": \"CRON\",\n  \"cronExpression\": \"*/10 * * * *\",\n  \"interval\": null,\n  \"timeZone\": \"America/Toronto\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Switches to a cron every 10 minutes. Fields left out keep their value; null clears one."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"scheduleVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Disable schedule",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scheduler/schedules/{{scheduleId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scheduler",
+                "schedules",
+                "{{scheduleId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": {{scheduleVersion}},\n  \"isEnabled\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "nextRunAt becomes null within a poll (5 s). Run now still works on a disabled schedule."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"scheduleVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Run now (stores runId)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scheduler/schedules/{{scheduleId}}/runs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scheduler",
+                "schedules",
+                "{{scheduleId}}",
+                "runs"
+              ]
+            },
+            "description": "Queues a run acting as you (202). Optional body: { \"parameters\": { ... } } to override the schedule's. A second request while one is queued: 409 RUN_ALREADY_QUEUED."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"runId\", row.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get run (poll after Run now)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scheduler/runs/{{runId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scheduler",
+                "runs",
+                "{{runId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Runs of this schedule",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scheduler/runs?scheduleId={{scheduleId}}&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scheduler",
+                "runs"
+              ],
+              "query": [
+                {
+                  "key": "scheduleId",
+                  "value": "{{scheduleId}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Newest first. Also: status=FAILED (QUEUED, RUNNING, SUCCEEDED, FAILED, TIMED_OUT, SKIPPED, ABANDONED)."
+          }
+        },
+        {
+          "name": "Delete schedule (soft)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scheduler/schedules/{{scheduleId}}?version={{scheduleVersion}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scheduler",
+                "schedules",
+                "{{scheduleId}}"
+              ],
+              "query": [
+                {
+                  "key": "version",
+                  "value": "{{scheduleVersion}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "Errors to provoke",
       "item": [
         {
@@ -1043,6 +1533,44 @@
             },
             "auth": {
               "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "422: invalid cron (never fires)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scheduler/preview",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scheduler",
+                "preview"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scheduleType\": \"CRON\",\n  \"cronExpression\": \"0 0 30 2 *\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           }
         }

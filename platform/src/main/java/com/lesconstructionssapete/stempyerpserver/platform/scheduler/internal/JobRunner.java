@@ -159,6 +159,12 @@ final class JobRunner {
   private RequestContext requestContext(Claim claim) {
     String requestId = "job-run-" + claim.runId();
     Long company = claim.schedule().companyId();
+    JobType type = jobTypes.get(claim.schedule().jobKey());
+    if (!type.allows(company)) {
+      // The API refuses this; a row edited with SQL may still say it.
+      throw new SetupException("Job " + type.key() + " is " + type.scope() + "-scoped and cannot run "
+          + (company == null ? "install-wide" : "for a company"));
+    }
     long companyId = company == null ? 0 : company;
     if (claim.trigger() != TriggerType.MANUAL) {
       return new RequestContext(requestId, systemActor.userId(), companyId, allPermissions);
