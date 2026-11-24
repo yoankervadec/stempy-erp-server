@@ -39,7 +39,9 @@ final class JobRunner {
   private static final String MDC_KEY = "requestId"; // same key as web requests (RequestIdFilter)
   private static final ObjectMapper JSON = JsonMapperFactory.newObjectMapper();
 
-  /** The run could not even start (bad parameters, requester lost access): FAILED. */
+  /**
+   * The run could not even start (bad parameters, requester lost access): FAILED.
+   */
   static final class SetupException extends RuntimeException {
     SetupException(String message) {
       super(message);
@@ -99,7 +101,7 @@ final class JobRunner {
       LOGGER.info("Starting {} run {} of schedule {} ({}), attempt {}, as user {}", claim.trigger(), claim.runId(),
           s.id(), s.name(), claim.attempt(), ctx.requestContext().userId());
       type.job().execute(ctx);
-    } catch (Throwable t) {
+    } catch (Exception t) {
       failure = t;
     } finally {
       if (timer != null) {
@@ -193,7 +195,10 @@ final class JobRunner {
     return node;
   }
 
-  /** Extends the lease; cancels the run if it is lost, or can't be renewed before it would expire. */
+  /**
+   * Extends the lease; cancels the run if it is lost, or can't be renewed before
+   * it would expire.
+   */
   private void renew(Claim claim, ActiveRun run) {
     try {
       boolean ours = uowFactory.execute(uow -> schedules.renewLease(uow, claim.schedule().id(),
@@ -205,7 +210,8 @@ final class JobRunner {
       }
     } catch (RuntimeException e) {
       LOGGER.warn("Could not renew the lease of schedule {} for run {}", claim.schedule().id(), claim.runId(), e);
-      // Renewal runs every lease/3: if the next try would come too late, stop now rather
+      // Renewal runs every lease/3: if the next try would come too late, stop now
+      // rather
       // than keep running after another instance may have taken the schedule over.
       if (run.nanosSinceLeaseRenewed() > settings.lease().toNanos() * 2 / 3) {
         run.cancel(ActiveRun.Reason.LEASE_LOST);

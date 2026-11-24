@@ -42,8 +42,10 @@ import com.lesconstructionssapete.stempyerpserver.platform.web.RequestContext;
  * Who sees what:
  * <ul>
  * <li>company schedules and their runs: the request's company only, with
- * scheduler.schedule.read; changes need scheduler.schedule.manage, manual runs scheduler.schedule.run;</li>
- * <li>install-wide (SYSTEM) schedules and their runs: scheduler.system.manage for
+ * scheduler.schedule.read; changes need scheduler.schedule.manage, manual runs
+ * scheduler.schedule.run;</li>
+ * <li>install-wide (SYSTEM) schedules and their runs: scheduler.system.manage
+ * for
  * everything; without it they are invisible (404);</li>
  * <li>creating, changing or running a schedule of a job type that names a
  * permission also needs that permission: scheduled runs act as SYSTEM with
@@ -116,23 +118,35 @@ public class SchedulingService {
 
   // ---- schedules ----
 
-  /** @param scope null: the company's schedules, plus the system ones if the caller may see them */
+  /**
+   * @param scope null: the company's schedules, plus the system ones if the
+   *              caller may see them
+   */
   public Listing<ScheduleView> listSchedules(RequestContext rc, ScheduleScope scope, Page page) {
     boolean company;
     boolean system;
-    if (scope == ScheduleScope.COMPANY) {
-      permissions.require(rc, READ);
-      company = true;
-      system = false;
-    } else if (scope == ScheduleScope.SYSTEM) {
-      permissions.require(rc, SYSTEM);
-      company = false;
-      system = true;
-    } else {
+    if (null == scope) {
       requireAny(rc, READ, SYSTEM);
       company = permissions.has(rc, READ);
       system = permissions.has(rc, SYSTEM);
-    }
+    } else
+      switch (scope) {
+        case COMPANY -> {
+          permissions.require(rc, READ);
+          company = true;
+          system = false;
+        }
+        case SYSTEM -> {
+          permissions.require(rc, SYSTEM);
+          company = false;
+          system = true;
+        }
+        default -> {
+          requireAny(rc, READ, SYSTEM);
+          company = permissions.has(rc, READ);
+          system = permissions.has(rc, SYSTEM);
+        }
+      }
     var input = new ListSchedulesOperation.Input(company ? rc.companyId() : null, system, page.limit(),
         page.offset());
     Instant now = clock.instant();
@@ -264,12 +278,14 @@ public class SchedulingService {
   private StoredSchedule visibleSchedule(RequestContext rc, long id) {
     StoredSchedule s = uowFactory.executeReadOnly(uow -> findSchedule.execute(uow, id))
         .orElseThrow(() -> new ResourceNotFoundException("NOT_FOUND", "Schedule " + id + " not found"));
-    requireVisible(rc, s.companyId(), () -> new ResourceNotFoundException("NOT_FOUND", "Schedule " + id + " not found"));
+    requireVisible(rc, s.companyId(),
+        () -> new ResourceNotFoundException("NOT_FOUND", "Schedule " + id + " not found"));
     return s;
   }
 
   /**
-   * Another company's rows, and system rows without scheduler.system.manage, are 404:
+   * Another company's rows, and system rows without scheduler.system.manage, are
+   * 404:
    * their existence is not revealed. The caller's own company without
    * scheduler.schedule.read is 403.
    */
@@ -286,7 +302,10 @@ public class SchedulingService {
     }
   }
 
-  /** The job must exist here, allow this scope, accept the parameters, and the caller must hold its permission. */
+  /**
+   * The job must exist here, allow this scope, accept the parameters, and the
+   * caller must hold its permission.
+   */
   private void checkJob(RequestContext rc, ScheduleFields f, Long companyId) {
     JobType type = registeredJob(f.jobKey(), "jobKey");
     if (!type.allows(companyId)) {
@@ -313,7 +332,10 @@ public class SchedulingService {
     }
   }
 
-  /** The job type's own rules; its field names are reported as they are (e.g. "parameters.days"). */
+  /**
+   * The job type's own rules; its field names are reported as they are (e.g.
+   * "parameters.days").
+   */
   private static void validateParameters(JobType type, JsonNode parameters) {
     type.parameters().validate(parameters);
   }
@@ -340,7 +362,8 @@ public class SchedulingService {
   private ScheduleView view(StoredSchedule s, Instant now) {
     ScheduleFields f = s.fields();
     String runningOn = s.lockedBy() != null && s.lockedUntil() != null && s.lockedUntil().isAfter(now)
-        ? s.lockedBy() : null;
+        ? s.lockedBy()
+        : null;
     return new ScheduleView(s.id(), s.version(), s.isSystem() ? ScheduleScope.SYSTEM : ScheduleScope.COMPANY,
         f.jobKey(), scheduler.jobType(f.jobKey()).isPresent(), f.name(), f.description(), f.scheduleType(),
         f.cronExpression(), f.interval(), f.timeZone(), parseOrNull(f.parameters()), f.enabled(), f.startAt(),
@@ -361,7 +384,10 @@ public class SchedulingService {
     return Optional.ofNullable(json).map(SchedulingService::parse).orElse(null);
   }
 
-  /** Stored JSON; text edited by hand that no longer parses is shown as a string rather than failing the request. */
+  /**
+   * Stored JSON; text edited by hand that no longer parses is shown as a string
+   * rather than failing the request.
+   */
   private static JsonNode parse(String json) {
     try {
       return JSON.readTree(json);

@@ -129,7 +129,7 @@ public class SchedulingController {
       return null;
     }
     try {
-      return Long.parseLong(raw.strip());
+      return Long.valueOf(raw.strip());
     } catch (NumberFormatException e) {
       throw new BadRequestException("INVALID_PARAMETER", name + " must be a number");
     }

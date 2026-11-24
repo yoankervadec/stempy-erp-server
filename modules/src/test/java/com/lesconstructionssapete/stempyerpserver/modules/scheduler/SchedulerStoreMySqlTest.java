@@ -1,11 +1,5 @@
 package com.lesconstructionssapete.stempyerpserver.modules.scheduler;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -15,6 +9,11 @@ import java.util.List;
 import java.util.function.Function;
 
 import org.junit.jupiter.api.AfterAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,7 +43,10 @@ import com.lesconstructionssapete.stempyerpserver.platform.security.SystemActor;
  */
 class SchedulerStoreMySqlTest {
 
-  /** The job keys this "instance" knows; rows with other keys are left for other instances. */
+  /**
+   * The job keys this "instance" knows; rows with other keys are left for other
+   * instances.
+   */
   private static final List<String> KEYS = List.of("test.job");
 
   private static MySqlTestStack stack;
@@ -77,6 +79,7 @@ class SchedulerStoreMySqlTest {
   }
 
   @BeforeEach
+  @SuppressWarnings("unused")
   void emptyTables() {
     uow.run(u -> {
       Jdbc.update(u, "DELETE FROM scheduled_job_runs");
@@ -93,7 +96,10 @@ class SchedulerStoreMySqlTest {
         VALUES ('test.job', ?, 'CRON', '*/15 * * * *', 'UTC', UTC_TIMESTAMP() - INTERVAL 1 MINUTE)""", name));
   }
 
-  /** A transaction returning a boolean, typed so assertTrue / assertFalse pick their boolean overload. */
+  /**
+   * A transaction returning a boolean, typed so assertTrue / assertFalse pick
+   * their boolean overload.
+   */
   private static boolean inTx(Function<UnitOfWork, Boolean> work) {
     return uow.execute(work);
   }
@@ -334,7 +340,8 @@ class SchedulerStoreMySqlTest {
     assertEquals(3, id); // after the seeded users 1 and 2
     assertEquals(id, stack.services().get(SystemActor.class).userId());
 
-    try (Connection c = stack.dataSource().getConnection(); Statement st = c.createStatement();
+    try (Connection c = stack.dataSource().getConnection();
+        Statement st = c.createStatement();
         var rs = st.executeQuery("SELECT user_no, is_enabled, created_by, updated_by FROM users WHERE id = " + id)) {
       assertTrue(rs.next());
       assertEquals("SYSTEM", rs.getString("user_no"));
@@ -345,7 +352,8 @@ class SchedulerStoreMySqlTest {
     // another server instance finds the same row instead of inserting a second one
     assertEquals(id, new SystemUserService(uow,
         new EnsureSystemUserOperation(
-            new UserAccountRepository())).userId());
+            new UserAccountRepository()))
+        .userId());
     assertEquals(1, uow.executeReadOnly(u -> Jdbc.queryFirst(u, "SELECT COUNT(*) FROM users WHERE user_no = 'SYSTEM'",
         rs -> rs.getInt(1))).orElseThrow());
   }

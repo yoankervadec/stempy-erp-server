@@ -1,12 +1,5 @@
 package com.lesconstructionssapete.stempyerpserver.modules.scheduler;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.fail;
-
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
@@ -22,6 +15,12 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.BooleanSupplier;
 
 import org.junit.jupiter.api.AfterAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.MethodOrderer;
@@ -164,6 +163,7 @@ class SchedulerEngineMySqlTest {
   }
 
   @BeforeEach
+  @SuppressWarnings("unused")
   void closeGate() {
     gateOpen = false;
   }
@@ -190,10 +190,14 @@ class SchedulerEngineMySqlTest {
     });
   }
 
-  /** As insertDue, but next_run_at is a year away: only manual runs or the reaper will touch it. */
+  /**
+   * As insertDue, but next_run_at is a year away: only manual runs or the reaper
+   * will touch it.
+   */
   private long insertIdle(String jobKey, String name, String... columns) {
     long id = insertDue(jobKey, name, 0, columns);
-    uow.run(u -> Jdbc.update(u, "UPDATE scheduled_jobs SET next_run_at = UTC_TIMESTAMP() + INTERVAL 1 YEAR WHERE id = ?", id));
+    uow.run(u -> Jdbc.update(u,
+        "UPDATE scheduled_jobs SET next_run_at = UTC_TIMESTAMP() + INTERVAL 1 YEAR WHERE id = ?", id));
     return id;
   }
 
@@ -287,7 +291,8 @@ class SchedulerEngineMySqlTest {
   void invalidParametersFailTheRunBeforeTheJobStarts() {
     long id = insertDue("test.params", "Bad params", 1, "parameters = '{\"days\": \"seven\"}'");
     awaitStatuses(id, RunStatus.FAILED);
-    assertTrue(runsOf(id).getFirst().errorMessage().startsWith("Invalid parameters"), runsOf(id).getFirst().errorMessage());
+    assertTrue(runsOf(id).getFirst().errorMessage().startsWith("Invalid parameters"),
+        runsOf(id).getFirst().errorMessage());
     assertTrue(seenBy(id).isEmpty());
   }
 
@@ -317,7 +322,8 @@ class SchedulerEngineMySqlTest {
     uow.run(u -> Jdbc.update(u, "UPDATE scheduled_jobs SET is_enabled = FALSE WHERE id = ?", id));
     await("disabled", () -> row(id).nextRunAt() == null && row(id).fingerprint() == null);
 
-    uow.run(u -> Jdbc.update(u, "UPDATE scheduled_jobs SET cron_expression = '61 * * * *', is_enabled = TRUE WHERE id = ?", id));
+    uow.run(u -> Jdbc.update(u,
+        "UPDATE scheduled_jobs SET cron_expression = '61 * * * *', is_enabled = TRUE WHERE id = ?", id));
     await("invalid: fingerprinted but never due", () -> row(id).fingerprint() != null && row(id).nextRunAt() == null);
     assertTrue(runsOf(id).isEmpty());
   }
