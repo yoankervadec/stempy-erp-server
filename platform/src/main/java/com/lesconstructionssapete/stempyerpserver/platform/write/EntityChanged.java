@@ -29,6 +29,9 @@ public sealed interface EntityChanged extends DomainEvent {
 
   long userId();
 
+  /** RequestContext.requestId of the write: ties listeners' work (an audit entry) to the request's logs. */
+  String requestId();
+
   Instant occurredAt();
 
   /** Field name -> its old and new value; empty when nothing a client sees changed (e.g. a delete). */
@@ -39,7 +42,7 @@ public sealed interface EntityChanged extends DomainEvent {
   }
 
   /** @param changes every field the client set, old value null */
-  record Created(String entity, long id, long companyId, long userId, Instant occurredAt,
+  record Created(String entity, long id, long companyId, long userId, String requestId, Instant occurredAt,
       Map<String, FieldChange> changes) implements EntityChanged {
     public Created {
       changes = copy(changes);
@@ -52,8 +55,8 @@ public sealed interface EntityChanged extends DomainEvent {
    * @param changes the fields whose value changed; may be empty (a PATCH
    *                that repeats the current values)
    */
-  record Updated(String entity, long id, long companyId, long userId, Instant occurredAt, Set<String> fields,
-      Map<String, FieldChange> changes) implements EntityChanged {
+  record Updated(String entity, long id, long companyId, long userId, String requestId, Instant occurredAt,
+      Set<String> fields, Map<String, FieldChange> changes) implements EntityChanged {
     public Updated {
       fields = Set.copyOf(fields);
       changes = copy(changes);
@@ -61,7 +64,8 @@ public sealed interface EntityChanged extends DomainEvent {
   }
 
   /** Soft-deleted. */
-  record Deleted(String entity, long id, long companyId, long userId, Instant occurredAt) implements EntityChanged {
+  record Deleted(String entity, long id, long companyId, long userId, String requestId, Instant occurredAt)
+      implements EntityChanged {
     @Override
     public Map<String, FieldChange> changes() {
       return Map.of();

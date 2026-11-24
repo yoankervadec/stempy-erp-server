@@ -40,7 +40,7 @@ class EventBusAsyncTest {
   private final OutboxWriter writer = (uow, key, event) -> enqueued.add(new Enqueued(key, event));
 
   private static EntityChanged.Created created() {
-    return new EntityChanged.Created("product", 7, 1, 2, Instant.parse("2026-11-24T12:00:00Z"),
+    return new EntityChanged.Created("product", 7, 1, 2, "req-1", Instant.parse("2026-11-24T12:00:00Z"),
         Map.of("name", new EntityChanged.FieldChange(null, "Gravel")));
   }
 
@@ -116,7 +116,7 @@ class EventBusAsyncTest {
   void eventsRoundTripThroughThePayloadJson() throws Exception {
     ObjectMapper json = JsonMapperFactory.newObjectMapper();
     // JSON-friendly values (strings, null) come back equal; a BigDecimal would come back as its string.
-    var updated = new EntityChanged.Updated("product", 7, 1, 2, Instant.parse("2026-11-24T12:00:00Z"),
+    var updated = new EntityChanged.Updated("product", 7, 1, 2, "req-2", Instant.parse("2026-11-24T12:00:00Z"),
         Set.of("price", "description"), Map.of(
             "description", new EntityChanged.FieldChange("Old", "New"),
             "notes", new EntityChanged.FieldChange(null, "first note")));

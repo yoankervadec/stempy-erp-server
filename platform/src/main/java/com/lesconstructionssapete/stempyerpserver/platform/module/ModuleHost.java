@@ -7,7 +7,10 @@ import java.util.Objects;
 
 import org.slf4j.LoggerFactory;
 
+import com.lesconstructionssapete.stempyerpserver.platform.audit.AuditLog;
+import com.lesconstructionssapete.stempyerpserver.platform.audit.AuditTrail;
 import com.lesconstructionssapete.stempyerpserver.platform.db.Jdbc;
+import com.lesconstructionssapete.stempyerpserver.platform.write.EntityChanged;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.events.EventBus;
@@ -83,7 +86,7 @@ public final class ModuleHost {
   /**
    * Publishes the platform services every module may use (UnitOfWorkFactory,
    * EventBus, EntityRegistry, PermissionRegistry, PermissionChecker,
-   * EntityEndpoints, Scheduler, Outbox), then each module's own, then
+   * EntityEndpoints, Scheduler, Outbox, AuditLog), then each module's own, then
    * wires event handlers (synchronous and async), then job types. The
    * registries are frozen afterwards. Nothing runs yet: see startScheduler()
    * and startOutbox().
@@ -109,9 +112,13 @@ public final class ModuleHost {
         new EntityEndpoints(uowFactory, QueryLimits.defaults(), checker, eventBus, clock));
     registry.register(Scheduler.class, scheduler);
     registry.register(Outbox.class, outbox);
+    var auditLog = new AuditLog(JsonMapperFactory.newObjectMapper());
+    registry.register(AuditLog.class, auditLog);
     modules.forEach(m -> m.registerServices(registry));
     registry.freeze();
 
+    // The audit trail first: every generic write is recorded in its own transaction.
+    eventBus.subscribe(EntityChanged.class, new AuditTrail(auditLog, entities));
     modules.forEach(m -> m.registerEventHandlers(eventBus, registry));
     eventBus.freeze();
 

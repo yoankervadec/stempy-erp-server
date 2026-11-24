@@ -173,8 +173,8 @@ public final class EntityEndpoints {
       SQLWrite<E> insert = writes.insert(entity, JsonBodies.read(ctx, BODY_TYPE.getType()), wc, access(rc));
       Map<String, Object> created = uowFactory.execute(uow -> {
         long id = writer.insert(uow, insert, rc.companyId());
-        eventBus.publish(uow, new EntityChanged.Created(entity.name(), id, rc.companyId(), rc.userId(), wc.now(),
-            FieldChanges.created(insert.values())));
+        eventBus.publish(uow, new EntityChanged.Created(entity.name(), id, rc.companyId(), rc.userId(),
+            rc.requestId(), wc.now(), FieldChanges.created(insert.values())));
         return row(uow, entity, id, rc).orElseThrow(() -> notFound(entity));
       });
       ctx.status(201);
@@ -196,8 +196,8 @@ public final class EntityEndpoints {
           .collect(java.util.stream.Collectors.toSet());
       ctx.json(uowFactory.execute(uow -> {
         var before = writer.update(uow, update, id, rc.companyId());
-        eventBus.publish(uow, new EntityChanged.Updated(entity.name(), id, rc.companyId(), rc.userId(), wc.now(),
-            changed, FieldChanges.updated(before, update.values())));
+        eventBus.publish(uow, new EntityChanged.Updated(entity.name(), id, rc.companyId(), rc.userId(),
+            rc.requestId(), wc.now(), changed, FieldChanges.updated(before, update.values())));
         return row(uow, entity, id, rc).orElseThrow(() -> notFound(entity));
       }));
     };
@@ -213,7 +213,8 @@ public final class EntityEndpoints {
       SQLWrite<E> delete = writes.softDelete(entity, id, version, wc);
       uowFactory.run(uow -> {
         writer.update(uow, delete, id, rc.companyId());
-        eventBus.publish(uow, new EntityChanged.Deleted(entity.name(), id, rc.companyId(), rc.userId(), wc.now()));
+        eventBus.publish(uow, new EntityChanged.Deleted(entity.name(), id, rc.companyId(), rc.userId(),
+            rc.requestId(), wc.now()));
       });
       ctx.status(204);
     };
