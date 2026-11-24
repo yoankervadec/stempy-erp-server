@@ -5,6 +5,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -52,17 +53,24 @@ public final class WriteExecutor {
     }
   }
 
-  /** 404 if the row doesn't exist (for this company), 409 if its version moved on. */
-  public <E> void update(UnitOfWork uow, SQLWrite<E> update, long id, long companyId) {
+  /**
+   * 404 if the row doesn't exist (for this company), 409 if its version moved
+   * on.
+   *
+   * @return the values the changed fields had before, read under a row lock
+   *         (empty for a soft delete, which changes no client field)
+   */
+  public <E> Map<Field<E, ?>, Object> update(UnitOfWork uow, SQLWrite<E> update, long id, long companyId) {
     check(uow, update, companyId, id);
     try {
+      Map<Field<E, ?>, Object> before = before(uow, update);
       int changed;
       try (PreparedStatement ps = uow.connection().prepareStatement(update.sql())) {
         bindAll(ps, update.binds());
         changed = ps.executeUpdate();
       }
       if (changed == 1) {
-        return;
+        return before;
       }
       String entity = update.entity().name();
       if (exists(uow, update.existsSql(), update.existsBinds())) {
@@ -71,6 +79,26 @@ public final class WriteExecutor {
       throw new ResourceNotFoundException("NOT_FOUND", entity + " not found");
     } catch (SQLException e) {
       throw new DataAccessException(e);
+    }
+  }
+
+  /** Locks the row and reads the current values of the fields being changed; empty if no such row. */
+  private static <E> Map<Field<E, ?>, Object> before(UnitOfWork uow, SQLWrite<E> update) throws SQLException {
+    if (update.beforeSql() == null) {
+      return Map.of();
+    }
+    try (PreparedStatement ps = uow.connection().prepareStatement(update.beforeSql())) {
+      bindAll(ps, update.beforeBinds());
+      try (ResultSet rs = ps.executeQuery()) {
+        if (!rs.next()) {
+          return Map.of(); // the UPDATE finds nothing either: 404
+        }
+        Map<Field<E, ?>, Object> values = new LinkedHashMap<>();
+        for (Field<E, ?> f : update.values().keySet()) {
+          values.put(f, f.type().read(rs, f.column()));
+        }
+        return values;
+      }
     }
   }
 

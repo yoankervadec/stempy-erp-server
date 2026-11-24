@@ -57,7 +57,7 @@ public final class WriteBuilder {
 
     String sql = "INSERT INTO " + def.table() + " (" + String.join(", ", columns) + ") VALUES ("
         + String.join(", ", columns.stream().map(c -> "?").toList()) + ")";
-    return new SQLWrite<>(def, sql, binds, values, null, List.of());
+    return new SQLWrite<>(def, sql, binds, values, null, List.of(), null, List.of());
   }
 
   /** {@code expectedVersion}: the version the client last read (null only for unversioned entities). */
@@ -152,6 +152,10 @@ public final class WriteBuilder {
     }
     String existsSql = "SELECT 1 FROM " + def.table() + " WHERE " + where;
     List<Bind> existsBinds = List.copyOf(whereBinds);
+    // The current values of the fields being changed, locked until commit: the old side of the change.
+    String beforeSql = values.isEmpty() ? null
+        : "SELECT " + String.join(", ", values.keySet().stream().map(Field::column).toList()) + " FROM "
+            + def.table() + " WHERE " + where + " FOR UPDATE";
     if (def.versionField() != null) {
       where.append(" AND ").append(def.versionField().column()).append(" = ?");
       whereBinds.add(new Bind(FieldType.LONG, expectedVersion));
@@ -159,7 +163,8 @@ public final class WriteBuilder {
 
     binds.addAll(whereBinds);
     String sql = "UPDATE " + def.table() + " SET " + String.join(", ", set) + " WHERE " + where;
-    return new SQLWrite<>(def, sql, binds, values, existsSql, existsBinds);
+    return new SQLWrite<>(def, sql, binds, values, existsSql, existsBinds, beforeSql,
+        beforeSql == null ? List.of() : existsBinds);
   }
 
   private static void addAudit(String atColumn, String byColumn, WriteContext ctx, List<String> columns,

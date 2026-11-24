@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.math.BigDecimal;
 import java.net.http.HttpResponse;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -234,6 +235,30 @@ class ItemWriteRoutesMySqlTest {
     assertEquals(1, row.get("version").asLong());
     EntityChanged.Updated event = (EntityChanged.Updated) eventsFor(id).getLast();
     assertEquals(Set.of("name"), event.fields());
+  }
+
+  @Test
+  void eventsCarryOldAndNewValuesOfWhatReallyChanged() throws Exception {
+    JsonNode row = created(product("P-VAL", "unitAmount", "1.2500"));
+    long id = row.get("id").asLong();
+
+    EntityChanged.Created c = (EntityChanged.Created) eventsFor(id).getFirst();
+    assertEquals(new EntityChanged.FieldChange(null, "P-VAL"), c.changes().get("productNo"));
+    assertEquals(0, new BigDecimal("1.25").compareTo((BigDecimal) c.changes().get("unitAmount").newValue()));
+    assertFalse(c.changes().containsKey("id")); // only what the client set
+
+    // name really changes; unitAmount is sent with another scale but the same value.
+    HttpResponse<String> r = send("PATCH", PRODUCTS + "/" + id,
+        Map.of("version", 0, "name", "Steel washer", "unitAmount", "1.25"), editor);
+    assertEquals(200, r.statusCode(), r.body());
+    EntityChanged.Updated u = (EntityChanged.Updated) eventsFor(id).getLast();
+    assertEquals(Set.of("name", "unitAmount"), u.fields());
+    assertEquals(Map.of("name", new EntityChanged.FieldChange("Washer", "Steel washer")), u.changes());
+
+    // A PATCH that changes nothing still writes (version, updated_at) but carries no changes.
+    assertEquals(200, send("PATCH", PRODUCTS + "/" + id, Map.of("version", 1, "name", "Steel washer"), editor)
+        .statusCode());
+    assertEquals(Map.of(), eventsFor(id).getLast().changes());
   }
 
   @Test

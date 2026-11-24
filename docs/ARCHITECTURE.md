@@ -204,8 +204,9 @@ platform/src/main/resources/
     │   ├── V4__multi_company_users_and_permissions.sql   memberships, roles, overrides (§16)
     │   ├── V5__scheduler.sql                          scheduled_jobs, scheduled_job_runs (§17)
     │   ├── V6__outbox.sql                             outbox (§18)
-    │   └── V7__tax_jurisdictions_rules_and_rates.sql  tax jurisdictions / categories / rules, rate kinds,
-    │                                                  seeded Canadian rates, companies.base_currency_code
+    │   ├── V7__tax_jurisdictions_rules_and_rates.sql  tax jurisdictions / categories / rules, rate kinds,
+    │   │                                              seeded Canadian rates, companies.base_currency_code
+    │   └── V8__audit_log.sql                          audit_log (§20)
     └── old_schema.tmp.sql        Legacy MySQL dump kept as reference (git-ignored via *.tmp.*).
 ```
 
@@ -503,7 +504,7 @@ How a write runs (`platform.write`):
 
 1. `WriteBuilder` (pure, before any connection): accepts only declared, non-internal fields the caller may read and write, and that the operation allows; coerces and validates each (`Field` options); reports every problem at once (422). Adds `company_id`, `created_at/by`, `updated_at/by` from the request and the server clock (`WriteContext`), never from the body. Updates and deletes are `... WHERE id = ? AND company_id = ? AND deleted_at IS NULL AND version = ?` with `version = version + 1`.
 2. `WriteExecutor` (in the transaction): `unique()` fields are free in the company (soft-deleted rows count, like the database index) -> 422 `ALREADY_EXISTS`; a value written to a many-to-one relation's foreign key points at a live row of the SAME company -> 422 `INVALID_REFERENCE` (a client can't link to another company's data). 0 rows updated -> 404 `NOT_FOUND` or 409 `VERSION_CONFLICT`.
-3. `EntityChanged.Created/Updated/Deleted` is published in the same transaction (entity, id, company, user, time, changed field names). Subscribe to `EntityChanged` for all of them (the future audit log).
+3. `EntityChanged.Created/Updated/Deleted` is published in the same transaction (entity, id, company, user, time, and `changes`: field -> old and new value). An update first locks the row and reads the current values of the fields it changes (`SELECT ... FOR UPDATE`, one extra query); only fields whose value really changed are listed (`19.9900` equals `19.99`), and a PATCH that changes nothing carries no changes. Subscribe to `EntityChanged` for all of them (the audit trail, §20).
 4. The response is the row re-read as the caller sees it.
 
 Field options for writes: `required()` (on create), `readOnly()` (server-set: audit columns, totals), `immutable()` (settable on create only), `unique()` (per company), plus `maxLength / min / max / pattern / writePermission`. `StandardEntity`'s audit and soft-delete fields are `readOnly()`.

@@ -70,6 +70,10 @@ class WriteBuilderTest {
         + " WHERE id = ? AND company_id = ? AND deleted_at IS NULL AND version = ?", w.sql());
     assertEquals(List.of("Nut", NOW, 7L, 5L, 42L, 3L), values(w.binds()));
     assertEquals("SELECT 1 FROM parts WHERE id = ? AND company_id = ? AND deleted_at IS NULL", w.existsSql());
+    // The old values of the changed fields, locked until commit (no version guard: read whatever is there).
+    assertEquals("SELECT name FROM parts WHERE id = ? AND company_id = ? AND deleted_at IS NULL FOR UPDATE",
+        w.beforeSql());
+    assertEquals(List.of(5L, 42L), values(w.beforeBinds()));
   }
 
   @Test
@@ -92,5 +96,6 @@ class WriteBuilderTest {
     assertEquals("UPDATE parts SET deleted_at = ?, updated_at = ?, updated_by = ?, version = version + 1"
         + " WHERE id = ? AND company_id = ? AND deleted_at IS NULL AND version = ?", w.sql());
     assertEquals(List.of(NOW, NOW, 7L, 5L, 42L, 3L), values(w.binds()));
+    assertEquals(null, w.beforeSql()); // no client field changes: nothing to read before
   }
 }

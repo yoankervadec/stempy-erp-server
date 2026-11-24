@@ -29,6 +29,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.query.QueryTranslator
 import com.lesconstructionssapete.stempyerpserver.platform.query.SQLQuery;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionChecker;
 import com.lesconstructionssapete.stempyerpserver.platform.write.EntityChanged;
+import com.lesconstructionssapete.stempyerpserver.platform.write.FieldChanges;
 import com.lesconstructionssapete.stempyerpserver.platform.write.SQLWrite;
 import com.lesconstructionssapete.stempyerpserver.platform.write.WriteBuilder;
 import com.lesconstructionssapete.stempyerpserver.platform.write.WriteContext;
@@ -172,7 +173,8 @@ public final class EntityEndpoints {
       SQLWrite<E> insert = writes.insert(entity, JsonBodies.read(ctx, BODY_TYPE.getType()), wc, access(rc));
       Map<String, Object> created = uowFactory.execute(uow -> {
         long id = writer.insert(uow, insert, rc.companyId());
-        eventBus.publish(uow, new EntityChanged.Created(entity.name(), id, rc.companyId(), rc.userId(), wc.now()));
+        eventBus.publish(uow, new EntityChanged.Created(entity.name(), id, rc.companyId(), rc.userId(), wc.now(),
+            FieldChanges.created(insert.values())));
         return row(uow, entity, id, rc).orElseThrow(() -> notFound(entity));
       });
       ctx.status(201);
@@ -193,9 +195,9 @@ public final class EntityEndpoints {
       Set<String> changed = update.values().keySet().stream().map(f -> f.name())
           .collect(java.util.stream.Collectors.toSet());
       ctx.json(uowFactory.execute(uow -> {
-        writer.update(uow, update, id, rc.companyId());
-        eventBus.publish(uow,
-            new EntityChanged.Updated(entity.name(), id, rc.companyId(), rc.userId(), wc.now(), changed));
+        var before = writer.update(uow, update, id, rc.companyId());
+        eventBus.publish(uow, new EntityChanged.Updated(entity.name(), id, rc.companyId(), rc.userId(), wc.now(),
+            changed, FieldChanges.updated(before, update.values())));
         return row(uow, entity, id, rc).orElseThrow(() -> notFound(entity));
       }));
     };

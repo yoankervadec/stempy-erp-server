@@ -15,6 +15,10 @@ import com.lesconstructionssapete.stempyerpserver.platform.query.Bind;
  * @param existsSql   UPDATE only: run when no row changed, to tell "no such
  *                    row" (404) from "stale version" (409); null for INSERT
  * @param existsBinds binds for existsSql
+ * @param beforeSql   UPDATE of client fields only: locks the row and reads
+ *                    their current values (SELECT ... FOR UPDATE), so the
+ *                    change event can carry old and new values; null otherwise
+ * @param beforeBinds binds for beforeSql
  */
 public record SQLWrite<E>(
     EntityDefinition<E> entity,
@@ -22,5 +26,7 @@ public record SQLWrite<E>(
     List<Bind> binds,
     Map<Field<E, ?>, Object> values,
     String existsSql,
-    List<Bind> existsBinds) {
+    List<Bind> existsBinds,
+    String beforeSql,
+    List<Bind> beforeBinds) {
 }
