@@ -106,11 +106,11 @@ public final class Scheduler {
    * stop() holds the lock while it waits for them.
    */
   public SchedulerSettings settings() {
-    SchedulerSettings settings = this.settings;
-    if (settings == null) {
+    SchedulerSettings s = this.settings;
+    if (s == null) {
       throw new IllegalStateException("Scheduler not started");
     }
-    return settings;
+    return s;
   }
 
   public synchronized boolean isRunning() {
