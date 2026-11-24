@@ -197,6 +197,59 @@ class MoneyTest {
     }
   }
 
+  // ---- roundKeepingTotal ----
+
+  @Test
+  void roundsPartsSoTheyAddUpToTheRoundedTotal() {
+    // Three lines of 10.00 at 9.975 %: 0.9975 each. Per line: 1.00 x 3 = 3.00; on the subtotal: 2.99.
+    List<Money> parts = Money.roundKeepingTotal(cad("0.9975", "0.9975", "0.9975"));
+    assertEquals(cad("0.99", "1.00", "1.00"), parts); // one cent too many: taken from the first (a tie)
+    assertEquals(cad("2.99"), Money.sum(CAD, parts));
+  }
+
+  @Test
+  void roundKeepingTotalHandlesMixedSigns() {
+    // 100.00 of work and a -30.00 discount line at 9.975 %: 9.975 and -2.9925, total 6.9825 -> 6.98
+    List<Money> parts = Money.roundKeepingTotal(cad("9.975", "-2.9925"));
+    assertEquals(cad("6.98"), Money.sum(CAD, parts));
+    assertEquals(cad("9.97", "-2.99"), parts);
+    assertEquals(List.of(), Money.roundKeepingTotal(List.of()));
+    assertEquals(cad("-0.01"), Money.roundKeepingTotal(List.of(cad("-0.005"))).getFirst()); // half away from zero
+  }
+
+  @Test
+  void roundKeepingTotalIsSymmetric() {
+    // A credit note must mirror its invoice line by line, not just in total.
+    Random random = new Random(3);
+    for (int run = 0; run < 1_000; run++) {
+      List<Money> exact = new ArrayList<>();
+      for (int i = 0, n = 1 + random.nextInt(10); i < n; i++) {
+        exact.add(Money.of(BigDecimal.valueOf(random.nextLong(-1_000_000, 1_000_000), 4), CAD));
+      }
+      List<Money> negated = exact.stream().map(Money::negate).toList();
+      assertEquals(Money.roundKeepingTotal(exact).stream().map(Money::negate).toList(),
+          Money.roundKeepingTotal(negated), () -> exact.toString());
+    }
+  }
+
+  @Test
+  void roundKeepingTotalIsWithinOneCentOfEachExactPart() {
+    Random random = new Random(7);
+    for (int run = 0; run < 2_000; run++) {
+      List<Money> exact = new ArrayList<>();
+      int n = 1 + random.nextInt(12);
+      for (int i = 0; i < n; i++) {
+        exact.add(Money.of(BigDecimal.valueOf(random.nextLong(-5_000_000, 5_000_000), 4 + random.nextInt(3)), CAD));
+      }
+      List<Money> parts = Money.roundKeepingTotal(exact);
+      assertEquals(Money.sum(CAD, exact).rounded(), Money.sum(CAD, parts), () -> exact + " -> " + parts);
+      for (int i = 0; i < n; i++) {
+        assertTrue(parts.get(i).isRounded());
+        assertTrue(parts.get(i).minus(exact.get(i)).abs().isLessThan(cad("0.01")), exact.get(i) + " -> " + parts.get(i));
+      }
+    }
+  }
+
   @Test
   void usdWorksTheSameWay() {
     assertEquals(Money.of("33.34", "USD"), Money.of("100", "USD").allocate(3).getFirst());

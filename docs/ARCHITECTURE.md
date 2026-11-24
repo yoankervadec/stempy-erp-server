@@ -525,7 +525,8 @@ shared/
 - **One rounding rule:** `Money.ROUNDING = HALF_UP` (half a cent or more rounds away from zero), the rule CRA and Revenu Quebec give for sales taxes. Another mode only on purpose: `rounded(RoundingMode.DOWN)`.
 - **One currency at a time.** Combining or comparing two currencies throws; conversion needs an exchange rate (business logic, later).
 - **Equal by value:** `10.0 CAD` equals `10.00 CAD`.
-- **`allocate(weights)` / `allocate(n)`** splits a rounded amount so the parts add up to it exactly (largest remainder; ties to the earlier part; negative amounts mirror positive ones). Used for document-level tax spread over lines, instalments, cost spreading.
+- **`allocate(weights)` / `allocate(n)`** splits a rounded amount so the parts add up to it exactly (largest remainder; ties to the earlier part; negative amounts mirror positive ones). For instalments, cost spreading.
+- **`roundKeepingTotal(exactParts)`** rounds several exact amounts so they add up to their rounded total, each within one cent of its exact value, whatever the signs, and symmetrically (a credit note mirrors its invoice line by line). The tax engine uses it for document-level rounding: line taxes that add up to the tax on the subtotal.
 - **JSON:** `{"amount": "10.00", "currency": "CAD"}`, written by a serializer in `JsonMapperFactory` (`MoneyJsonTest`).
 - **Database:** an `_amount DECIMAL(19,4)` column paired with a currency column (V1 conventions). No `Money` field type in the entity framework yet: entities still expose `BigDecimal`.
 
@@ -711,7 +712,7 @@ A **business module** is the package of an `ERPModule` implementation plus its s
 
 | Rule | Why |
 | --- | --- |
-| A module uses another only through its `*Api` interfaces (in the module's root package), its `events` package, and its entities (classes with a `DEF`) | Services, operations, repositories and DTOs stay private to their module |
+| A module uses another only through its `*Api` interfaces (in the module's root package) and the types nested in them (requests, results: `TaxApi.TaxRequest`), its `events` package, and its entities (classes with a `DEF`) | Services, operations, repositories and DTOs stay private to their module |
 | No cycles between modules | Module order in `AllModules` is a dependency order |
 | Operations never use another operation | The orchestrator calls both, or shared logic moves to a helper |
 | Operations don't use `EventBus` or `UnitOfWorkFactory` | The orchestrator owns the transaction and the events |

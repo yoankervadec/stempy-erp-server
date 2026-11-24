@@ -27,7 +27,9 @@ import java.util.Objects;
  * <li><b>Equal by value.</b> 10.0 CAD equals 10.00 CAD (unlike BigDecimal,
  * whose equals compares the scale too).</li>
  * <li><b>Splitting keeps every cent.</b> {@link #allocate} divides a rounded
- * amount by weights so that the parts add up to it exactly.</li>
+ * amount by weights so that the parts add up to it exactly;
+ * {@link #roundKeepingTotal} rounds several exact amounts so that they add up
+ * to their rounded total.</li>
  * </ul>
  *
  * Persistence (DECIMAL(19,4) + a currency column) and JSON
@@ -209,6 +211,52 @@ public record Money(BigDecimal amount, Currency currency) implements Comparable<
       throw new IllegalArgumentException("parts must be at least 1");
     }
     return allocate(Collections.nCopies(parts, BigDecimal.ONE));
+  }
+
+  /**
+   * Rounds several exact amounts together: the parts add up to the rounded
+   * total of the exact amounts, and each part is within one minor unit of its
+   * exact value. Each part is first rounded normally ({@link #ROUNDING}); if
+   * they then miss the rounded total, the units are added to (or taken from)
+   * the parts that were rounded the furthest the other way, one each (ties:
+   * the earlier part). Works with any signs, and is symmetric: negating every
+   * input negates every output, so a credit note mirrors its invoice line by
+   * line.
+   *
+   * This is document-level rounding spread back to the lines: for line taxes
+   * {@code base_i x rate}, the total is {@code round(sum(base_i) x rate)}, the
+   * tax on the subtotal, and the parts are the line taxes that add up to it.
+   *
+   * @param exact any scale, one currency; an empty list gives an empty list
+   */
+  public static List<Money> roundKeepingTotal(List<Money> exact) {
+    Objects.requireNonNull(exact, "exact");
+    if (exact.isEmpty()) {
+      return List.of();
+    }
+    Currency currency = exact.getFirst().currency;
+    Money total = sum(currency, exact).rounded();
+    int n = exact.size();
+    Money[] parts = new Money[n];
+    BigDecimal[] error = new BigDecimal[n]; // exact - rounded: > 0 rounded down, < 0 rounded up
+    Money rounded = zero(currency);
+    for (int i = 0; i < n; i++) {
+      parts[i] = exact.get(i).rounded();
+      error[i] = exact.get(i).amount.subtract(parts[i].amount);
+      rounded = rounded.plus(parts[i]);
+    }
+    BigDecimal unit = BigDecimal.ONE.movePointLeft(exact.getFirst().minorUnitDigits());
+    int missing = total.amount.subtract(rounded.amount).divide(unit).intValueExact(); // |missing| <= n / 2
+    Integer[] order = new Integer[n];
+    Arrays.setAll(order, i -> i);
+    // Short of the total: add to the parts rounded down the most. Over it: take from those rounded up the most.
+    Comparator<Integer> byError = Comparator.comparing(i -> error[i]);
+    Arrays.sort(order, (missing > 0 ? byError.reversed() : byError).thenComparing(i -> i));
+    Money step = new Money(missing > 0 ? unit : unit.negate(), currency);
+    for (int k = 0; k < Math.abs(missing); k++) {
+      parts[order[k]] = parts[order[k]].plus(step);
+    }
+    return List.of(parts);
   }
 
   // ---- comparing ----

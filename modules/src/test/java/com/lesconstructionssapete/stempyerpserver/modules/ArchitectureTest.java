@@ -92,8 +92,10 @@ class ArchitectureTest {
           + "(for relations), never its services, operations, repositories or DTOs");
 
   private static boolean isPublicSurface(JavaClass target, String module) {
-    boolean api = target.isInterface() && target.getSimpleName().endsWith("Api")
-        && target.getPackageName().equals(module);
+    // The *Api interface and the types nested in it (its requests and results).
+    JavaClass outer = topLevel(target);
+    boolean api = outer.isInterface() && outer.getSimpleName().endsWith("Api")
+        && outer.getPackageName().equals(module);
     boolean event = target.getPackageName().startsWith(module + ".events");
     boolean entity = target.tryGetField("DEF").map(f -> f.getRawType().isAssignableTo(EntityDefinition.class))
         .orElse(false);
