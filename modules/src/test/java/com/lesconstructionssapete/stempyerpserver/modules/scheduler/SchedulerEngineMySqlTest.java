@@ -176,6 +176,24 @@ class SchedulerEngineMySqlTest {
    * {@code columns} are extra "column = value" SQL assignments.
    */
   private long insertDue(String jobKey, String name, long lateSeconds, String... columns) {
+    return insertSchedule(jobKey, name, Duration.ofSeconds(-lateSeconds), columns);
+  }
+
+  /**
+   * As insertDue, but next_run_at is a year away: only manual runs or the reaper
+   * will touch it.
+   */
+  private long insertIdle(String jobKey, String name, String... columns) {
+    return insertSchedule(jobKey, name, Duration.ofDays(365), columns);
+  }
+
+  /**
+   * One transaction, so the scheduler (polling every 100 ms) never sees the
+   * row half-built. Setting next_run_at in a second transaction once let a
+   * poll run an "idle" schedule as due in between, and the test then saw an
+   * extra run.
+   */
+  private long insertSchedule(String jobKey, String name, Duration nextRunFromNow, String... columns) {
     return uow.execute(u -> {
       long id = Jdbc.insert(u, """
           INSERT INTO scheduled_jobs (job_key, name, schedule_type, cron_expression, time_zone)
@@ -185,20 +203,9 @@ class SchedulerEngineMySqlTest {
       }
       ScheduleRow row = schedules.findById(u, id).orElseThrow();
       Jdbc.update(u, "UPDATE scheduled_jobs SET schedule_fingerprint = ?, next_run_at = ? WHERE id = ?",
-          Schedules.fingerprint(row), schedules.now(u).minusSeconds(lateSeconds), id);
+          Schedules.fingerprint(row), schedules.now(u).plus(nextRunFromNow), id);
       return id;
     });
-  }
-
-  /**
-   * As insertDue, but next_run_at is a year away: only manual runs or the reaper
-   * will touch it.
-   */
-  private long insertIdle(String jobKey, String name, String... columns) {
-    long id = insertDue(jobKey, name, 0, columns);
-    uow.run(u -> Jdbc.update(u,
-        "UPDATE scheduled_jobs SET next_run_at = UTC_TIMESTAMP() + INTERVAL 1 YEAR WHERE id = ?", id));
-    return id;
   }
 
   private ScheduleRow row(long id) {
