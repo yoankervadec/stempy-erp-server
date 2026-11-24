@@ -233,6 +233,7 @@ All migrations currently live in `platform`, including tables owned by business 
 | `CompanyAccess`         | `UsersModule` (wrapped in `CachedCompanyAccess`) |
 | `UsersApi`              | `UsersModule`           |
 | `SystemActor`           | `UsersModule`           |
+| `TaxApi`                | `TaxModule` (§19)       |
 
 ### 3.4 Authentication model
 
@@ -306,7 +307,8 @@ modules/
 │   ├── customers/   
 │   └── vendors/     
 ├── company/          legal entities, fiscal calendars, currencies, exchange rates (tables exist in V1)
-├── tax/              rates, groups, rules per jurisdiction, tax postings (tables exist in V1)
+├── tax/              TaxApi: sales taxes for every province (rules, rates, document rounding; §19).
+│                     Tax postings to GL later
 ├── gl/               chart of accounts, journals, periods, reports
 ├── sales/            quotes, sales orders, fulfillment, invoicing
 ├── ar/               customer invoices, receipts, aging
@@ -766,7 +768,7 @@ Decide these early; they are painful to retrofit.
 1.  `platform/db` (UnitOfWork, Hikari), `platform/web` (Javalin, errors, RequestContext), Flyway baseline.
 2.  `platform/security` + `modules/users` (sessions, login throttle, set-password CLI), multi-company users + RBAC (§16).  Admin API for roles / overrides / memberships (with the generic write side).
 3.  `platform/events` (sync bus ),  `platform/audit`, `platform/numbering`, `platform/settings`.
-4.  `modules/masterdata/items` (query only) ;  `modules/company`, `masterdata/customers`, `masterdata/vendors`, `modules/tax`.
+4.  `modules/masterdata/items` (query only) ; `shared.Money` (done 2026-11-24, §6) ; `modules/tax` calculation (done 2026-11-24, §19) ;  `modules/company`, `masterdata/customers`, `masterdata/vendors`.
 5.  `modules/gl` (accounts, periods, journal posting, trial balance).
 6.  First transactional module (e.g. `sales` or `ap`) wired to GL through events, as the reference implementation for all later modules.
 7.  `platform/scheduler` (done 2026-11-23, §17) + outbox dispatcher (done 2026-11-24, its own loop, §18).
@@ -783,6 +785,7 @@ Open:
 - **Stubs:** `shared` has no classes.
 - **Scheduler loose ends:** see §17.9.
 - **Outbox loose ends:** see §18.8.
+- **Tax loose ends:** see §19.5.
 - **Unused but planned dependencies:** Lettuce (`redis.port` unused; no longer needed by the scheduler), Testcontainers BOM (no module depends on it; the MySQL tests use the local database).
 
 Fixed on 2026-11-18:
@@ -1279,3 +1282,74 @@ UPDATE outbox SET status = 'PENDING', attempt = 0, available_at = UTC_TIMESTAMP(
 - **Pending rows of a removed subscription wait forever** (no instance claims an unknown key). Delete them by hand.
 - **CLI commands write rows but never deliver them**; a running server does.
 - **No "wake on commit"**: a message waits up to `pollInterval` even on an idle server.
+
+---
+
+## 19. Tax
+
+_Status: built 2026-11-24 (migration V7). Calculation only: no admin API, no GL postings yet._
+
+Sales taxes for every Canadian province and territory (GST, HST, QST, PST/RST), data-driven: rates and rules are rows, not code. Module `modules/tax` publishes `TaxApi`; no module calls it yet (the first will be sales or AP).
+
+### 19.1 Decisions this design rests on
+
+- **Rules, not hard-coding.** Place of supply (`CA-QC`) + tax category of the line (`STANDARD`, `ZERO_RATED`, `EXEMPT`) + document date -> `tax_rules` -> a tax group, or "no tax". The group's rates valid on that date apply. A new province or category is data.
+- **Install-wide data.** Government rates are the same for every company.
+- **Rates are percent** (`9.975000`), with validity dates. A rate change is a new row in the same group (`NS_HST_15` until 2025-03-31, `NS_HST_14` from 2025-04-01); the date picks one.
+- **Rounded once per rate, on the document, then spread over the lines** with `Money.roundKeepingTotal` (§6): the document's tax is the tax on its subtotal, and the line taxes add up to it exactly, credit notes mirroring invoices line by line. A line may show a cent more or less than it would alone (e.g. three lines of 10.00 in Quebec: QST 0.99 / 1.00 / 1.00 = 2.99, not 3.00).
+- **Snapshots, never recomputed.** The result carries, per line and per rate, the rate as applied (code, description, kind, percent), its base, tax and recoverable part. Documents store it; a later rate change never alters an issued document.
+- **Gaps are errors, not zero tax.** No rule for a place, category and date is `TAX_RULE_NOT_FOUND` (409); only a rule with no group means "no tax". Only current rates are seeded, so a document dated before them fails instead of being taxed wrongly.
+- **Before-tax prices only**; tax-included prices are not supported.
+
+### 19.2 Using it
+
+```java
+TaxResult r = taxApi.calculate(uow, new TaxRequest(invoiceDate, "CA-QC", Money.currency("CAD"), List.of(
+    new TaxLine("1", Money.of("100.00", "CAD"), "STANDARD"),
+    new TaxLine("2", Money.of("-30.00", "CAD"), "STANDARD"),           // a discount line
+    new TaxLine("3", Money.of("50.00", "CAD"), "STANDARD", "CA_GST"))));  // own group: GST only
+r.taxTotal();   r.rates();   // per rate: base, tax, recoverable (what the document prints, what returns report)
+r.lines();                   // per line, per rate: the snapshot to store
+```
+
+- Use the **caller's UnitOfWork**: the taxes are read in the transaction that saves the document.
+- Line amounts are **rounded before tax** (quantity x price - discount, rounded by the caller), negative for credits and discounts; one currency per request.
+- A line's own `taxGroup` replaces the rules (and their dates): the hook for exempt customers until exemption certificates exist.
+- Errors: `ValidationFailedException` lists every bad field (unknown place / category / group, wrong currency, unrounded amount, duplicate key); `ConflictException` `TAX_RULE_NOT_FOUND` / `TAX_RATE_NOT_FOUND` for gaps; `IllegalStateException` for inconsistent data (overlapping rules, two rates of one kind in a group on one date).
+
+### 19.3 Tables (V7)
+
+| Table | Holds |
+| --- | --- |
+| `tax_jurisdictions` | `CA` and `CA-AB` ... `CA-YT` (ISO 3166) |
+| `tax_categories` | `STANDARD`, `ZERO_RATED` (input tax credits allowed), `EXEMPT` (none) |
+| `tax_rates` (V1 + V7) | code, percent, `tax_kind` (GST / HST / QST / PST: which return), levying jurisdiction, `recoverable_percent` (100, PST 0), `is_compound`, `calculation_order`, validity |
+| `tax_groups`, `tax_group_lines` | which rates go together (`QC_GST_QST` = GST_5 + QST_9_975); every version of a rate |
+| `tax_rules` | (jurisdiction, category, validity) -> group, or NULL for no tax |
+| `companies.base_currency_code` | ISO 4217, default CAD |
+
+Disabled rows drop out with what refers to them (`TaxRepository`): disabling a group removes its rules, so documents get `TAX_RULE_NOT_FOUND` rather than a rule pointing nowhere.
+
+### 19.4 Code
+
+```
+modules/tax/
+├── TaxApi.java              calculate(uow, TaxRequest) + its request / result types (nested: public surface)
+├── TaxService.java          TaxApi: LoadTaxRuleSetOperation, then TaxCalculator
+├── TaxCalculator.java       Pure: rules -> rates -> per-rate document rounding -> line snapshots
+├── TaxRuleSet.java          The tax data in memory; groupFor(place, category, date), ratesOf(group, date)
+├── TaxRepository.java       Enabled rows of the V7 tables
+├── operations/LoadTaxRuleSetOperation.java
+└── TaxModule.java           Publishes TaxApi; no entities, no routes yet
+```
+
+Tests: `TaxCalculatorTest` (pure: provinces, rate change, rounding, discounts, credit notes, categories, group override, compound, errors, 1,000 random documents), `TaxApiMySqlTest` (V7's data: every province and territory, snapshots, disabled rows).
+
+### 19.5 Known gaps and limits
+
+- **Seeded rates must be verified** against CRA and the provinces before production; future rate changes need a migration or SQL until an admin API exists.
+- **Construction in BC, MB, SK:** contractors on real-property contracts usually pay PST on materials instead of charging it. Needs its own category (e.g. `REAL_PROPERTY_CONTRACT` -> GST only), not yet seeded.
+- **No admin API** for rates, groups and rules; **no exemption certificates** (use a line's `taxGroup`); **no ITC / ITR claim reports**; **no GL accounts** for tax payable / receivable (waits for `gl`).
+- **No place-of-supply logic**: the caller says where the supply is made.
+- **The data is read on every call** (a few small queries); cache it if it ever shows up in profiles.
+- **No exchange rates**: one currency per document.
