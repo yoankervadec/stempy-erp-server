@@ -510,14 +510,22 @@ Database constraint violations the checks can't see (a concurrent insert; a fore
 
 ## 6. `shared/` 
 
-Empty today. Planned contents:
-
 ```
 shared/
-├── Money.java        BigDecimal amount + currency code. Never use double/float for money.
-├── DateRange.java
-└── Result.java       Optional success/failure wrapper for expected (non-exceptional) outcomes.
+├── Money.java        BigDecimal amount + java.util.Currency. Never use double/float for money.   (built)
+├── DateRange.java                                                                              (planned)
+└── Result.java       Optional success/failure wrapper for expected outcomes.                    (planned)
 ```
+
+**`Money` rules** (`shared.Money`, tests in `MoneyTest`):
+
+- **Exact until you round.** `plus`, `minus`, `times`, `negate` keep every digit; `rounded()` rounds to the currency's minor unit (2 decimals for CAD) when a value becomes a real amount (line total, tax, balance).
+- **One rounding rule:** `Money.ROUNDING = HALF_UP` (half a cent or more rounds away from zero), the rule CRA and Revenu Quebec give for sales taxes. Another mode only on purpose: `rounded(RoundingMode.DOWN)`.
+- **One currency at a time.** Combining or comparing two currencies throws; conversion needs an exchange rate (business logic, later).
+- **Equal by value:** `10.0 CAD` equals `10.00 CAD`.
+- **`allocate(weights)` / `allocate(n)`** splits a rounded amount so the parts add up to it exactly (largest remainder; ties to the earlier part; negative amounts mirror positive ones). Used for document-level tax spread over lines, instalments, cost spreading.
+- **JSON:** `{"amount": "10.00", "currency": "CAD"}`, written by a serializer in `JsonMapperFactory` (`MoneyJsonTest`).
+- **Database:** an `_amount DECIMAL(19,4)` column paired with a currency column (V1 conventions). No `Money` field type in the entity framework yet: entities still expose `BigDecimal`.
 
 Keep this package tiny. If a class has business meaning, it belongs in a module.
 
@@ -725,7 +733,7 @@ Only consider JPMS (`module-info.java`) if you have a strong reason; it adds fri
 Decide these early; they are painful to retrofit.
 
 - [x] **Multi-company:** every business table has `company_id`; `RequestContext` carries it; `QueryTranslator`/`WriteBuilder` always filter on it, and `WriteExecutor` rejects references to another company's rows. Hand-written repositories must do the same.
-- [ ] **Money:** `BigDecimal` + currency code everywhere; define rounding rules once (in `shared.Money`). JSON side done (BigDecimal serialized as string).
+- [ ] **Money:** `BigDecimal` + currency code everywhere; rounding rules defined once in `shared.Money` (done, §6), JSON done. Still to do: a `Money` field type in the entity framework, and the tax engine on top of it.
 - [x] **Soft deletes** on master data (`deleted_at`, honored by the entity framework).
 - [ ] **Audit trail** via events -> `audit_log`. Generic writes publish `EntityChanged`  and fill `created_by` / `updated_by` ; the `audit_log` listener is still to do.
 - [x] **RBAC** through `PermissionChecker` only: roles + per-user GRANT/DENY overrides, per company (§16).

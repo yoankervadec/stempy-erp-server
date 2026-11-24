@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.databind.ser.std.StdSerializer;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.lesconstructionssapete.stempyerpserver.shared.Money;
 
 /**
  * The Jackson configuration for the whole application: HTTP bodies, outbox
@@ -22,6 +23,8 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
  * - BigDecimal is written as a plain JSON string ("1000.50"), so a JavaScript
  * client never rounds an amount through a floating-point double. Numbers and
  * strings are both accepted on input.
+ * - Money is {"amount": "10.00", "currency": "CAD"}: the amount as a
+ * string too, the currency as its ISO 4217 code.
  * - Dates and times are ISO-8601 strings, never numeric timestamps.
  * - Unknown properties on input are rejected, so a client typo ("qty" for
  * "quantity") fails loudly instead of being ignored.
@@ -47,7 +50,9 @@ public final class JsonMapperFactory {
    */
   public static void configure(ObjectMapper mapper) {
     mapper.registerModule(new JavaTimeModule());
-    mapper.registerModule(new SimpleModule().addSerializer(BigDecimal.class, new PlainBigDecimalSerializer()));
+    mapper.registerModule(new SimpleModule()
+        .addSerializer(BigDecimal.class, new PlainBigDecimalSerializer())
+        .addSerializer(Money.class, new MoneySerializer()));
 
     mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
     mapper.disable(SerializationFeature.WRITE_DURATIONS_AS_TIMESTAMPS);
@@ -56,6 +61,26 @@ public final class JsonMapperFactory {
     mapper.enable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES);
     mapper.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
     mapper.disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT);
+  }
+
+  /**
+   * Money as {"amount": "10.00", "currency": "CAD"}: only its two components.
+   * Without this, Jackson would also write isZero(), isRounded()... as
+   * properties, and could not read them back (unknown properties are
+   * rejected). Reading needs nothing special: the record's constructor.
+   */
+  private static final class MoneySerializer extends StdSerializer<Money> {
+    MoneySerializer() {
+      super(Money.class);
+    }
+
+    @Override
+    public void serialize(Money value, JsonGenerator gen, SerializerProvider provider) throws IOException {
+      gen.writeStartObject();
+      gen.writeStringField("amount", value.amount().toPlainString());
+      gen.writeStringField("currency", value.currency().getCurrencyCode());
+      gen.writeEndObject();
+    }
   }
 
   /** toPlainString avoids scientific notation: 1E+3 is written as "1000". */
