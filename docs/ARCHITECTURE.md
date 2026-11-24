@@ -203,7 +203,9 @@ platform/src/main/resources/
     │   ├── V3__create_user_sessions_table.sql         user_sessions
     │   ├── V4__multi_company_users_and_permissions.sql   memberships, roles, overrides (§16)
     │   ├── V5__scheduler.sql                          scheduled_jobs, scheduled_job_runs (§17)
-    │   └── V6__outbox.sql                             outbox (§18)
+    │   ├── V6__outbox.sql                             outbox (§18)
+    │   └── V7__tax_jurisdictions_rules_and_rates.sql  tax jurisdictions / categories / rules, rate kinds,
+    │                                                  seeded Canadian rates, companies.base_currency_code
     └── old_schema.tmp.sql        Legacy MySQL dump kept as reference (git-ignored via *.tmp.*).
 ```
 
