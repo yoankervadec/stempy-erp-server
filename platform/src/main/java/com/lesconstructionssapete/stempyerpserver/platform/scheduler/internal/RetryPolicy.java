@@ -2,8 +2,8 @@ package com.lesconstructionssapete.stempyerpserver.platform.scheduler.internal;
 
 import java.time.Duration;
 
-/** Exponential backoff for failed runs: base * 2^failures, capped. */
-final class RetryPolicy {
+/** Exponential backoff for failed scheduler runs and outbox messages: base * 2^failures, capped. */
+public final class RetryPolicy {
 
   static final Duration MAX_BACKOFF = Duration.ofHours(1);
 
@@ -14,7 +14,7 @@ final class RetryPolicy {
    * @param failuresSoFar retry_attempt before this failure (0 for the first one)
    * @param baseSeconds   retry_backoff_seconds
    */
-  static Duration backoff(int failuresSoFar, int baseSeconds) {
+  public static Duration backoff(int failuresSoFar, int baseSeconds) {
     if (baseSeconds <= 0) {
       return Duration.ZERO;
     }

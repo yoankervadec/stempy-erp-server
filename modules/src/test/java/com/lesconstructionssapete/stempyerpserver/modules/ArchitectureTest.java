@@ -187,6 +187,14 @@ class ArchitectureTest {
 
   @ArchTest
   @SuppressWarnings("unused")
+  static final ArchRule modules_use_only_the_public_outbox_api = noClasses()
+      .that().resideInAPackage(ROOT + "..")
+      .should().dependOnClassesThat().resideInAPackage("..platform.events.outbox.internal..")
+      .because("the outbox dispatcher and its SQL are platform internals; modules use "
+          + "EventBus.subscribeAsync and OutboxDelivery");
+
+  @ArchTest
+  @SuppressWarnings("unused")
   static final ArchRule only_module_classes_see_the_service_registry = noClasses()
       .that(not(partOfAModuleClass()))
       .should().dependOnClassesThat().belongToAnyOf(ServiceRegistry.class)

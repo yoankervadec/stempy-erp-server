@@ -27,6 +27,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.db.DataSources;
 import com.lesconstructionssapete.stempyerpserver.platform.db.DatabaseConfig;
 import com.lesconstructionssapete.stempyerpserver.platform.db.DatabaseMigrator;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
+import com.lesconstructionssapete.stempyerpserver.platform.events.outbox.Outbox;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ERPModule;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ModuleHost;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ServiceRegistry;
@@ -135,7 +136,7 @@ public final class MySqlTestStack implements AutoCloseable {
     return host.services();
   }
 
-  /** For what the server does beyond HTTP, e.g. host().startScheduler(...). Stop the scheduler before close(). */
+  /** For what the server does beyond HTTP, e.g. host().startScheduler(...); close() stops the scheduler and outbox. */
   public ModuleHost host() {
     return host;
   }
@@ -197,7 +198,11 @@ public final class MySqlTestStack implements AutoCloseable {
       try {
         server.stop();
       } finally {
-        host.services().get(Scheduler.class).stop(); // no-op unless a test started it
+        try {
+          host.services().get(Scheduler.class).stop(); // no-op unless a test started it
+        } finally {
+          host.services().get(Outbox.class).stop(); // likewise
+        }
       }
     }
   }

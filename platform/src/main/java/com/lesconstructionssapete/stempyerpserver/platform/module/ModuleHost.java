@@ -11,6 +11,10 @@ import com.lesconstructionssapete.stempyerpserver.platform.db.Jdbc;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.events.EventBus;
+import com.lesconstructionssapete.stempyerpserver.platform.events.outbox.Outbox;
+import com.lesconstructionssapete.stempyerpserver.platform.events.outbox.OutboxSettings;
+import com.lesconstructionssapete.stempyerpserver.platform.events.outbox.internal.JdbcOutboxWriter;
+import com.lesconstructionssapete.stempyerpserver.platform.events.outbox.internal.OutboxPruneJob;
 import com.lesconstructionssapete.stempyerpserver.platform.query.QueryLimits;
 import com.lesconstructionssapete.stempyerpserver.platform.scheduler.Scheduler;
 import com.lesconstructionssapete.stempyerpserver.platform.scheduler.SchedulerSettings;
@@ -26,6 +30,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.web.ErrorTranslator;
 import com.lesconstructionssapete.stempyerpserver.platform.web.ExceptionMapper;
 import com.lesconstructionssapete.stempyerpserver.platform.web.HealthChecks;
 import com.lesconstructionssapete.stempyerpserver.platform.web.HealthRoutes;
+import com.lesconstructionssapete.stempyerpserver.platform.web.JsonMapperFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.web.WebServer;
 import com.lesconstructionssapete.stempyerpserver.platform.web.WebServerConfig;
 
@@ -42,6 +47,8 @@ import com.lesconstructionssapete.stempyerpserver.platform.web.WebServerConfig;
  * host.startWebServer(config);               4. health + module routes behind the AuthFilter (session from
  *                                            SessionAuthenticator, company + permissions from CompanyAccess)
  * host.startScheduler(settings);             5. server mode only: start running jobs (registered in start())
+ * host.startOutbox(settings);                6. server mode only: start delivering what async event
+ *                                            subscriptions wrote to the outbox (CLI commands still write rows)
  * </pre>
  *
  * Modules are driven in list order: a module may only use what the modules
@@ -55,6 +62,7 @@ public final class ModuleHost {
   private UnitOfWorkFactory uowFactory;
   private ServiceRegistry services;
   private final Scheduler scheduler = new Scheduler();
+  private Outbox outbox;
 
   public ModuleHost(List<ERPModule> modules) {
     this.modules = List.copyOf(modules);
@@ -75,16 +83,19 @@ public final class ModuleHost {
   /**
    * Publishes the platform services every module may use (UnitOfWorkFactory,
    * EventBus, EntityRegistry, PermissionRegistry, PermissionChecker,
-   * EntityEndpoints, Scheduler), then each module's own, then
-   * wires event handlers, then job types. The registries are frozen afterwards.
-   * Nothing runs yet: see startScheduler().
+   * EntityEndpoints, Scheduler, Outbox), then each module's own, then
+   * wires event handlers (synchronous and async), then job types. The
+   * registries are frozen afterwards. Nothing runs yet: see startScheduler()
+   * and startOutbox().
    */
   public synchronized ServiceRegistry start(UnitOfWorkFactory uowFactory) {
     if (services != null) {
       throw new IllegalStateException("ModuleHost already started");
     }
     this.uowFactory = Objects.requireNonNull(uowFactory, "uowFactory");
-    var eventBus = new EventBus();
+    // Async subscriptions write their outbox rows with the publisher's UnitOfWork.
+    var eventBus = new EventBus(new JdbcOutboxWriter(JsonMapperFactory.newObjectMapper()));
+    outbox = new Outbox(eventBus);
     var registry = new ServiceRegistry();
     registry.register(UnitOfWorkFactory.class, uowFactory);
     registry.register(EventBus.class, eventBus);
@@ -97,6 +108,7 @@ public final class ModuleHost {
     registry.register(EntityEndpoints.class,
         new EntityEndpoints(uowFactory, QueryLimits.defaults(), checker, eventBus, clock));
     registry.register(Scheduler.class, scheduler);
+    registry.register(Outbox.class, outbox);
     modules.forEach(m -> m.registerServices(registry));
     registry.freeze();
 
@@ -105,6 +117,7 @@ public final class ModuleHost {
 
     // The scheduler's own housekeeping first, then the modules' jobs.
     scheduler.register(PruneRunsJob.type(uowFactory, () -> scheduler.settings().runRetention()));
+    scheduler.register(OutboxPruneJob.type(uowFactory, outbox::settings));
     modules.forEach(m -> m.registerJobs(scheduler, registry));
     scheduler.freeze(permissions::contains);
 
@@ -132,6 +145,17 @@ public final class ModuleHost {
     }
     scheduler.start(settings, uowFactory, s.get(SystemActor.class), s.get(CompanyAccess.class), permissions);
     return scheduler;
+  }
+
+  /**
+   * Starts delivering the outbox, unless {@code settings.enabled()} is false.
+   * Server mode only: CLI commands and most tests never call it. Call
+   * {@code outbox.stop()} before closing the connection pool.
+   */
+  public Outbox startOutbox(OutboxSettings settings) {
+    ServiceRegistry s = services();
+    outbox.start(settings, uowFactory, s.get(SystemActor.class), permissions);
+    return outbox;
   }
 
   /**

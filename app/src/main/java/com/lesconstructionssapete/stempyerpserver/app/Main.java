@@ -12,6 +12,8 @@ import com.lesconstructionssapete.stempyerpserver.platform.db.DatabaseMigrator;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ModuleHost;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ServiceRegistry;
+import com.lesconstructionssapete.stempyerpserver.platform.events.outbox.Outbox;
+import com.lesconstructionssapete.stempyerpserver.platform.events.outbox.OutboxSettings;
 import com.lesconstructionssapete.stempyerpserver.platform.scheduler.Scheduler;
 import com.lesconstructionssapete.stempyerpserver.platform.scheduler.SchedulerSettings;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PasswordHasher;
@@ -60,13 +62,19 @@ public class Main {
 
     WebServer webServer = host.startWebServer(WebServerConfig.ofPort(settings.getInt("server.port")));
     Scheduler scheduler = host.startScheduler(SchedulerSettings.from(settings));
-    // Stop taking requests and starting jobs first, then release the pool they were using.
+    Outbox outbox = host.startOutbox(OutboxSettings.from(settings));
+    // Stop taking requests, starting jobs and delivering messages first, then release the pool they were using.
+    // Requests and jobs may still enqueue messages while they finish, so the outbox stops last.
     Runtime.getRuntime().addShutdownHook(new Thread(() -> {
       try (dataSource) {
         try {
           webServer.stop();
         } finally {
-          scheduler.stop();
+          try {
+            scheduler.stop();
+          } finally {
+            outbox.stop();
+          }
         }
       }
     }, "shutdown"));

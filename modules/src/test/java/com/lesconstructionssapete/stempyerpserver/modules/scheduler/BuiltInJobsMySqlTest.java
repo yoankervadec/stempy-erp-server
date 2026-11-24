@@ -103,13 +103,14 @@ class BuiltInJobsMySqlTest {
   // ---- default schedules ----
 
   @Test
-  void bothJobsComeWithAScheduleOwnedBySystem() {
+  void everyBuiltInJobComesWithAScheduleOwnedBySystem() {
     long system = stack.services().get(SystemActor.class).userId();
     var rows = uow.executeReadOnly(u -> Jdbc.queryList(u, """
         SELECT job_key, cron_expression, time_zone, company_id, created_by FROM scheduled_jobs ORDER BY job_key""",
         rs -> List.of(rs.getString(1), rs.getString(2), rs.getString(3), String.valueOf(rs.getObject(4)),
             rs.getLong(5))));
     assertEquals(List.of(
+        List.of("outbox.prune", "45 3 * * *", "America/Toronto", "null", system),
         List.of("scheduler.prune-runs", "30 3 * * *", "America/Toronto", "null", system),
         List.of("users.purge-expired-sessions", "15 * * * *", "America/Toronto", "null", system)), rows);
   }
@@ -152,6 +153,31 @@ class BuiltInJobsMySqlTest {
     RunRow run = runByHand("scheduler.prune-runs", "{\"retention\": \"PT1H\"}");
     assertEquals(RunStatus.FAILED, run.status());
     assertTrue(run.errorMessage().contains("parameters.retention"), run.errorMessage());
+  }
+
+  // ---- outbox.prune ----
+
+  @Test
+  void outboxPruneDeletesOnlyOldDeliveredAndDeadMessages() {
+    uow.run(u -> {
+      // status, processed days ago (null: not processed)
+      Object[][] rows = { { "SUCCEEDED", 30 }, { "SUCCEEDED", 8 }, { "SUCCEEDED", 1 }, { "DEAD", 100 },
+          { "DEAD", 10 }, { "PENDING", null }, { "PROCESSING", null } };
+      for (Object[] r : rows) {
+        Jdbc.update(u, """
+            INSERT INTO outbox (subscription_key, event_type, payload, company_id, status, available_at, created_at,
+              processed_at)
+            VALUES ('some.key', 'x.Y', '{}', 1, ?, UTC_TIMESTAMP() - INTERVAL 200 DAY,
+              UTC_TIMESTAMP() - INTERVAL 200 DAY, UTC_TIMESTAMP() - INTERVAL ? DAY)""", r[0], r[1]);
+      }
+    });
+
+    RunRow run = runByHand("outbox.prune", null); // P7D and P90D: the outbox was not started, so the defaults
+    assertEquals(RunStatus.SUCCEEDED, run.status(), run.errorMessage());
+    assertEquals("2 delivered (retention PT168H) and 1 dead (retention PT2160H) message(s) deleted",
+        run.resultSummary());
+    assertEquals(List.of("DEAD", "PENDING", "PROCESSING", "SUCCEEDED"), uow.executeReadOnly(u -> Jdbc.queryList(u,
+        "SELECT status FROM outbox ORDER BY CAST(status AS CHAR)", rs -> rs.getString(1))));
   }
 
   // ---- users.purge-expired-sessions ----

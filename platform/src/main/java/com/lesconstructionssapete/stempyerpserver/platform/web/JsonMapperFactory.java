@@ -13,8 +13,8 @@ import com.fasterxml.jackson.databind.ser.std.StdSerializer;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
 /**
- * The Jackson configuration for the whole application: HTTP bodies now, outbox
- * event payloads and audit records later. Use newObjectMapper() or
+ * The Jackson configuration for the whole application: HTTP bodies, outbox
+ * event payloads, and audit records later. Use newObjectMapper() or
  * configure(...) so every JSON in the system behaves the same way.
  *
  * Choices made for an ERP, where silently wrong numbers are the worst kind of

@@ -9,7 +9,8 @@ import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWork;
  * UnitOfWork:
  * if the handler throws, the publisher's whole transaction rolls back. That is
  * exactly what you want for GL postings, and exactly what you do NOT want for
- * sending an email (use the outbox for that, later).
+ * sending an email (use EventBus.subscribeAsync for that: it goes through the
+ * outbox and runs after the commit).
  *
  * Handlers should not depend on running before or after another handler.
  */

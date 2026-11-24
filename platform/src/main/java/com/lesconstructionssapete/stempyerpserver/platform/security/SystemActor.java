@@ -2,7 +2,7 @@ package com.lesconstructionssapete.stempyerpserver.platform.security;
 
 /**
  * The user that work nobody asked for in person is done as (scheduled jobs,
- * later the outbox): its id goes in RequestContext.userId and in created_by /
+ * outbox deliveries): its id goes in RequestContext.userId and in created_by /
  * updated_by. Published by the users module, which owns the users table.
  *
  * The SYSTEM user cannot log in: it is disabled and has no credentials.

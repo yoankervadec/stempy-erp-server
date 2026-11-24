@@ -156,15 +156,19 @@ platform/
 │   ├── PasswordHasher.java         PBKDF2-HMAC-SHA256, 600k iterations, self-describing format, needsRehash().
 │   ├── LoginThrottle.java          In-memory lockout per user + IP (move to Redis if replicated).
 │   ├── SystemActor.java            Interface: the SYSTEM user's id, for work nobody asked for in person
-│   │                               (scheduled runs). Implemented by modules.users, created on first use.
+│   │                               (scheduled runs, outbox deliveries). Implemented by modules.users, created on first use.
 │   └── PermissionChecker.java       SINGLE choke point for permission checks.
 │
-├── events/                                                                          (sync only)
+├── events/                          Sync handlers + async subscriptions through the outbox (see §18)
 │   ├── DomainEvent.java            Marker: companyId(), eventType(). Use immutable records, past tense.
-│   ├── EventBus.java               subscribe() at startup, freeze(), publish(uow, event) synchronously
-│   │                               in the caller's transaction. Supertype subscriptions; loop guard (depth 8).
+│   ├── EventBus.java               subscribe() / subscribeAsync() at startup, freeze(), publish(uow, event):
+│   │                               sync handlers in the caller's transaction, then one outbox row per
+│   │                               matching async subscription. Supertype subscriptions; loop guard (depth 8).
 │   ├── EventHandler.java           handle(uow, event).
-│   └── outbox/                      OutboxEntry, OutboxRepository, OutboxDispatcher (async, retries).
+│   ├── AsyncEventHandler.java      handle(delivery, event), after the commit; AsyncSubscription (key, limits).
+│   └── outbox/                     Outbox (start / stop), OutboxSettings, OutboxDelivery, OutboxWriter, OutboxStatus.
+│       └── internal/               OutboxDispatcher (poll, claim, deliver, retry), OutboxRepository (SQL),
+│                                   JdbcOutboxWriter, OutboxPruneJob (outbox.prune). Modules never import it.
 │
 ├── scheduler/                       Recurring jobs, DB-driven and multi-instance safe (see §17)
 │   ├── Scheduler.java              Registry of job types (register, freeze) + start() / stop().
@@ -198,7 +202,8 @@ platform/src/main/resources/
     │   ├── V2__create_users_and_products_tables.sql   users, user_credentials, product_categories, products
     │   ├── V3__create_user_sessions_table.sql         user_sessions
     │   ├── V4__multi_company_users_and_permissions.sql   memberships, roles, overrides (§16)
-    │   └── V5__scheduler.sql                          scheduled_jobs, scheduled_job_runs (§17)
+    │   ├── V5__scheduler.sql                          scheduled_jobs, scheduled_job_runs (§17)
+    │   └── V6__outbox.sql                             outbox (§18)
     └── old_schema.tmp.sql        Legacy MySQL dump kept as reference (git-ignored via *.tmp.*).
 ```
 
@@ -207,7 +212,7 @@ All migrations currently live in `platform`, including tables owned by business 
 ### 3.2 Notes
 
 - **Scheduler jobs are just orchestrators triggered by time.** A job calls an orchestrator like a controller would, with the `RequestContext` from its `JobContext` (SYSTEM, or the user who pressed "run now"). The scheduler opens no transaction around it: the orchestrator owns its own (`Job.transactional` for the one-transaction case). See §17.
-- **Outbox writes happen inside the originating transaction**, so events are never lost or emitted for rolled-back work.
+- **Outbox writes happen inside the originating transaction**, so events are never lost or emitted for rolled-back work. Delivery is at least once, after the commit (§18).
 - **`ServiceRegistry` is a composition-root tool.** Only platform services and modules' public APIs go in. Repositories, operations, orchestrators and listeners never do; an `XxxModule` resolves what it needs once and passes plain constructor arguments down.
 
 ### 3.3 Services in the `ServiceRegistry`
@@ -221,6 +226,7 @@ All migrations currently live in `platform`, including tables owned by business 
 | `PermissionRegistry`    | ModuleHost              |
 | `PermissionChecker`     | ModuleHost              |
 | `Scheduler`             | ModuleHost (job types registered in phase 4, run by `startScheduler`) |
+| `Outbox`                | ModuleHost (async subscriptions registered with the event handlers, delivered by `startOutbox`) |
 | `SessionAuthenticator`  | `UsersModule`           |
 | `CompanyAccess`         | `UsersModule` (wrapped in `CachedCompanyAccess`) |
 | `UsersApi`              | `UsersModule`           |
@@ -666,7 +672,7 @@ Two event tiers:
 | Tier                            | When                                                            | Mechanism                                                                                        |
 | ------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | **Synchronous, in-transaction** | Financial postings, stock updates, anything that must be atomic |  `EventBus` handlers run inside the caller's UoW                                               |
-| **Async via outbox**            | Emails, webhooks, search index, notifications                   |  Row written to `outbox` in the same transaction; `OutboxDispatcher` processes later with retries |
+| **Async via outbox**            | Emails, webhooks, search index, notifications                   |  `EventBus.subscribeAsync`: row written to `outbox` in the same transaction; `OutboxDispatcher` delivers it after the commit, with retries (§18) |
 
 ---
 
@@ -680,6 +686,7 @@ Two event tiers:
 | End-to-end against MySQL     | `AuthRoutesMySqlTest`, `ItemRoutesMySqlTest` | `MySqlTestStack`: full server started like Main (AllModules + ModuleHost), Flyway clean + migrate on `TEST_DATABASE_NAME` (must end in `_test`), seeded data, real logins. Skipped if the DB is unavailable |
 | Scheduler, pure              | `platform/.../scheduler`                   | `CronExpressionTest` (syntax, month ends, leap years, DST gap and overlap in America/Toronto), `ScheduleSpecTest`, `SchedulesTest`, `RetryPolicyTest`, `SchedulerRegistryTest` |
 | Scheduler against MySQL      | `modules/.../scheduler`, `system/scheduling` | `SchedulerStoreMySqlTest` (row locks, leases, duplicate-fire guard, SYSTEM user), `SchedulerEngineMySqlTest` (the running engine with test jobs: retries, timeouts, misfires, crash recovery, manual runs, two instances, shutdown), `BuiltInJobsMySqlTest`, `SchedulingRoutesMySqlTest` (admin API) |
+| Outbox                       | `platform/.../events`, `modules/.../outbox` | `EventBusAsyncTest` (no DB), `OutboxDispatcherMySqlTest` (delivery, rollback, retries, DEAD, timeouts, leases, two instances, shutdown); `outbox.prune` in `BuiltInJobsMySqlTest` (§18.7) |
 | Architecture                 |                                          | ArchUnit rules (§11)                                                                     |
 
 The MySQL tests use a **local** MySQL configured through `.env`, not Testcontainers (the BOM is declared for a later switch).
@@ -704,6 +711,7 @@ A **business module** is the package of an `ERPModule` implementation plus its s
 | Only `ERPModule` classes see `ServiceRegistry` | The registry never travels deeper than the module class |
 | Only `*Controller` classes depend on Javalin | Business code stays HTTP-free |
 | Nothing in `modules` uses `platform.scheduler.internal` | The engine and its SQL can change freely; modules use `Scheduler`, `JobType`, `JobContext` and `schedule/` |
+| Nothing in `modules` uses `platform.events.outbox.internal` | The dispatcher and its SQL can change freely; modules use `EventBus.subscribeAsync` and `OutboxDelivery` |
 | `events` packages hold records implementing `DomainEvent` | Events are a public, immutable contract |
 
 The rules rely on the naming conventions of §4.2 (`*Module`, `*Api`, `*Controller`, `*Service`, `*Repository`, `operations/`, `events/`). A class nested in another (a local record, a lambda) belongs to its outer class's layer. Each rule was checked against deliberate violations when it was written.
@@ -750,7 +758,7 @@ Decide these early; they are painful to retrofit.
 4.  `modules/masterdata/items` (query only) ;  `modules/company`, `masterdata/customers`, `masterdata/vendors`, `modules/tax`.
 5.  `modules/gl` (accounts, periods, journal posting, trial balance).
 6.  First transactional module (e.g. `sales` or `ap`) wired to GL through events, as the reference implementation for all later modules.
-7.  `platform/scheduler` (done 2026-11-23, §17) + outbox dispatcher (to do; it can be a scheduler job or its own loop).
+7.  `platform/scheduler` (done 2026-11-23, §17) + outbox dispatcher (done 2026-11-24, its own loop, §18).
 8.  Remaining modules (inventory, purchasing, bank, fixed assets, approvals).
 9.  ArchUnit rules (§11).
 
@@ -763,6 +771,7 @@ Open:
 - **`V1__.sql` has no description.** Leave it: Flyway validates descriptions, so renaming an applied migration fails validation on every existing database. Just give future migrations a description.
 - **Stubs:** `shared` has no classes.
 - **Scheduler loose ends:** see §17.9.
+- **Outbox loose ends:** see §18.8.
 - **Unused but planned dependencies:** Lettuce (`redis.port` unused; no longer needed by the scheduler), Testcontainers BOM (no module depends on it; the MySQL tests use the local database).
 
 Fixed on 2026-11-18:
@@ -1144,7 +1153,7 @@ public void registerJobs(Scheduler scheduler, ServiceRegistry services) {
 
 - Long loops call `ctx.throwIfCancelled()` between batches; `ctx.setResultSummary("42 invoices sent")` shows up in the history.
 - A job that should exist on every install declares `.withDefaultSchedule(DefaultSchedule.cron(...))`. It is inserted on first start if no row (even a deleted one) uses the key, and never overwritten.
-- Built in: `scheduler.prune-runs` (platform, daily 03:30) and `users.purge-expired-sessions` (hourly at :15), both SYSTEM-only.
+- Built in: `scheduler.prune-runs` (platform, daily 03:30), `outbox.prune` (platform, daily 03:45, §18) and `users.purge-expired-sessions` (hourly at :15), all SYSTEM-only.
 
 ### 17.8 Tests
 
@@ -1159,3 +1168,103 @@ See §10. The engine tests run the real scheduler against MySQL with test job ty
 - **No calendars** (holidays, business days) and no job chaining or dependencies.
 - **Every poll reads all schedules** to compare fingerprints: fine for hundreds to a few thousand rows, revisit beyond that.
 - A run in progress when its schedule is deleted finishes normally; queued manual runs of it end `SKIPPED`.
+
+---
+
+## 18. Outbox
+
+_Status: built 2026-11-24 (migration V6). No module uses it yet: the first consumer (emails, webhooks) plugs in with one `subscribeAsync` call._
+
+For work that must happen **after** a business transaction but must **never break it**: emails, webhooks, search indexing, notifications. Financial side effects stay synchronous (§9).
+
+Why not just call the email service after `commit()`? Either the process dies between the commit and the call (the email is lost), or the call happens first and the commit then fails (an email about an invoice that does not exist). The outbox removes both: inside the transaction nothing is sent, a row is **inserted** in `outbox`, and it commits or rolls back with the business data. A dispatcher delivers committed rows later, retrying until it succeeds or gives up.
+
+### 18.1 Decisions this design rests on
+
+- **Async event subscribers, not a separate "enqueue" API.** Business code keeps calling `eventBus.publish(uow, event)`. A module that wants to react later calls `eventBus.subscribeAsync(key, EventType.class, handler)`; publish writes one outbox row per matching async subscription (after the synchronous handlers), so one slow or failing consumer never holds up another.
+- **Its own poll loop, not a scheduler job.** Scheduler INTERVALs are at least `PT1M`; an email should leave within about a second. The dispatcher reuses the scheduler's patterns (database clock, `FOR UPDATE SKIP LOCKED`, leases, graceful shutdown), not its engine.
+- **At-least-once delivery, no ordering.** A crash after the handler ran but before its row was marked runs it again; parallel workers and retries reorder messages. Handlers must be idempotent (`OutboxDelivery.messageId()` is a stable idempotency key).
+- **No lease renewal.** A claimed row is leased for its timeout + 30 s. Handlers are meant to be short; long work belongs in a scheduler job.
+- **The event is stored as JSON with its class name** (`JsonMapperFactory`), and read back into that class. Renaming or moving an event class, or changing its fields incompatibly, strands pending rows: they go DEAD (visible, not silent).
+- **Handlers act as SYSTEM** in the event's company with every declared permission, like scheduled jobs. They get no UnitOfWork (the publisher's is gone) and open their own if needed.
+- **DEAD messages: table and logs only** (ERROR log, `last_error` with stack trace). No admin API yet; requeue with SQL (§18.5).
+
+### 18.2 Using it
+
+```java
+// In a module's registerEventHandlers(eventBus, services):
+eventBus.subscribeAsync("search.index-entity", EntityChanged.class,     // key: stable, stored in each row
+    (delivery, event) -> searchIndexer.reindex(event.entity(), event.id()))
+  .withMaxAttempts(10)                                                  // optional, default outbox.defaultMaxAttempts
+  .withTimeout(Duration.ofSeconds(10));                                 // optional, default outbox.defaultTimeout
+```
+
+- Keys look like job keys (`module.what`) and are unique; never rename one while rows may be pending.
+- Throwing means "retry later". `delivery.attempt()`, `maxAttempts()`, `isLastAttempt()` tell where you are.
+- A handler that loops should stop when its thread is interrupted (timeout, shutdown).
+- An event that can't be serialized fails the **publisher's** transaction: a programming error should be loud.
+
+### 18.3 Table (V6)
+
+| Column | Role |
+| --- | --- |
+| `subscription_key` | Which async handler |
+| `event_type`, `payload` | Event class name and its JSON |
+| `company_id` | `DomainEvent.companyId()` |
+| `status` | `PENDING` -> `PROCESSING` -> `SUCCEEDED` / back to `PENDING` (retry) / `DEAD` |
+| `attempt` | Attempts started (incremented at claim) |
+| `available_at` | Not claimed before this: the retry backoff |
+| `locked_by`, `locked_until` | The lease while `PROCESSING` |
+| `last_error` | Message and stack trace of the last failure |
+| `created_at`, `processed_at` | Enqueued; became `SUCCEEDED` / `DEAD` |
+
+### 18.4 How it runs
+
+`ModuleHost.startOutbox(settings)` (server mode only) starts, on each instance, one poll thread (`outbox-poll`), a worker pool (`outbox-worker-N`) and a watchdog. The loop:
+
+1. **Reap** (once per `pollInterval`): `PROCESSING` rows whose lease expired go back to `PENDING` after the backoff, or `DEAD` if that was their last attempt.
+2. **Claim**, in one short transaction, at most as many `PENDING` rows with `available_at <= now` as there are idle workers, only for subscription keys registered on **this** instance: `PROCESSING`, `attempt + 1`, lease = now + timeout + 30 s.
+3. **Deliver** on a worker: read the event back, call the handler; the watchdog interrupts it at its timeout. Then, in a new transaction: `SUCCEEDED`; or `PENDING` with `available_at = now + retryBackoff * 2^(attempt-1)` (capped at 1 h); or `DEAD` when attempts are used up or the row can't be read back. Each of these updates checks `locked_by` and `attempt`, so a late result never overwrites an attempt that took over after the lease expired.
+4. **Sleep** until the next poll, or less: a worker finishing after a claim that filled every worker wakes the loop at once.
+
+**Shutdown** (`Main`'s hook, after the web server and the scheduler, before the pool closes): stop claiming, wait `shutdownGrace`, then interrupt the handlers. Their rows go back to `PENDING` without counting the attempt, so another instance delivers them at once.
+
+**Housekeeping:** the `outbox.prune` job (SYSTEM, daily 03:45 America/Toronto) deletes `SUCCEEDED` rows older than `outbox.retention` and `DEAD` rows older than `outbox.deadRetention`, in batches.
+
+### 18.5 Operating it
+
+```sql
+-- What is stuck or dead?
+SELECT id, subscription_key, status, attempt, available_at, LEFT(last_error, 200)
+FROM outbox WHERE status IN ('PENDING', 'PROCESSING', 'DEAD') ORDER BY id;
+
+-- Retry a dead message (after fixing the cause):
+UPDATE outbox SET status = 'PENDING', attempt = 0, available_at = UTC_TIMESTAMP() WHERE id = ?;
+```
+
+### 18.6 Settings (`application.properties`)
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `outbox.enabled` | `true` | `false`: this instance delivers nothing (rows are still written) |
+| `outbox.pollInterval` | `PT1S` | How often pending rows are looked for when idle |
+| `outbox.workerThreads` | `4` | Handlers running at once on this instance |
+| `outbox.defaultTimeout` | `PT30S` | For subscriptions without `withTimeout` |
+| `outbox.defaultMaxAttempts` | `8` | For subscriptions without `withMaxAttempts` |
+| `outbox.retryBackoff` | `PT10S` | Base of the exponential backoff |
+| `outbox.shutdownGrace` | `PT15S` | Wait for running handlers before interrupting them |
+| `outbox.retention` | `P7D` | `SUCCEEDED` rows kept this long |
+| `outbox.deadRetention` | `P90D` | `DEAD` rows kept this long |
+| `outbox.instanceId` | `host:pid:random` | Name of this instance in leases |
+
+### 18.7 Tests
+
+`EventBusAsyncTest` (platform, no database): subscriptions, keys, freezing, one row per matching subscription, payload JSON round trip, settings. `OutboxDispatcherMySqlTest`: delivery as SYSTEM, nothing for a rolled-back transaction, retries with backoff, DEAD, timeouts, expired and live leases of other instances, unreadable rows, two instances delivering 100 messages exactly once, shutdown. `BuiltInJobsMySqlTest`: `outbox.prune`.
+
+### 18.8 Known gaps and limits
+
+- **No admin API or alerting** for DEAD messages: logs and SQL only.
+- **No ordering**, and no per-key serialization (two events about one invoice may be handled in parallel).
+- **Pending rows of a removed subscription wait forever** (no instance claims an unknown key). Delete them by hand.
+- **CLI commands write rows but never deliver them**; a running server does.
+- **No "wake on commit"**: a message waits up to `pollInterval` even on an idle server.
