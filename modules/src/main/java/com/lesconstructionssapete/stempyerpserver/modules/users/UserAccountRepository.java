@@ -3,11 +3,15 @@ package com.lesconstructionssapete.stempyerpserver.modules.users;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 import com.lesconstructionssapete.stempyerpserver.modules.users.dto.UserProfile;
 import com.lesconstructionssapete.stempyerpserver.platform.db.Jdbc;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWork;
+import com.lesconstructionssapete.stempyerpserver.platform.security.UserDirectory.UserSummary;
 
 /** users + user_credentials, for authentication. Raw JDBC, no rules. */
 public class UserAccountRepository {
@@ -47,6 +51,16 @@ public class UserAccountRepository {
   public Optional<UserRef> findByUserNo(UnitOfWork uow, String userNo) {
     return Jdbc.queryFirst(uow, "SELECT id FROM users WHERE user_no = ? AND deleted_at IS NULL",
         rs -> new UserRef(rs.getLong("id")), userNo);
+  }
+
+  /** Id, user number and name of these users, deleted ones included; at most 1000 ids at a time. */
+  public List<UserSummary> findSummaries(UnitOfWork uow, Collection<Long> ids) {
+    if (ids.isEmpty()) {
+      return List.of();
+    }
+    return Jdbc.queryList(uow, "SELECT id, user_no, name FROM users WHERE id IN ("
+        + String.join(", ", Collections.nCopies(ids.size(), "?")) + ")",
+        rs -> new UserSummary(rs.getLong("id"), rs.getString("user_no"), rs.getString("name")), ids.toArray());
   }
 
   /** The user with this user number, deleted or not (user numbers are unique across both). */

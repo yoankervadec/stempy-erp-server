@@ -14,6 +14,7 @@ import java.net.http.HttpResponse;
 import java.time.Clock;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 import org.junit.jupiter.api.AfterEach;
@@ -21,6 +22,7 @@ import org.junit.jupiter.api.Test;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lesconstructionssapete.stempyerpserver.platform.audit.AuditLog;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.error.ValidationFailedException;
 import com.lesconstructionssapete.stempyerpserver.platform.events.EventBus;
@@ -250,6 +252,6 @@ class WebServerTest {
     var eventBus = new EventBus();
     eventBus.freeze();
     return new EntityEndpoints(uowFactory, QueryLimits.defaults(), new PermissionChecker(permissions), eventBus,
-        Clock.systemUTC());
+        Clock.systemUTC(), new AuditLog(JsonMapperFactory.newObjectMapper()), Optional::empty);
   }
 }

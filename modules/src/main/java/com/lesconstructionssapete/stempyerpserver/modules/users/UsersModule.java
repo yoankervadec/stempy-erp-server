@@ -8,6 +8,7 @@ import com.lesconstructionssapete.stempyerpserver.modules.users.operations.Assig
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.CreateSessionOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.EnsureSystemUserOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.FindLoginCandidateOperation;
+import com.lesconstructionssapete.stempyerpserver.modules.users.operations.FindUserSummariesOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.GetUserProfileOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.ListUserCompaniesOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.LoadEffectivePermissionsOperation;
@@ -29,6 +30,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.security.PasswordHash
 import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.security.SessionAuthenticator;
 import com.lesconstructionssapete.stempyerpserver.platform.security.SystemActor;
+import com.lesconstructionssapete.stempyerpserver.platform.security.UserDirectory;
 import com.lesconstructionssapete.stempyerpserver.platform.web.Routes;
 
 /**
@@ -105,6 +107,8 @@ public class UsersModule implements ERPModule {
     sessionCleanup = new SessionCleanupService(uowFactory, settings, clock,
         new PurgeDeadSessionsOperation(sessions));
 
+    serviceRegistry.register(UserDirectory.class,
+        new UserDirectoryService(new FindUserSummariesOperation(accounts)));
     serviceRegistry.register(SystemActor.class,
         new SystemUserService(uowFactory, new EnsureSystemUserOperation(accounts)));
   }

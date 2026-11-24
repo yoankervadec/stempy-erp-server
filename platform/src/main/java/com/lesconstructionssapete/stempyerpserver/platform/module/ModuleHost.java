@@ -28,6 +28,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionCh
 import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.security.SessionAuthenticator;
 import com.lesconstructionssapete.stempyerpserver.platform.security.SystemActor;
+import com.lesconstructionssapete.stempyerpserver.platform.security.UserDirectory;
 import com.lesconstructionssapete.stempyerpserver.platform.web.EntityEndpoints;
 import com.lesconstructionssapete.stempyerpserver.platform.web.ErrorTranslator;
 import com.lesconstructionssapete.stempyerpserver.platform.web.ExceptionMapper;
@@ -69,6 +70,8 @@ public final class ModuleHost {
 
   public ModuleHost(List<ERPModule> modules) {
     this.modules = List.copyOf(modules);
+    permissions.declare(AuditLog.READ_PERMISSION,
+        "See the change history of records (who changed what, when), on top of the record's read permission");
     this.modules.forEach(m -> m.registerPermissions(permissions));
     permissions.freeze();
     this.modules.forEach(m -> m.registerEntities(entities));
@@ -108,12 +111,12 @@ public final class ModuleHost {
     registry.register(PermissionChecker.class, checker);
     // Whole seconds, like a MySQL TIMESTAMP, so a time written equals the time read back.
     Clock clock = Clock.tick(Clock.systemUTC(), Duration.ofSeconds(1));
-    registry.register(EntityEndpoints.class,
-        new EntityEndpoints(uowFactory, QueryLimits.defaults(), checker, eventBus, clock));
-    registry.register(Scheduler.class, scheduler);
-    registry.register(Outbox.class, outbox);
     var auditLog = new AuditLog(JsonMapperFactory.newObjectMapper());
     registry.register(AuditLog.class, auditLog);
+    registry.register(EntityEndpoints.class, new EntityEndpoints(uowFactory, QueryLimits.defaults(), checker,
+        eventBus, clock, auditLog, () -> registry.find(UserDirectory.class)));
+    registry.register(Scheduler.class, scheduler);
+    registry.register(Outbox.class, outbox);
     modules.forEach(m -> m.registerServices(registry));
     registry.freeze();
 

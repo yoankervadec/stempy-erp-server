@@ -28,6 +28,9 @@ import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWork;
  */
 public final class AuditLog {
 
+  /** Needed, on top of a record's own read permission, to see its history. Declared by ModuleHost. */
+  public static final String READ_PERMISSION = "audit.history.read";
+
   private static final String COLUMNS = """
       id, company_id, entity, entity_id, action, user_id, request_id, occurred_at, changes""";
 
@@ -46,10 +49,17 @@ public final class AuditLog {
         truncate(entry.requestId(), 100), changesJson(entry), entry.occurredAt());
   }
 
-  /** A record's entries, newest first. */
-  public List<AuditRecord> history(UnitOfWork uow, String entity, long entityId, int limit, int offset) {
+  /**
+   * A record's entries in one company, newest first. Scoping by company keeps
+   * another company's history of the same id out of sight, and still finds
+   * the history of a deleted row.
+   *
+   * @param companyId null for install-wide data
+   */
+  public List<AuditRecord> history(UnitOfWork uow, String entity, long entityId, Long companyId, int limit,
+      int offset) {
     return Jdbc.queryList(uow, "SELECT " + COLUMNS + " FROM audit_log WHERE entity = ? AND entity_id = ?"
-        + " ORDER BY id DESC LIMIT ? OFFSET ?",
+        + " AND company_id <=> ? ORDER BY id DESC LIMIT ? OFFSET ?",
         rs -> new AuditRecord(
             rs.getLong("id"),
             rs.getObject("company_id", Long.class),
@@ -60,7 +70,7 @@ public final class AuditLog {
             rs.getString("request_id"),
             Timestamps.read(rs, "occurred_at"),
             parse(rs.getString("changes"))),
-        entity, entityId, limit, offset);
+        entity, entityId, companyId, limit, offset);
   }
 
   /** Deletes up to {@code limit} entries that occurred before {@code cutoff}; returns how many. */

@@ -9,14 +9,20 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.lesconstructionssapete.stempyerpserver.platform.audit.AuditHistory;
+import com.lesconstructionssapete.stempyerpserver.platform.audit.AuditLog;
+import com.lesconstructionssapete.stempyerpserver.platform.audit.AuditRecord;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWork;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityDefinition;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.FieldAccess;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.FieldType;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Operator;
+import com.lesconstructionssapete.stempyerpserver.platform.error.BadRequestException;
 import com.lesconstructionssapete.stempyerpserver.platform.error.ResourceNotFoundException;
 import com.lesconstructionssapete.stempyerpserver.platform.error.ValidationFailedException;
 import com.lesconstructionssapete.stempyerpserver.platform.events.EventBus;
@@ -28,6 +34,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.query.QuerySpecParser
 import com.lesconstructionssapete.stempyerpserver.platform.query.QueryTranslator;
 import com.lesconstructionssapete.stempyerpserver.platform.query.SQLQuery;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionChecker;
+import com.lesconstructionssapete.stempyerpserver.platform.security.UserDirectory;
 import com.lesconstructionssapete.stempyerpserver.platform.write.EntityChanged;
 import com.lesconstructionssapete.stempyerpserver.platform.write.FieldChanges;
 import com.lesconstructionssapete.stempyerpserver.platform.write.SQLWrite;
@@ -101,15 +108,25 @@ public final class EntityEndpoints {
   private final PermissionChecker permissions;
   private final EventBus eventBus;
   private final Clock clock;
+  private final QueryLimits limits;
+  private final AuditLog audit;
+  private final Supplier<Optional<UserDirectory>> userDirectory;
 
-  /** @param clock should tick in whole seconds, like a MySQL TIMESTAMP */
+  /**
+   * @param clock         should tick in whole seconds, like a MySQL TIMESTAMP
+   * @param userDirectory names the users in histories; looked up per request
+   *                      (the users module publishes it after this is built),
+   *                      empty: histories show user ids only
+   */
   public EntityEndpoints(UnitOfWorkFactory uowFactory, QueryLimits limits, PermissionChecker permissions,
-      EventBus eventBus, Clock clock) {
+      EventBus eventBus, Clock clock, AuditLog audit, Supplier<Optional<UserDirectory>> userDirectory) {
     this.uowFactory = Objects.requireNonNull(uowFactory, "uowFactory");
     this.permissions = Objects.requireNonNull(permissions, "permissions");
     this.eventBus = Objects.requireNonNull(eventBus, "eventBus");
     this.clock = Objects.requireNonNull(clock, "clock");
-    Objects.requireNonNull(limits, "limits");
+    this.limits = Objects.requireNonNull(limits, "limits");
+    this.audit = Objects.requireNonNull(audit, "audit");
+    this.userDirectory = Objects.requireNonNull(userDirectory, "userDirectory");
     this.parser = new QuerySpecParser(limits);
     this.translator = new QueryTranslator(limits);
   }
@@ -126,6 +143,7 @@ public final class EntityEndpoints {
     if (allowed.contains(Action.READ)) {
       routes.query(path, query(entity, Action.READ.permission(permissionPrefix)));
       routes.get(one, get(entity, Action.READ.permission(permissionPrefix)));
+      routes.get(one + "/history", history(entity, Action.READ.permission(permissionPrefix)));
     }
     if (allowed.contains(Action.CREATE)) {
       routes.post(path, create(entity, Action.CREATE.permission(permissionPrefix)));
@@ -220,6 +238,34 @@ public final class EntityEndpoints {
     };
   }
 
+  /**
+   * GET {id}/history: the record's audit entries in the caller's company,
+   * newest first, paged with ?limit= and ?offset=. Needs the record's read
+   * permission AND audit.history.read; values of fields the caller may not read are
+   * masked. Works for deleted rows too (their history outlives them).
+   */
+  public <E> Handler history(EntityDefinition<E> entity, String readPermission) {
+    permissions.requireDeclared(readPermission);
+    permissions.requireDeclared(AuditLog.READ_PERMISSION);
+    return ctx -> {
+      RequestContext rc = authorize(ctx, readPermission);
+      permissions.require(rc, AuditLog.READ_PERMISSION);
+      long id = idParam(ctx, entity);
+      int limit = intParam(ctx, "limit", limits.defaultPageSize(), 1, limits.maxPageSize());
+      int offset = intParam(ctx, "offset", 0, 0, Integer.MAX_VALUE);
+      Long company = entity.companyColumn() == null ? null : rc.companyId();
+      List<Map<String, Object>> items = uowFactory.executeReadOnly(uow -> {
+        List<AuditRecord> records = audit.history(uow, entity.name(), id, company, limit, offset);
+        Set<Long> userIds = records.stream().map(AuditRecord::userId).filter(Objects::nonNull)
+            .collect(Collectors.toSet());
+        Map<Long, UserDirectory.UserSummary> users = userIds.isEmpty() ? Map.of()
+            : userDirectory.get().map(d -> d.find(uow, userIds)).orElse(Map.of());
+        return AuditHistory.view(records, entity, access(rc), users);
+      });
+      ctx.json(new Page(items, new PageInfo(limit, offset)));
+    };
+  }
+
   // ---- internals ----
 
   private RequestContext authorize(Context ctx, String permission) {
@@ -243,6 +289,22 @@ public final class EntityEndpoints {
         List.of(), 1, 0);
     SQLQuery<E> query = translator.translate(entity, byId, rc.companyId(), access(rc));
     return queries.listAsMaps(uow, query).stream().findFirst();
+  }
+
+  private static int intParam(Context ctx, String name, int fallback, int min, int max) {
+    String raw = ctx.queryParam(name);
+    if (raw == null || raw.isBlank()) {
+      return fallback;
+    }
+    try {
+      int value = Integer.parseInt(raw.strip());
+      if (value >= min && value <= max) {
+        return value;
+      }
+    } catch (NumberFormatException e) {
+      // reported below
+    }
+    throw new BadRequestException("INVALID_PARAMETER", name + " must be a whole number from " + min + " to " + max);
   }
 
   /** A malformed id can't match a row: 404, like any unknown id. */

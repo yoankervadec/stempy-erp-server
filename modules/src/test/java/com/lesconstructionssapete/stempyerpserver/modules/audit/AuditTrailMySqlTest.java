@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.net.http.HttpResponse;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -40,7 +41,8 @@ class AuditTrailMySqlTest {
   private static UnitOfWorkFactory uow;
   private static AuditLog audit;
   private static String editor; // U1, every product permission in ACME
-  private static String reader; // U2, read only
+  private static String reader; // U2, product read only (no audit.history.read)
+  private static String otherAuditor; // U3, every product permission and audit.history.read, in OTHER
 
   @BeforeAll
   @SuppressWarnings("unused")
@@ -48,11 +50,12 @@ class AuditTrailMySqlTest {
     stack = MySqlTestStack.start(AuditTrailMySqlTest.class, AuthSettings.defaults(), AuditTrailMySqlTest::seed);
     uow = new UnitOfWorkFactory(stack.dataSource());
     audit = stack.services().get(AuditLog.class);
-    for (String u : List.of("U1", "U2")) {
+    for (String u : List.of("U1", "U2", "U3")) {
       stack.users().setPassword(u, PASSWORD.toCharArray());
     }
     editor = stack.login("U1", PASSWORD);
     reader = stack.login("U2", PASSWORD);
+    otherAuditor = stack.login("U3", PASSWORD);
   }
 
   @AfterAll
@@ -64,19 +67,21 @@ class AuditTrailMySqlTest {
   }
 
   private static void seed(Statement st) throws SQLException {
-    st.execute("INSERT INTO companies (id, code, is_enabled) VALUES (1, 'ACME', TRUE)");
+    st.execute("INSERT INTO companies (id, code, is_enabled) VALUES (1, 'ACME', TRUE), (2, 'OTHER', TRUE)");
     st.execute("INSERT INTO currencies (id, code, is_enabled) VALUES (1, 'CAD', TRUE)");
     st.execute("INSERT INTO units_of_measure (id, code, is_enabled) VALUES (1, 'UN', TRUE)");
     st.execute("""
         INSERT INTO users (id, default_company_id, user_no, name, created_by, updated_by) VALUES
-          (1, 1, 'U1', 'Editor', 1, 1), (2, 1, 'U2', 'Reader', 1, 1)""");
-    st.execute("INSERT INTO user_companies (user_id, company_id) VALUES (1, 1), (2, 1)");
+          (1, 1, 'U1', 'Jane Editor', 1, 1), (2, 1, 'U2', 'Reader', 1, 1), (3, 2, 'U3', 'Other auditor', 1, 1)""");
+    st.execute("INSERT INTO user_companies (user_id, company_id) VALUES (1, 1), (2, 1), (3, 2)");
     st.execute("INSERT INTO roles (id, code, name) VALUES (10, 'EDITOR', 'Editor'), (11, 'READER', 'Reader')");
     st.execute("""
         INSERT INTO role_permissions (role_id, permission) VALUES
           (10, 'masterdata.product.read'), (10, 'masterdata.product.create'),
-          (10, 'masterdata.product.update'), (10, 'masterdata.product.delete'), (11, 'masterdata.product.read')""");
-    st.execute("INSERT INTO user_company_roles (user_id, company_id, role_id) VALUES (1, 1, 10), (2, 1, 11)");
+          (10, 'masterdata.product.update'), (10, 'masterdata.product.delete'), (10, 'audit.history.read'),
+          (11, 'masterdata.product.read')""");
+    st.execute("""
+        INSERT INTO user_company_roles (user_id, company_id, role_id) VALUES (1, 1, 10), (2, 1, 11), (3, 2, 10)""");
     st.execute("""
         INSERT INTO product_categories (id, company_id, code, description, created_by, updated_by)
         VALUES (1, 1, 'HW', 'Hardware', 1, 1)""");
@@ -104,7 +109,7 @@ class AuditTrailMySqlTest {
 
   /** Newest first. */
   private static List<AuditRecord> history(long productId) {
-    return uow.executeReadOnly(u -> audit.history(u, "product", productId, 100, 0));
+    return uow.executeReadOnly(u -> audit.history(u, "product", productId, 1L, 100, 0));
   }
 
   private static List<String> actions(long productId) {
@@ -173,6 +178,64 @@ class AuditTrailMySqlTest {
     assertEquals("Washer", row.get("name").asText()); // the change rolled back with its entry
     assertEquals(0, row.get("version").asLong());
     assertEquals(List.of("CREATED"), actions(id));
+  }
+
+  // ---- the history API ----
+
+  private static JsonNode historyOf(long id, String query, String token) throws Exception {
+    HttpResponse<String> r = send("GET", PRODUCTS + "/" + id + "/history" + query, null, token);
+    assertEquals(200, r.statusCode(), r.body());
+    return MySqlTestStack.json(r);
+  }
+
+  @Test
+  void theHistoryShowsWhoChangedWhatNewestFirst() throws Exception {
+    long id = create("P-HIST");
+    assertEquals(200, send("PATCH", PRODUCTS + "/" + id, Map.of("version", 0, "name", "Big washer"), editor)
+        .statusCode());
+
+    JsonNode body = historyOf(id, "", editor);
+    JsonNode items = body.get("data");
+    assertEquals(2, items.size());
+    JsonNode latest = items.get(0);
+    assertEquals("UPDATED", latest.get("action").asText());
+    assertEquals("Washer", latest.get("changes").get("name").get("old").asText());
+    assertEquals("Big washer", latest.get("changes").get("name").get("new").asText());
+    assertEquals(1, latest.get("user").get("id").asLong());
+    assertEquals("U1", latest.get("user").get("userNo").asText());
+    assertEquals("Jane Editor", latest.get("user").get("name").asText());
+    Instant.parse(latest.get("occurredAt").asText());
+    assertEquals("CREATED", items.get(1).get("action").asText());
+    assertEquals(50, body.get("page").get("limit").asInt());
+
+    // Paging.
+    JsonNode second = historyOf(id, "?limit=1&offset=1", editor).get("data");
+    assertEquals(1, second.size());
+    assertEquals("CREATED", second.get(0).get("action").asText());
+    assertEquals(400, send("GET", PRODUCTS + "/" + id + "/history?limit=0", null, editor).statusCode());
+  }
+
+  @Test
+  void theHistoryNeedsTheReadPermissionAndAuditRead() throws Exception {
+    long id = create("P-PERM");
+    assertEquals(403, send("GET", PRODUCTS + "/" + id + "/history", null, reader).statusCode()); // no audit.history.read
+    assertEquals(401, send("GET", PRODUCTS + "/" + id + "/history", null, null).statusCode());
+  }
+
+  @Test
+  void anotherCompanySeesNoneOfIt() throws Exception {
+    long id = create("P-MINE");
+    assertEquals(0, historyOf(id, "", otherAuditor).get("data").size());
+  }
+
+  @Test
+  void aDeletedRecordKeepsItsHistory() throws Exception {
+    long id = create("P-GONE");
+    assertEquals(204, send("DELETE", PRODUCTS + "/" + id + "?version=0", null, editor).statusCode());
+    assertEquals(404, send("GET", PRODUCTS + "/" + id, null, editor).statusCode());
+    JsonNode items = historyOf(id, "", editor).get("data");
+    assertEquals(List.of("DELETED", "CREATED"), List.of(items.get(0).get("action").asText(),
+        items.get(1).get("action").asText()));
   }
 
   private static List<String> iterable(Iterator<String> it) {
