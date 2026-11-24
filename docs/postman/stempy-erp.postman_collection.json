@@ -770,6 +770,38 @@
           ]
         },
         {
+          "name": "Product history (who changed what)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": true
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/products/{{productId}}/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "products",
+                "{{productId}}",
+                "history"
+              ]
+            },
+            "description": "Audit entries of this product, newest first: who created, changed or deleted it and the old and new values. Needs masterdata.product.read and audit.history.read (ADMINISTRATOR has both). Values of fields you may not read show as {\"masked\": true}. Paged with ?limit=&offset=."
+          }
+        },
+        {
           "name": "Delete product (soft)",
           "request": {
             "method": "DELETE",
@@ -1088,6 +1120,33 @@
               }
             }
           ]
+        },
+        {
+          "name": "Schedule history (who changed what)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scheduler/schedules/{{scheduleId}}/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scheduler",
+                "schedules",
+                "{{scheduleId}}",
+                "history"
+              ]
+            },
+            "description": "Audit entries of this schedule, newest first. Needs what reading the schedule needs, plus audit.history.read."
+          }
         },
         {
           "name": "Disable schedule",

@@ -8,6 +8,8 @@ import java.util.Objects;
 import org.slf4j.LoggerFactory;
 
 import com.lesconstructionssapete.stempyerpserver.platform.audit.AuditLog;
+import com.lesconstructionssapete.stempyerpserver.platform.audit.AuditPruneJob;
+import com.lesconstructionssapete.stempyerpserver.platform.audit.AuditSettings;
 import com.lesconstructionssapete.stempyerpserver.platform.audit.AuditTrail;
 import com.lesconstructionssapete.stempyerpserver.platform.db.Jdbc;
 import com.lesconstructionssapete.stempyerpserver.platform.write.EntityChanged;
@@ -67,6 +69,7 @@ public final class ModuleHost {
   private ServiceRegistry services;
   private final Scheduler scheduler = new Scheduler();
   private Outbox outbox;
+  private volatile AuditSettings auditSettings = AuditSettings.defaults();
 
   public ModuleHost(List<ERPModule> modules) {
     this.modules = List.copyOf(modules);
@@ -128,6 +131,8 @@ public final class ModuleHost {
     // The scheduler's own housekeeping first, then the modules' jobs.
     scheduler.register(PruneRunsJob.type(uowFactory, () -> scheduler.settings().runRetention()));
     scheduler.register(OutboxPruneJob.type(uowFactory, outbox::settings));
+    scheduler.register(AuditPruneJob.type(uowFactory, registry.get(AuditLog.class), () -> auditSettings,
+        Clock.systemUTC()));
     modules.forEach(m -> m.registerJobs(scheduler, registry));
     scheduler.freeze(permissions::contains);
 
@@ -155,6 +160,14 @@ public final class ModuleHost {
     }
     scheduler.start(settings, uowFactory, s.get(SystemActor.class), s.get(CompanyAccess.class), permissions);
     return scheduler;
+  }
+
+  /**
+   * The audit.* settings (audit.retention, used by the audit.prune job). Call
+   * before startScheduler(); defaults apply otherwise.
+   */
+  public void configureAudit(AuditSettings settings) {
+    this.auditSettings = Objects.requireNonNull(settings, "settings");
   }
 
   /**

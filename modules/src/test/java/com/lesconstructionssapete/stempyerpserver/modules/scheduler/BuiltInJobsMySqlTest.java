@@ -110,6 +110,7 @@ class BuiltInJobsMySqlTest {
         rs -> List.of(rs.getString(1), rs.getString(2), rs.getString(3), String.valueOf(rs.getObject(4)),
             rs.getLong(5))));
     assertEquals(List.of(
+        List.of("audit.prune", "0 4 * * *", "America/Toronto", "null", system),
         List.of("outbox.prune", "45 3 * * *", "America/Toronto", "null", system),
         List.of("scheduler.prune-runs", "30 3 * * *", "America/Toronto", "null", system),
         List.of("users.purge-expired-sessions", "15 * * * *", "America/Toronto", "null", system)), rows);
@@ -153,6 +154,36 @@ class BuiltInJobsMySqlTest {
     RunRow run = runByHand("scheduler.prune-runs", "{\"retention\": \"PT1H\"}");
     assertEquals(RunStatus.FAILED, run.status());
     assertTrue(run.errorMessage().contains("parameters.retention"), run.errorMessage());
+  }
+
+  // ---- audit.prune ----
+
+  @Test
+  void auditPruneKeepsTheRetentionAndNeverLessThanSixYears() {
+    uow.run(u -> {
+      // months ago: 100 (8 years and 4 months), 80 (6 years and 8 months), 1
+      for (int months : new int[] { 100, 80, 1 }) {
+        Jdbc.update(u, """
+            INSERT INTO audit_log (entity, entity_id, action, occurred_at)
+            VALUES ('product', ?, 'UPDATED', UTC_TIMESTAMP() - INTERVAL ? MONTH)""", months, months);
+      }
+    });
+    String remaining = "SELECT COUNT(*) FROM audit_log WHERE entity = 'product' AND entity_id IN (100, 80, 1)";
+
+    RunRow byDefault = runByHand("audit.prune", null); // P7Y
+    assertEquals(RunStatus.SUCCEEDED, byDefault.status(), byDefault.errorMessage());
+    assertTrue(byDefault.resultSummary().startsWith("1 audit entry from before"), byDefault.resultSummary());
+    assertTrue(byDefault.resultSummary().endsWith("(retention P7Y)"), byDefault.resultSummary());
+    assertEquals(2, count(remaining));
+
+    RunRow sixYears = runByHand("audit.prune", "{\"retention\": \"P6Y\"}");
+    assertTrue(sixYears.resultSummary().startsWith("1 audit entry"), sixYears.resultSummary());
+    assertEquals(1, count(remaining));
+
+    RunRow tooShort = runByHand("audit.prune", "{\"retention\": \"P1Y\"}");
+    assertEquals(RunStatus.FAILED, tooShort.status());
+    assertTrue(tooShort.errorMessage().contains("parameters.retention"), tooShort.errorMessage());
+    assertEquals(1, count(remaining));
   }
 
   // ---- outbox.prune ----

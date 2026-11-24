@@ -140,7 +140,7 @@ Who you are in the request's company and what you may do there:
 
 ## 5. Entity routes (products, product categories)
 
-Every entity exposed generically gets the same five routes. `{base}` is `/masterdata/products` or `/masterdata/product-categories`.
+Every entity exposed generically gets the same six routes. `{base}` is `/masterdata/products` or `/masterdata/product-categories`.
 
 | Method | Path | Body | Permission | Success |
 | --- | --- | --- | --- | --- |
@@ -149,6 +149,7 @@ Every entity exposed generically gets the same five routes. `{base}` is `/master
 | `POST` | `{base}` | the new row's fields | `.create` | `201 row`, `Location: {base}/{id}` |
 | `PATCH` | `{base}/{id}` | `version` + only the fields to change | `.update` | `200 row` |
 | `DELETE` | `{base}/{id}?version=N` | – | `.delete` | `204` |
+| `GET` | `{base}/{id}/history?limit=&offset=` | – | `.read` + `audit.history.read` | `200 { "data": [entry], "page": {limit, offset} }`, newest first |
 
 Permissions are `masterdata.product.read|create|update|delete` and `masterdata.productCategory.read|create|update|delete`.
 
@@ -205,6 +206,29 @@ DELETE /masterdata/products/7?version=1
 ```
 
 `204`. The row disappears from `GET` and `QUERY` but stays in the table, so its `productNo` stays taken (creating it again gives `ALREADY_EXISTS`).
+
+### History: who changed what
+
+```http
+GET /masterdata/products/7/history?limit=50&offset=0
+```
+
+Every create, update and delete is recorded in the audit trail, in the same transaction as the change. The history lists a record's entries **newest first**:
+
+```json
+{ "data": [
+    { "id": 42, "action": "UPDATED", "occurredAt": "2026-11-24T15:04:05Z",
+      "user": { "id": 1, "userNo": "U1", "name": "Jane Roy" }, "requestId": "c4ff5f85-...",
+      "changes": { "name": { "old": "Hex bolt M8", "new": "Hex bolt M8 zinc" } } },
+    { "id": 17, "action": "CREATED", ..., "changes": { "productNo": { "old": null, "new": "P-001" }, ... } } ],
+  "page": { "limit": 50, "offset": 0 } }
+```
+
+- Needs the record's `.read` permission **and** `audit.history.read` (`ADMINISTRATOR` has both); without it, `403 PERMISSION_DENIED`.
+- `changes` lists only the fields whose value really changed (`"0.25"` resent as `"0.2500"` is not a change); a `PATCH` that changes nothing adds no entry. `DELETED` carries no changes. Decimals and dates are strings.
+- A field you may not read shows as `{ "masked": true }`: you see **that** it changed, not to what.
+- Only your company's entries are shown. A deleted record keeps its history (its `GET` is `404`, its history is not).
+- `limit` 1 to 200 (default 50); a bad value is `400 INVALID_PARAMETER`.
 
 ---
 
@@ -267,6 +291,7 @@ Recurring jobs ("every 15 minutes", "daily at 07:00", "first Monday of the month
 | `GET` | `/scheduler/schedules/{id}` | – | `.read` (`system`) | `200 schedule` |
 | `PATCH` | `/scheduler/schedules/{id}` | `version` + only the fields to change | `.manage` (`system`) | `200 schedule` |
 | `DELETE` | `/scheduler/schedules/{id}?version=N` | – | `.manage` (`system`) | `204` |
+| `GET` | `/scheduler/schedules/{id}/history?limit=&offset=` | – | `.read` (`system`) + `audit.history.read` | `200 { "data": [entry], "page": {...} }`, newest first (§5); not for a deleted schedule |
 | `GET` | `/scheduler/schedules/{id}/preview?count=10` | – | `.read` (`system`) | `200 preview` |
 | `POST` | `/scheduler/preview` | `scheduleType`, `cronExpression` / `interval`, `timeZone`, `startAt`, `endAt`, `count` | `.manage` or `system` | `200 preview` (nothing saved) |
 | `POST` | `/scheduler/schedules/{id}/runs` | none, or `{ "parameters": {...} }` | `.run` (`system`) | `202 run`, `Location: /scheduler/runs/{id}` |
@@ -340,6 +365,8 @@ A run is one execution: `trigger` is `SCHEDULE`, `RETRY` or `MANUAL`; `status` g
 | Job key | Default schedule | Does |
 | --- | --- | --- |
 | `scheduler.prune-runs` | `30 3 * * *` America/Toronto | deletes finished runs older than `scheduler.runRetention` (P90D); parameter `{"retention": "P30D"}` overrides it |
+| `outbox.prune` | `45 3 * * *` America/Toronto | deletes delivered outbox messages older than `outbox.retention` (P7D) and dead ones older than `outbox.deadRetention` (P90D) |
+| `audit.prune` | `0 4 * * *` America/Toronto | deletes audit entries older than `audit.retention` (P7Y, never less than P6Y); parameter `{"retention": "P10Y"}` overrides it |
 | `users.purge-expired-sessions` | `15 * * * *` America/Toronto | deletes sessions that are logged out, expired or idle |
 
 ---

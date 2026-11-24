@@ -184,7 +184,9 @@ platform/
 │   └── internal/                   The engine; modules may not use it (ArchUnit): SchedulerEngine (poll loop),
 │                                   JobRunner, RunRecorder, ScheduleRepository, RunRepository, PruneRunsJob, ...
 │
-├── audit/           AuditService (subscribes to events; who/what/when/old->new), AuditLogRepository
+├── audit/                         Audit trail (see §20): AuditLog (record in the caller's transaction, history,
+│                                   prune), AuditEntry / AuditRecord, AuditTrail (EntityChanged listener),
+│                                   AuditHistory (masked view), AuditSettings, AuditPruneJob (audit.prune).
 ├── numbering/       DocumentNumberService (per company + doc type + fiscal year, gapless option)
 ├── settings/        SettingsService (company-scoped key/value with global defaults)
 ├── idempotency/     IdempotencyService (Idempotency-Key on document-creating POSTs)
@@ -232,8 +234,10 @@ All migrations currently live in `platform`, including tables owned by business 
 | `Outbox`                | ModuleHost (async subscriptions registered with the event handlers, delivered by `startOutbox`) |
 | `SessionAuthenticator`  | `UsersModule`           |
 | `CompanyAccess`         | `UsersModule` (wrapped in `CachedCompanyAccess`) |
+| `AuditLog`              | ModuleHost (§20)        |
 | `UsersApi`              | `UsersModule`           |
 | `SystemActor`           | `UsersModule`           |
+| `UserDirectory`         | `UsersModule` (names users in histories) |
 | `TaxApi`                | `TaxModule` (§19)       |
 
 ### 3.4 Authentication model
@@ -504,7 +508,7 @@ How a write runs (`platform.write`):
 
 1. `WriteBuilder` (pure, before any connection): accepts only declared, non-internal fields the caller may read and write, and that the operation allows; coerces and validates each (`Field` options); reports every problem at once (422). Adds `company_id`, `created_at/by`, `updated_at/by` from the request and the server clock (`WriteContext`), never from the body. Updates and deletes are `... WHERE id = ? AND company_id = ? AND deleted_at IS NULL AND version = ?` with `version = version + 1`.
 2. `WriteExecutor` (in the transaction): `unique()` fields are free in the company (soft-deleted rows count, like the database index) -> 422 `ALREADY_EXISTS`; a value written to a many-to-one relation's foreign key points at a live row of the SAME company -> 422 `INVALID_REFERENCE` (a client can't link to another company's data). 0 rows updated -> 404 `NOT_FOUND` or 409 `VERSION_CONFLICT`.
-3. `EntityChanged.Created/Updated/Deleted` is published in the same transaction (entity, id, company, user, time, and `changes`: field -> old and new value). An update first locks the row and reads the current values of the fields it changes (`SELECT ... FOR UPDATE`, one extra query); only fields whose value really changed are listed (`19.9900` equals `19.99`), and a PATCH that changes nothing carries no changes. Subscribe to `EntityChanged` for all of them (the audit trail, §20).
+3. `EntityChanged.Created/Updated/Deleted` is published in the same transaction (entity, id, company, user, time, and `changes`: field -> old and new value). An update first locks the row and reads the current values of the fields it changes (`SELECT ... FOR UPDATE`, one extra query); only fields whose value really changed are listed (`19.9900` equals `19.99`), and a PATCH that changes nothing carries no changes. Subscribe to `EntityChanged` for all of them (the audit trail, §20). Every route set registered with READ also gets `GET {path}/{id}/history`, the record's audit entries (§20.4).
 4. The response is the row re-read as the caller sees it.
 
 Field options for writes: `required()` (on create), `readOnly()` (server-set: audit columns, totals), `immutable()` (settable on create only), `unique()` (per company), plus `maxLength / min / max / pattern / writePermission`. `StandardEntity`'s audit and soft-delete fields are `readOnly()`.
@@ -700,6 +704,7 @@ Two event tiers:
 | End-to-end against MySQL     | `AuthRoutesMySqlTest`, `ItemRoutesMySqlTest` | `MySqlTestStack`: full server started like Main (AllModules + ModuleHost), Flyway clean + migrate on `TEST_DATABASE_NAME` (must end in `_test`), seeded data, real logins. Skipped if the DB is unavailable |
 | Scheduler, pure              | `platform/.../scheduler`                   | `CronExpressionTest` (syntax, month ends, leap years, DST gap and overlap in America/Toronto), `ScheduleSpecTest`, `SchedulesTest`, `RetryPolicyTest`, `SchedulerRegistryTest` |
 | Scheduler against MySQL      | `modules/.../scheduler`, `system/scheduling` | `SchedulerStoreMySqlTest` (row locks, leases, duplicate-fire guard, SYSTEM user), `SchedulerEngineMySqlTest` (the running engine with test jobs: retries, timeouts, misfires, crash recovery, manual runs, two instances, shutdown), `BuiltInJobsMySqlTest`, `SchedulingRoutesMySqlTest` (admin API) |
+| Audit                        | `platform/.../audit`, `write`, `modules/.../audit` | `FieldChangesTest`, `AuditHistoryTest`, `AuditSettingsTest` (no DB); `AuditTrailMySqlTest`, `SecurityAuditMySqlTest`; schedules in `SchedulingRoutesMySqlTest`; `audit.prune` in `BuiltInJobsMySqlTest` (§20.7) |
 | Outbox                       | `platform/.../events`, `modules/.../outbox` | `EventBusAsyncTest` (no DB), `OutboxDispatcherMySqlTest` (delivery, rollback, retries, DEAD, timeouts, leases, two instances, shutdown); `outbox.prune` in `BuiltInJobsMySqlTest` (§18.7) |
 | Architecture                 |                                          | ArchUnit rules (§11)                                                                     |
 
@@ -741,7 +746,7 @@ Decide these early; they are painful to retrofit.
 - [x] **Multi-company:** every business table has `company_id`; `RequestContext` carries it; `QueryTranslator`/`WriteBuilder` always filter on it, and `WriteExecutor` rejects references to another company's rows. Hand-written repositories must do the same.
 - [ ] **Money:** `BigDecimal` + currency code everywhere; rounding rules defined once in `shared.Money` (done, §6), JSON done. Still to do: a `Money` field type in the entity framework, and the tax engine on top of it.
 - [x] **Soft deletes** on master data (`deleted_at`, honored by the entity framework).
-- [ ] **Audit trail** via events -> `audit_log`. Generic writes publish `EntityChanged`  and fill `created_by` / `updated_by` ; the `audit_log` listener is still to do.
+- [x] **Audit trail** in `audit_log`, in the writing transaction: generic writes through `EntityChanged` (old and new values), roles, memberships, passwords and schedules explicitly; per-record history with field masking (§20).
 - [x] **RBAC** through `PermissionChecker` only: roles + per-user GRANT/DENY overrides, per company (§16).
 - [ ] **Document numbering** per company / doc type / fiscal year, gapless where legally required.
 - [ ] **Idempotency keys** on POSTs that create financial documents.
@@ -768,7 +773,7 @@ Decide these early; they are painful to retrofit.
 
 1.  `platform/db` (UnitOfWork, Hikari), `platform/web` (Javalin, errors, RequestContext), Flyway baseline.
 2.  `platform/security` + `modules/users` (sessions, login throttle, set-password CLI), multi-company users + RBAC (§16).  Admin API for roles / overrides / memberships (with the generic write side).
-3.  `platform/events` (sync bus ),  `platform/audit`, `platform/numbering`, `platform/settings`.
+3.  `platform/events` (sync bus ), `platform/audit` (done 2026-11-24, §20),  `platform/numbering`, `platform/settings`.
 4.  `modules/masterdata/items` (query only) ; `shared.Money` (done 2026-11-24, §6) ; `modules/tax` calculation (done 2026-11-24, §19) ;  `modules/company`, `masterdata/customers`, `masterdata/vendors`.
 5.  `modules/gl` (accounts, periods, journal posting, trial balance).
 6.  First transactional module (e.g. `sales` or `ap`) wired to GL through events, as the reference implementation for all later modules.
@@ -787,6 +792,7 @@ Open:
 - **Scheduler loose ends:** see §17.9.
 - **Outbox loose ends:** see §18.8.
 - **Tax loose ends:** see §19.5.
+- **Audit loose ends:** see §20.8.
 - **Unused but planned dependencies:** Lettuce (`redis.port` unused; no longer needed by the scheduler), Testcontainers BOM (no module depends on it; the MySQL tests use the local database).
 
 Fixed on 2026-11-18:
@@ -848,6 +854,7 @@ masterdata.product.field.unitAmount.read     e.g. hide cost/price from some role
 sales.order.post                 a business action, not CRUD
 users.role.manage
 users.membership.manage
+audit.history.read               see records' change history (on top of their read permission; declared by ModuleHost)
 ```
 
 Rules:
@@ -1168,7 +1175,7 @@ public void registerJobs(Scheduler scheduler, ServiceRegistry services) {
 
 - Long loops call `ctx.throwIfCancelled()` between batches; `ctx.setResultSummary("42 invoices sent")` shows up in the history.
 - A job that should exist on every install declares `.withDefaultSchedule(DefaultSchedule.cron(...))`. It is inserted on first start if no row (even a deleted one) uses the key, and never overwritten.
-- Built in: `scheduler.prune-runs` (platform, daily 03:30), `outbox.prune` (platform, daily 03:45, §18) and `users.purge-expired-sessions` (hourly at :15), all SYSTEM-only.
+- Built in: `scheduler.prune-runs` (platform, daily 03:30), `outbox.prune` (platform, daily 03:45, §18), `audit.prune` (platform, daily 04:00, §20) and `users.purge-expired-sessions` (hourly at :15), all SYSTEM-only.
 
 ### 17.8 Tests
 
@@ -1354,3 +1361,72 @@ Tests: `TaxCalculatorTest` (pure: provinces, rate change, rounding, discounts, c
 - **No place-of-supply logic**: the caller says where the supply is made.
 - **The data is read on every call** (a few small queries); cache it if it ever shows up in profiles.
 - **No exchange rates**: one currency per document.
+
+---
+
+## 20. Audit trail
+
+_Status: built 2026-11-24 (migration V8). How to read a history: docs/API_GUIDE.md §5._
+
+Who changed what, when, and from what to what, for every generic write and for the hand-written writes that matter for security.
+
+### 20.1 Decisions this design rests on
+
+- **Same transaction, no exceptions.** `AuditLog.record(uow, entry)` writes with the caller's UnitOfWork: an entry exists if and only if its change committed, and a change whose entry can't be written fails. Not the outbox: an audit trail that may miss writes is not one.
+- **Old and new values, only what changed.** A generic update first locks the row and reads the current values of the fields it changes (`SELECT ... FOR UPDATE`, one extra query); `EntityChanged` carries field -> old/new, compared by value (`0.2500` equals `0.25`). A PATCH that changes nothing records nothing.
+- **One sink, two producers.** `AuditTrail` (an `EntityChanged` listener, subscribed by ModuleHost before any module) records every generic create / update / delete with no module code. Hand-written writes call `AuditLog` from the operation that makes the change: role assignments and memberships (`users`), password changes (never a value), schedules (`system/scheduling`).
+- **Names as clients see them.** Changes are keyed by API field names; `FieldChanges.records(before, after)` diffs two versions of any record for hand-written writes.
+- **Reading respects field permissions.** A history shows `{"masked": true}` for a field the reader may not read (its `readPermission`, or an internal field): that it changed, not to what. Internal fields are never written in the first place (clients can't set them).
+- **No foreign keys.** The history outlives the rows and users it names; `UserDirectory` (implemented by `users`) still names deleted users.
+- **Kept 7 years, never less than 6** (`audit.retention`, a `Period`): CRA and Revenu Quebec expect records kept 6 years after the year they relate to.
+
+### 20.2 What is recorded
+
+| Entity | Actions | Changes | Who writes it |
+| --- | --- | --- | --- |
+| every generic entity (`product`, `productCategory`, ...) | `CREATED`, `UPDATED`, `DELETED` | fields set on create; fields that changed on update; none on delete | `AuditTrail` (EntityChanged) |
+| `user` (in the company concerned) | `MEMBERSHIP_GRANTED`, `ROLE_ASSIGNED` | `enabled` (null/false -> true), `role` (null -> code); a repeat records nothing | `AssignRoleOperation` |
+| `user` (install-wide) | `PASSWORD_CHANGED` | none, ever | `SetPasswordOperation` |
+| `schedule` | `CREATED`, `UPDATED`, `DELETED` | as for generic entities, API names (`isEnabled`) | the schedule operations |
+
+Not recorded: logins, logouts and sessions (activity, not data), manual runs (already in run history), the scheduler's and outbox's own bookkeeping.
+
+### 20.3 Table (V8)
+
+`audit_log`: `company_id` (NULL for install-wide data), `entity`, `entity_id`, `action`, `user_id` (NULL when nobody acted: a CLI command), `request_id` (ties the entry to the request's log lines, `job-run-N` or `outbox-N-M`), `changes` JSON (`{"field": {"old": ..., "new": ...}}`, NULL when none), `occurred_at`. Indexed for a record's history (`entity`, `entity_id`, `id`) and for pruning (`occurred_at`). Rows are never updated.
+
+### 20.4 Reading it
+
+- `GET {entity path}/{id}/history`, added by `EntityEndpoints.register` next to READ, and `GET /scheduler/schedules/{id}/history`: newest first, paged, the caller's company only, with who acted (`id`, `userNo`, `name`). Needs the record's read permission **and** `audit.history.read` (declared by ModuleHost; `ADMINISTRATOR` has it).
+- `AuditLog.history(uow, entity, id, companyId, limit, offset)` for code; `AuditHistory.view(...)` builds the masked response.
+
+### 20.5 Adding audit to a hand-written write
+
+```java
+// In the operation, after the write, with the same UnitOfWork:
+audit.record(uow, new AuditEntry("invoice", id, companyId, AuditEntry.UPDATED, in.userId(), in.requestId(),
+    in.now(), FieldChanges.records(before, after)));   // or Map.of(...) for a specific action
+```
+
+Pass `userId` and `requestId` from the `RequestContext` down to the operation's input. Skip the entry when nothing changed. Never put secrets in `changes`.
+
+### 20.6 Settings and housekeeping
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `audit.retention` | `P7Y` | Entries older than this are deleted by `audit.prune` (SYSTEM, daily 04:00 America/Toronto, in batches); at least `P6Y`, also for the job's `retention` parameter |
+
+`Main` passes it with `host.configureAudit(AuditSettings.from(settings))`.
+
+### 20.7 Tests
+
+`FieldChangesTest`, `AuditHistoryTest` (masking, users), `AuditSettingsTest` (platform, no database); `AuditTrailMySqlTest` (product lifecycle over HTTP, rejected writes leave no entry, a write fails without its entry, history: names, paging, permissions, company isolation, deleted records); `SecurityAuditMySqlTest` (roles, memberships, passwords); `SchedulingRoutesMySqlTest` (schedule changes and history); `audit.prune` in `BuiltInJobsMySqlTest`.
+
+### 20.8 Known gaps and limits
+
+- **A deleted schedule's history has no route** (the route checks visibility like `GET`, which hides deleted schedules); the entries are there. Generic entities don't have this limit.
+- **User security entries have no route** until a users admin API exists; read them with SQL.
+- **Role removals and permission overrides are not audited yet**: no code changes them (only SQL), so there is nothing to hook. Add entries when that admin API is built.
+- **Changes made with plain SQL are not audited.**
+- **No company-wide search** (by user, date range): only per-record histories.
+- **One extra query and an earlier row lock per generic update** (the old values).
