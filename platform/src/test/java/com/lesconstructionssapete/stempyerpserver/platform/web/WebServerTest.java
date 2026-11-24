@@ -44,6 +44,7 @@ class WebServerTest {
   private WebServer server;
 
   @AfterEach
+  @SuppressWarnings("unused")
   void stop() {
     if (server != null) {
       server.stop();
