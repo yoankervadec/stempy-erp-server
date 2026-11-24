@@ -59,6 +59,8 @@ public class SchedulingController {
       ctx.status(204);
     });
 
+    routes.get("/scheduler/schedules/{id}/history", ctx -> ctx.json(page(service.scheduleHistory(
+        RequestContexts.require(ctx), id(ctx, "Schedule"), page(ctx)))));
     routes.get("/scheduler/schedules/{id}/preview", ctx -> ctx.json(service.previewSchedule(
         RequestContexts.require(ctx), id(ctx, "Schedule"), intParam(ctx, "count", 10, 1, 50))));
     routes.post("/scheduler/preview", ctx -> ctx.json(service.previewDraft(RequestContexts.require(ctx),

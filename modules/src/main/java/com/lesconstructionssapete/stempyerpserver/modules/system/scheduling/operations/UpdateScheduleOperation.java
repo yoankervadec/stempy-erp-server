@@ -6,20 +6,30 @@ import com.lesconstructionssapete.stempyerpserver.modules.system.scheduling.Sche
 import com.lesconstructionssapete.stempyerpserver.modules.system.scheduling.ScheduleFields;
 import com.lesconstructionssapete.stempyerpserver.modules.system.scheduling.StoredSchedule;
 import com.lesconstructionssapete.stempyerpserver.modules.Operation;
+import com.lesconstructionssapete.stempyerpserver.platform.audit.AuditEntry;
+import com.lesconstructionssapete.stempyerpserver.platform.audit.AuditLog;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWork;
 import com.lesconstructionssapete.stempyerpserver.platform.error.ConflictException;
 import com.lesconstructionssapete.stempyerpserver.platform.error.ValidationFailedException;
 
-/** Saves validated changes if nobody changed the schedule since {@code version} was read. */
+/**
+ * Saves validated changes if nobody changed the schedule since {@code version}
+ * was read. Audited as UPDATED (entity "schedule") with the fields that
+ * changed; nothing is recorded if none did. {@code current} is the version the
+ * update is guarded by, so it is exactly what the row held before.
+ */
 public class UpdateScheduleOperation implements Operation<UpdateScheduleOperation.Input, Void> {
 
-  public record Input(StoredSchedule current, int version, ScheduleFields fields, long userId, Instant now) {
+  public record Input(StoredSchedule current, int version, ScheduleFields fields, long userId, String requestId,
+      Instant now) {
   }
 
   private final ScheduleAdminRepository repository;
+  private final AuditLog audit;
 
-  public UpdateScheduleOperation(ScheduleAdminRepository repository) {
+  public UpdateScheduleOperation(ScheduleAdminRepository repository, AuditLog audit) {
     this.repository = repository;
+    this.audit = audit;
   }
 
   @Override
@@ -31,6 +41,11 @@ public class UpdateScheduleOperation implements Operation<UpdateScheduleOperatio
     }
     if (repository.updateSchedule(uow, s.id(), in.version(), in.fields(), in.userId(), in.now()) == 0) {
       throw versionConflict();
+    }
+    var changes = ScheduleFields.changes(s.fields(), in.fields());
+    if (!changes.isEmpty()) {
+      audit.record(uow, new AuditEntry("schedule", s.id(), s.companyId(), AuditEntry.UPDATED, in.userId(),
+          in.requestId(), in.now(), changes));
     }
     return null;
   }

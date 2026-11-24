@@ -12,6 +12,7 @@ import com.lesconstructionssapete.stempyerpserver.modules.system.scheduling.oper
 import com.lesconstructionssapete.stempyerpserver.modules.system.scheduling.operations.ListSchedulesOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.system.scheduling.operations.QueueManualRunOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.system.scheduling.operations.UpdateScheduleOperation;
+import com.lesconstructionssapete.stempyerpserver.platform.audit.AuditLog;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ERPModule;
@@ -19,6 +20,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.module.ServiceRegistr
 import com.lesconstructionssapete.stempyerpserver.platform.scheduler.Scheduler;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionChecker;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionRegistry;
+import com.lesconstructionssapete.stempyerpserver.platform.security.UserDirectory;
 import com.lesconstructionssapete.stempyerpserver.platform.web.Routes;
 
 /**
@@ -62,12 +64,14 @@ public class SchedulingModule implements ERPModule {
   @Override
   public void registerServices(ServiceRegistry serviceRegistry) {
     var repository = new ScheduleAdminRepository();
+    var audit = serviceRegistry.get(AuditLog.class);
     service = new SchedulingService(serviceRegistry.get(UnitOfWorkFactory.class),
         serviceRegistry.get(Scheduler.class), serviceRegistry.get(PermissionChecker.class), clock,
         new ListSchedulesOperation(repository), new FindScheduleOperation(repository),
-        new CreateScheduleOperation(repository), new UpdateScheduleOperation(repository),
-        new DeleteScheduleOperation(repository), new QueueManualRunOperation(repository),
-        new ListRunsOperation(repository), new FindRunOperation(repository));
+        new CreateScheduleOperation(repository, audit), new UpdateScheduleOperation(repository, audit),
+        new DeleteScheduleOperation(repository, audit), new QueueManualRunOperation(repository),
+        new ListRunsOperation(repository), new FindRunOperation(repository), audit,
+        serviceRegistry.find(UserDirectory.class)); // the users module, before this one, publishes it
   }
 
   @Override

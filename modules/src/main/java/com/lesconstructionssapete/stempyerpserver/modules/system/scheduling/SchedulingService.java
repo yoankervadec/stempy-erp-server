@@ -5,8 +5,12 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -23,6 +27,9 @@ import com.lesconstructionssapete.stempyerpserver.modules.system.scheduling.oper
 import com.lesconstructionssapete.stempyerpserver.modules.system.scheduling.operations.ListSchedulesOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.system.scheduling.operations.QueueManualRunOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.system.scheduling.operations.UpdateScheduleOperation;
+import com.lesconstructionssapete.stempyerpserver.platform.audit.AuditHistory;
+import com.lesconstructionssapete.stempyerpserver.platform.audit.AuditLog;
+import com.lesconstructionssapete.stempyerpserver.platform.audit.AuditRecord;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.error.ForbiddenException;
 import com.lesconstructionssapete.stempyerpserver.platform.error.ResourceNotFoundException;
@@ -33,6 +40,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.scheduler.RunStatus;
 import com.lesconstructionssapete.stempyerpserver.platform.scheduler.Scheduler;
 import com.lesconstructionssapete.stempyerpserver.platform.scheduler.schedule.ScheduleSpec;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionChecker;
+import com.lesconstructionssapete.stempyerpserver.platform.security.UserDirectory;
 import com.lesconstructionssapete.stempyerpserver.platform.web.JsonMapperFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.web.RequestContext;
 
@@ -85,12 +93,14 @@ public class SchedulingService {
   private final QueueManualRunOperation queueManualRun;
   private final ListRunsOperation listRuns;
   private final FindRunOperation findRun;
+  private final AuditLog audit;
+  private final Optional<UserDirectory> userDirectory;
 
   public SchedulingService(UnitOfWorkFactory uowFactory, Scheduler scheduler, PermissionChecker permissions,
       Clock clock, ListSchedulesOperation listSchedules, FindScheduleOperation findSchedule,
       CreateScheduleOperation createSchedule, UpdateScheduleOperation updateSchedule,
       DeleteScheduleOperation deleteSchedule, QueueManualRunOperation queueManualRun, ListRunsOperation listRuns,
-      FindRunOperation findRun) {
+      FindRunOperation findRun, AuditLog audit, Optional<UserDirectory> userDirectory) {
     this.uowFactory = uowFactory;
     this.scheduler = scheduler;
     this.permissions = permissions;
@@ -103,6 +113,8 @@ public class SchedulingService {
     this.queueManualRun = queueManualRun;
     this.listRuns = listRuns;
     this.findRun = findRun;
+    this.audit = audit;
+    this.userDirectory = userDirectory;
   }
 
   // ---- job types ----
@@ -167,7 +179,7 @@ public class SchedulingService {
     checkJob(rc, form.fields(), companyId);
 
     long id = uowFactory.execute(uow -> createSchedule.execute(uow,
-        new CreateScheduleOperation.Input(companyId, form.fields(), rc.userId(), now)));
+        new CreateScheduleOperation.Input(companyId, form.fields(), rc.userId(), rc.requestId(), now)));
     return getSchedule(rc, id);
   }
 
@@ -180,7 +192,8 @@ public class SchedulingService {
     checkJob(rc, form.fields(), current.companyId());
 
     uowFactory.run(uow -> updateSchedule.execute(uow,
-        new UpdateScheduleOperation.Input(current, form.version(), form.fields(), rc.userId(), now)));
+        new UpdateScheduleOperation.Input(current, form.version(), form.fields(), rc.userId(), rc.requestId(),
+            now)));
     return getSchedule(rc, id);
   }
 
@@ -193,7 +206,26 @@ public class SchedulingService {
     requireJobPermission(rc, current.fields().jobKey());
     Instant now = clock.instant();
     uowFactory.run(uow -> deleteSchedule.execute(uow,
-        new DeleteScheduleOperation.Input(current, version, rc.userId(), now)));
+        new DeleteScheduleOperation.Input(current, version, rc.userId(), rc.requestId(), now)));
+  }
+
+  /**
+   * The schedule's audit entries, newest first: who created, changed or
+   * deleted it, and what changed. Visible to whoever may see the schedule and
+   * holds audit.history.read.
+   */
+  public Listing<Map<String, Object>> scheduleHistory(RequestContext rc, long id, Page page) {
+    StoredSchedule s = visibleSchedule(rc, id);
+    permissions.require(rc, AuditLog.READ_PERMISSION);
+    List<Map<String, Object>> items = uowFactory.executeReadOnly(uow -> {
+      List<AuditRecord> records = audit.history(uow, "schedule", id, s.companyId(), page.limit(), page.offset());
+      Set<Long> userIds = records.stream().map(AuditRecord::userId).filter(Objects::nonNull)
+          .collect(Collectors.toSet());
+      Map<Long, UserDirectory.UserSummary> users = userIds.isEmpty() ? Map.of()
+          : userDirectory.map(d -> d.find(uow, userIds)).orElse(Map.of());
+      return AuditHistory.view(records, users);
+    });
+    return new Listing<>(items, page);
   }
 
   /** The next fire times of a saved schedule, from now. */

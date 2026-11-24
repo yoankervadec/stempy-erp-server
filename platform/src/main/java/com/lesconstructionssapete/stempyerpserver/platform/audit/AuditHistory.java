@@ -31,7 +31,16 @@ public final class AuditHistory {
   private AuditHistory() {
   }
 
-  /** One response item per record, in the records' order. */
+  /** One response item per record, nothing masked: for histories whose fields have no read permissions. */
+  public static List<Map<String, Object>> view(List<AuditRecord> records, Map<Long, UserSummary> users) {
+    return view(records, null, FieldAccess.ALLOW_ALL, users);
+  }
+
+  /**
+   * One response item per record, in the records' order.
+   *
+   * @param entity null: no field is masked
+   */
   public static List<Map<String, Object>> view(List<AuditRecord> records, EntityDefinition<?> entity,
       FieldAccess access, Map<Long, UserSummary> users) {
     List<Map<String, Object>> items = new ArrayList<>(records.size());
@@ -66,7 +75,7 @@ public final class AuditHistory {
     Iterator<Map.Entry<String, JsonNode>> it = changes.fields();
     while (it.hasNext()) {
       Map.Entry<String, JsonNode> e = it.next();
-      Optional<? extends Field<?, ?>> field = entity.field(e.getKey());
+      Optional<? extends Field<?, ?>> field = entity == null ? Optional.empty() : entity.field(e.getKey());
       boolean hidden = field.isPresent() && (field.get().isInternal() || !access.canRead(field.get()));
       out.set(e.getKey(), hidden ? MASKED.deepCopy() : e.getValue());
     }

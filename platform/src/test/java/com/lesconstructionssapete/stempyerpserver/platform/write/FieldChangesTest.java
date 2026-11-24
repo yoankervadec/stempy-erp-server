@@ -45,4 +45,18 @@ class FieldChangesTest {
         FieldChanges.updated(values("Bolt", new BigDecimal("2")), values("Bolt", null)));
     assertEquals(Map.of(), FieldChanges.updated(values(null, null), values(null, null)));
   }
+
+  record Form(String name, Integer retries, BigDecimal amount) {
+  }
+
+  @Test
+  void recordsAreComparedComponentByComponent() {
+    // A creation lists what is set (amount is null: left out).
+    assertEquals(Map.of("name", new FieldChange(null, "Nightly"), "retries", new FieldChange(null, 3)),
+        FieldChanges.records(null, new Form("Nightly", 3, null)));
+    // An update lists what differs, by value (1.0 equals 1.00).
+    assertEquals(Map.of("retries", new FieldChange(3, 5)), FieldChanges.records(
+        new Form("Nightly", 3, new BigDecimal("1.0")), new Form("Nightly", 5, new BigDecimal("1.00"))));
+    assertEquals(Map.of(), FieldChanges.records(new Form("A", 1, null), new Form("A", 1, null)));
+  }
 }

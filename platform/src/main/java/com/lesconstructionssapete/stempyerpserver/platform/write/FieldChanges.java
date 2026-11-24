@@ -1,5 +1,6 @@
 package com.lesconstructionssapete.stempyerpserver.platform.write;
 
+import java.lang.reflect.RecordComponent;
 import java.math.BigDecimal;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -34,6 +35,34 @@ public final class FieldChanges {
       }
     });
     return changes;
+  }
+
+  /**
+   * The changes between two versions of a record (e.g. a hand-written write's
+   * form), component by component, by value; component names become the
+   * field names.
+   *
+   * @param before null for a creation: every non-null component, old value null
+   */
+  public static <R extends Record> Map<String, FieldChange> records(R before, R after) {
+    Objects.requireNonNull(after, "after");
+    Map<String, FieldChange> changes = new LinkedHashMap<>();
+    for (RecordComponent c : after.getClass().getRecordComponents()) {
+      Object newValue = value(c, after);
+      Object oldValue = before == null ? null : value(c, before);
+      if (before == null ? newValue != null : !sameValue(oldValue, newValue)) {
+        changes.put(c.getName(), new FieldChange(oldValue, newValue));
+      }
+    }
+    return changes;
+  }
+
+  private static Object value(RecordComponent c, Record r) {
+    try {
+      return c.getAccessor().invoke(r);
+    } catch (ReflectiveOperationException e) {
+      throw new IllegalStateException("Cannot read " + c.getName() + " of " + r.getClass().getName(), e);
+    }
   }
 
   static boolean sameValue(Object a, Object b) {

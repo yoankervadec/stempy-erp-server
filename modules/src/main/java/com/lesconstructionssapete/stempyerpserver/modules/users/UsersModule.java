@@ -16,6 +16,7 @@ import com.lesconstructionssapete.stempyerpserver.modules.users.operations.Purge
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.ResolveSessionOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.RevokeSessionOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.SetPasswordOperation;
+import com.lesconstructionssapete.stempyerpserver.platform.audit.AuditLog;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ERPModule;
@@ -80,6 +81,7 @@ public class UsersModule implements ERPModule {
   public void registerServices(ServiceRegistry serviceRegistry) {
     UnitOfWorkFactory uowFactory = serviceRegistry.get(UnitOfWorkFactory.class);
     PermissionRegistry permissions = serviceRegistry.get(PermissionRegistry.class);
+    AuditLog audit = serviceRegistry.get(AuditLog.class);
     var accounts = new UserAccountRepository();
     var sessions = new SessionRepository();
     var access = new AccessRepository();
@@ -90,7 +92,7 @@ public class UsersModule implements ERPModule {
         new FindLoginCandidateOperation(accounts),
         new CreateSessionOperation(sessions, settings),
         new RevokeSessionOperation(sessions),
-        new SetPasswordOperation(accounts, sessions),
+        new SetPasswordOperation(accounts, sessions, audit),
         new GetUserProfileOperation(accounts),
         listCompanies);
 
@@ -98,7 +100,7 @@ public class UsersModule implements ERPModule {
         new CompanyAccessService(uowFactory, new LoadEffectivePermissionsOperation(access, permissions), listCompanies),
         settings.permissionCacheTtl(), clock);
     var authorization = new AuthorizationService(uowFactory, companyAccess, clock,
-        new AssignRoleOperation(accounts, access));
+        new AssignRoleOperation(accounts, access, audit));
 
     serviceRegistry.register(SessionAuthenticator.class,
         new SessionService(uowFactory, new ResolveSessionOperation(sessions, settings), clock));

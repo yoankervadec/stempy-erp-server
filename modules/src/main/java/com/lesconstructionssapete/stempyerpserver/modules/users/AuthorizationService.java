@@ -30,7 +30,7 @@ public class AuthorizationService {
   public void assignRole(String userNo, String companyCode, String roleCode, Long actingUserId) {
     long userId = uowFactory.execute(uow -> assignRole.execute(uow,
         new AssignRoleOperation.Input(trimmed(userNo), trimmed(companyCode), trimmed(roleCode), actingUserId,
-            clock.instant())));
+            null, clock.instant())));
     cache.invalidateUser(userId);
   }
 

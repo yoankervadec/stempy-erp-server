@@ -18,6 +18,8 @@ import org.junit.jupiter.api.Test;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.lesconstructionssapete.stempyerpserver.modules.testsupport.MySqlTestStack;
 import com.lesconstructionssapete.stempyerpserver.modules.users.AuthSettings;
+import com.lesconstructionssapete.stempyerpserver.platform.audit.AuditLog;
+import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.error.ValidationFailedException;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ERPModule;
@@ -342,6 +344,45 @@ class SchedulingRoutesMySqlTest {
     JsonNode run = ok(200, call("GET", "/scheduler/runs/" + runId, null, manager));
     assertEquals("SKIPPED", run.get("status").asText());
     assertEquals("Schedule deleted before the run started", run.get("errorMessage").asText());
+  }
+
+  // ---- audit ----
+
+  @Test
+  void changesAreAuditedAndShownInTheHistory() throws Exception {
+    long id = createCompanySchedule("\"description\": \"keep me\"").get("id").asLong();
+    String path = "/scheduler/schedules/" + id;
+    // description is resent unchanged: only isEnabled and timeoutSeconds change
+    ok(200, call("PATCH", path, "{\"version\": 0, \"description\": \"keep me\", \"isEnabled\": false,"
+        + " \"timeoutSeconds\": 120}", manager));
+
+    rejected(403, "PERMISSION_DENIED", call("GET", path + "/history", null, manager)); // no audit.history.read
+    rejected(404, "NOT_FOUND", call("GET", path + "/history", null, outsider)); // another company's schedule
+
+    JsonNode items = ok(200, call("GET", path + "/history", null, admin)).get("data");
+    assertEquals(2, items.size());
+    JsonNode updated = items.get(0);
+    assertEquals("UPDATED", updated.get("action").asText());
+    assertEquals("Scheduling manager", updated.get("user").get("name").asText());
+    JsonNode changes = updated.get("changes");
+    assertEquals(List.of("isEnabled", "timeoutSeconds"), fieldNames(changes)); // API names, only real changes
+    assertTrue(changes.get("isEnabled").get("old").asBoolean());
+    assertEquals(120, changes.get("timeoutSeconds").get("new").asInt());
+    JsonNode created = items.get(1);
+    assertEquals("CREATED", created.get("action").asText());
+    assertEquals("test.any", created.get("changes").get("jobKey").get("new").asText());
+    assertTrue(created.get("changes").get("jobKey").get("old").isNull());
+
+    ok(204, call("DELETE", path + "?version=1", null, manager));
+    AuditLog audit = stack.services().get(AuditLog.class);
+    var uow = new UnitOfWorkFactory(stack.dataSource());
+    assertEquals("DELETED", uow.executeReadOnly(u -> audit.history(u, "schedule", id, 1L, 1, 0)).getFirst().action());
+  }
+
+  private static List<String> fieldNames(JsonNode node) {
+    List<String> out = new ArrayList<>();
+    node.fieldNames().forEachRemaining(out::add);
+    return out;
   }
 
   // ---- previews ----

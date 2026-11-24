@@ -91,6 +91,17 @@ public class AccessRepository {
         rs -> rs.getLong("id"), code);
   }
 
+  /** Empty: no membership; else whether it is enabled. */
+  public Optional<Boolean> membership(UnitOfWork uow, long userId, long companyId) {
+    return Jdbc.queryFirst(uow, "SELECT is_enabled FROM user_companies WHERE user_id = ? AND company_id = ?",
+        rs -> rs.getBoolean("is_enabled"), userId, companyId);
+  }
+
+  public boolean hasRole(UnitOfWork uow, long userId, long companyId, long roleId) {
+    return Jdbc.queryFirst(uow, "SELECT 1 FROM user_company_roles WHERE user_id = ? AND company_id = ? AND role_id = ?",
+        rs -> true, userId, companyId, roleId).isPresent();
+  }
+
   /** Adds the membership, or re-enables it if it was disabled. */
   public void grantMembership(UnitOfWork uow, long userId, long companyId, Long actingUserId, Instant now) {
     Jdbc.update(uow, """

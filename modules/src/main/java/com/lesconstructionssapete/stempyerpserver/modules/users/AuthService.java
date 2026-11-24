@@ -134,7 +134,9 @@ public class AuthService {
           .lengthBetween("password", password, MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH)
           .throwIfInvalid();
       String hash = hasher.hash(password); // before the transaction, like login
-      uowFactory.execute(uow -> setPassword.execute(uow, new SetPasswordOperation.Input(trimmedUserNo, hash, now())));
+      // From the command line: nobody acting, no request.
+      uowFactory.execute(uow -> setPassword.execute(uow,
+          new SetPasswordOperation.Input(trimmedUserNo, hash, null, null, now())));
     } finally {
       PasswordHasher.wipe(password);
     }
