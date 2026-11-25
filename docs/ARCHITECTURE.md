@@ -1640,7 +1640,7 @@ platform/numbering/
 
 - **Store and terminal values are not checked** against any table; they're plain strings until stores and terminals exist.
 - **No offline numbering**: a terminal that can't reach the server can't number a document.
-- **A second connection while the caller holds one:** every `GAPS_ALLOWED` number, and for `GAPLESS` the first use of a counter or of a default series. If every pool connection is held by a caller waiting for a second one, they all wait up to `connectionTimeoutMs` (30 s) and fail. With the pool at 6, keep fewer than 6 request threads taking numbers at once, or raise the pool. The tests use 5 threads.
+- **A second connection while the caller holds one:** every `GAPS_ALLOWED` number, and for `GAPLESS` the first use of a counter or of a default series. If every pool connection is held by a caller waiting for a second one, they all wait up to `connectionTimeoutMs` (30 s) and fail. With the pool at 10 (`database.pool.maxSize`), keep fewer than 10 request threads taking numbers at once, or raise the pool further. The tests use 5 threads.
 - **A "used" series is one with a counter**, even if its only number was rolled back (the counter row was committed on its own).
 - **Values that differ only in letter case share a counter** (`00a` and `00A`): the `scope` column uses the database's case-insensitive collation. Numbers still never repeat, since each call takes the next value.
 - **A long gapless transaction blocks its counter** (only that scope) until it commits.
