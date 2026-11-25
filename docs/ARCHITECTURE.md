@@ -187,7 +187,7 @@ platform/
 ├── audit/                         Audit trail (see §20): AuditLog (record in the caller's transaction, history,
 │                                   prune), AuditEntry / AuditRecord, AuditTrail (EntityChanged listener),
 │                                   AuditHistory (masked view), AuditSettings, AuditPruneJob (audit.prune).
-├── numbering/       DocumentNumberService (per company + doc type + fiscal year, gapless option)
+├── numbering/       Document numbers: per-company series, caller parameters, gapless or not (planned, §21)
 ├── settings/        SettingsService (company-scoped key/value with global defaults)
 ├── idempotency/     IdempotencyService (Idempotency-Key on document-creating POSTs)
 └── files/           FileStorage interface, LocalFileStorage (S3-compatible later)
@@ -748,7 +748,7 @@ Decide these early; they are painful to retrofit.
 - [x] **Soft deletes** on master data (`deleted_at`, honored by the entity framework).
 - [x] **Audit trail** in `audit_log`, in the writing transaction: generic writes through `EntityChanged` (old and new values), roles, memberships, passwords and schedules explicitly; per-record history with field masking (§20).
 - [x] **RBAC** through `PermissionChecker` only: roles + per-user GRANT/DENY overrides, per company (§16).
-- [ ] **Document numbering** per company / doc type / fiscal year, gapless where legally required.
+- [ ] **Document numbering** per company / document type, gapless or gaps allowed per series (planned, §21).
 - [ ] **Idempotency keys** on POSTs that create financial documents.
 - [x] **Optimistic locking** (`version` column) on mutable entities; enforced by `WriteBuilder` / `WriteExecutor` (version in the PATCH body, `?version=` on DELETE).
 - [x] **Error format:** RFC 7807 everywhere (`ApiError` via `ExceptionMapper`).
@@ -1430,3 +1430,205 @@ Pass `userId` and `requestId` from the `RequestContext` down to the operation's 
 - **Changes made with plain SQL are not audited.**
 - **No company-wide search** (by user, date range): only per-record histories.
 - **One extra query and an earlier row lock per generic update** (the old values).
+
+---
+
+## 21. Document numbering
+
+_Status: planned 2026-11-25, not built (migration V9 to come). Where the code ends up differing, update this section._
+
+Human-readable numbers for issued documents (`INV-000042`, `CO-01203012346`), defined per company as data. Some kinds of document get gapless numbers, others accept gaps.
+
+### 21.1 Decisions this design rests on
+
+- **Formats are data, kinds of document are code.** A module declares a *document type* (key, the parameters it can supply, optional default series). Each company has its own *number series*: prefix, pattern and mode, editable through the admin API.
+- **No dates in numbers.** There is no yearly reset or date token. A new format or a fresh start is a new series.
+- **Caller-supplied parameters.** A pattern can include values the caller passes (`STORE_NO`, `TERMINAL_NO`) as plain strings. Numbering doesn't check that the store or terminal exists; those tables don't exist yet.
+- **Every parameter in the pattern separates the counter.** Each (series, parameter values) pair has its own counter, so each terminal counts on its own and never waits for another. Uniqueness holds because the differing values are printed in the number.
+- **Parameters have a fixed width.** Without padding, store `1` + terminal `23` and store `12` + terminal `3` would print the same. A parameter token must give a width; a longer value is rejected, never truncated.
+- **Two modes, chosen per series.**
+  - `GAPLESS` takes the number in the caller's transaction: a rollback gives it back, and the counter row stays locked until the caller commits.
+  - `GAPS_ALLOWED` takes it in its own short transaction, committed at once: a rollback loses it, and nobody waits.
+  - A document type can require `GAPLESS` (journal entries, invoices).
+- **Numbers are online only.** The server hands out every number; terminals don't number offline.
+- **A used series is frozen.** Once a series has issued a number, its pattern and mode can't change; to change the format, create a new series and make it the default. Changing which parameters are printed would otherwise restart counters into duplicates.
+- **Counters only move up.** An admin can set a counter's next value to continue the old system's numbering, but never lower it.
+- **The document table is the backstop.** Every numbered table has `UNIQUE (company_id, <doc>_no)`.
+
+### 21.2 Concepts
+
+| Concept | Where | Example |
+| --- | --- | --- |
+| Document type | code, `registerDocumentTypes` phase | `sales.customer-order`, parameters `STORE_NO`, `TERMINAL_NO` |
+| Number series | `number_series`, per company | `CO`: `CO-{STORE_NO:3}{TERMINAL_NO:2}{SEQ:6}`, `GAPS_ALLOWED`, default |
+| Counter | `number_series_counters`, per series + scope | scope `STORE_NO=012;TERMINAL_NO=03`, `last_value` 12345 |
+
+A document type can have several series in a company (`CO` in stores, `WEB` online); exactly one enabled series is the default.
+
+### 21.3 Pattern syntax
+
+| Token | Meaning |
+| --- | --- |
+| `{SEQ:n}` | The counter, zero-padded to `n` digits; grows past `n` instead of failing. Exactly one per pattern. |
+| `{PARAM:n}` | A parameter of the document type, left-padded with `0` to `n` characters. `n` is required. |
+| anything else | Literal text: the prefix, separators. |
+
+| Pattern | Values | Number |
+| --- | --- | --- |
+| `INV-{SEQ:6}` | | `INV-000042` |
+| `JE{SEQ:8}` | | `JE00000042` |
+| `CO-{STORE_NO:3}{TERMINAL_NO:2}{SEQ:6}` | store `12`, terminal `3`, counter 12346 | `CO-01203012346` |
+
+**Checked when a series is saved:**
+- exactly one `{SEQ}`
+- only parameters the document type declares
+- each parameter at most once
+- a width on every token, between 1 and 20
+- literal text in printable ASCII, with no spaces and no braces
+- the whole pattern at most 255 characters, and the number at most 50 at its padded widths
+
+**Checked when a number is requested:**
+- every parameter of the pattern is present
+- each value is letters, digits or `-` only, at most its width
+
+- values for parameters the pattern doesn't use are ignored, since the caller doesn't know which series it gets
+
+The counter scope is built from the trimmed, padded values, sorted by parameter name (`STORE_NO=012;TERMINAL_NO=03`, or `''` without parameters). So `12` and `012` are the same counter. Letters are kept as given, not upper-cased.
+
+`NumberPattern` (pure) implements all of this: `parse(text, declaredParameters)` throws `IllegalArgumentException` for a bad pattern, and `apply(values)` throws `ValidationFailedException` (`params.NAME`: `REQUIRED`, `INVALID_CHARACTERS`, `TOO_LONG`) and returns the scope and `format(counterValue)`.
+
+### 21.4 Using it
+
+```java
+// XxxModule: declare the type (new phase, after permissions and entities, before services)
+@Override
+public void registerDocumentTypes(DocumentTypes types) {
+  types.register(DocumentType.of("sales.customer-order", "Customer orders")
+      .withParameters("STORE_NO", "TERMINAL_NO")
+      .withDefaultSeries("CO", "CO-{STORE_NO:3}{TERMINAL_NO:2}{SEQ:6}", Mode.GAPS_ALLOWED));
+  types.register(DocumentType.of("gl.journal-entry", "Journal entries")
+      .gaplessRequired()
+      .withDefaultSeries("JE", "JE{SEQ:8}", Mode.GAPLESS));
+}
+
+// An operation, with the caller's UnitOfWork, just before inserting the document:
+String no = documentNumbers.next(uow, NumberRequest.of(companyId, "sales.customer-order")
+    .param("STORE_NO", storeNo)
+    .param("TERMINAL_NO", terminalNo)
+    .series("WEB"));                     // optional: the default series otherwise
+```
+
+- **Take a gapless number last**, just before the insert, so the counter row stays locked only briefly.
+- **Never delete a numbered gapless document**: cancel or reverse it (credit note, reversing entry). Drafts get no number.
+- **Default series on first use.** If a company has no series at all for the type (enabled or not) and the type declares a default, it is created and made the default in the caller's transaction. Two concurrent first uses: the loser's insert is ignored and it reads the winner's row.
+- **Errors:**
+  - unregistered type: `IllegalStateException` (a wiring bug)
+  - no usable series (none, disabled, unknown code, or no default declared): `ConflictException` `NUMBER_SERIES_NOT_FOUND`
+  - missing or bad parameter value: `ValidationFailedException` (`params.STORE_NO`)
+
+### 21.5 How a number is taken
+
+1. Resolve the series (requested code or default, enabled) and validate the parameters; build the scope and the padded values.
+2. `GAPLESS`: in the caller's UnitOfWork. `GAPS_ALLOWED`: in a new UnitOfWork from `UnitOfWorkFactory`, committed right after step 4.
+3. `INSERT INTO number_series_counters (series_id, scope, last_value) VALUES (?, ?, start_value) ON DUPLICATE KEY UPDATE last_value = last_value + 1`. This creates the counter or increments it, and locks the row.
+4. `SELECT last_value ... WHERE series_id = ? AND scope = ?`: the row is ours until commit.
+5. Render the pattern with the value, and mark the series used (`first_used_at`, set once) so its pattern and mode freeze.
+
+### 21.6 Tables (V9)
+
+```sql
+CREATE TABLE `number_series` (
+  `id` BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  `company_id` BIGINT UNSIGNED NOT NULL,
+  `document_type` VARCHAR(100) NOT NULL,          -- DocumentType key: 'sales.customer-order'
+  `code` VARCHAR(50) NOT NULL,                    -- 'CO', 'WEB'
+  `description` VARCHAR(255),
+  `pattern` VARCHAR(255) NOT NULL,                -- 'CO-{STORE_NO:3}{TERMINAL_NO:2}{SEQ:6}'
+  `mode` ENUM('GAPLESS', 'GAPS_ALLOWED') NOT NULL,
+  `start_value` BIGINT UNSIGNED NOT NULL DEFAULT 1, -- first value of every new counter
+  `is_default` BOOLEAN NOT NULL DEFAULT FALSE,    -- one per (company, document_type), enforced in code
+  `first_used_at` TIMESTAMP NULL,                 -- set on the first number; pattern and mode frozen after
+  -- standard columns: version, created_at/by, updated_at/by, is_enabled
+  UNIQUE KEY `uq_number_series` (`company_id`, `document_type`, `code`),
+  FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`)
+);
+
+CREATE TABLE `number_series_counters` (
+  `id` BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  `series_id` BIGINT UNSIGNED NOT NULL,
+  `scope` VARCHAR(255) NOT NULL,                  -- 'STORE_NO=012;TERMINAL_NO=03', '' without parameters
+  `last_value` BIGINT UNSIGNED NOT NULL,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY `uq_number_series_counters` (`series_id`, `scope`),
+  FOREIGN KEY (`series_id`) REFERENCES `number_series`(`id`)
+);
+```
+
+Series are never deleted (only disabled): their counters and the numbers they issued must stay explainable.
+
+### 21.7 Admin API and permissions
+
+| Route | Does |
+| --- | --- |
+| `QUERY /numbering/series`, `GET /numbering/series/{id}` | Series of the current company, with `used` |
+| `POST /numbering/series` | Create; validates the pattern against the document type |
+| `PATCH /numbering/series/{id}` | Description, enabled, default (switches the old default off in the same transaction); pattern / mode / start value only while unused (`NUMBER_SERIES_IN_USE`, 409, otherwise) |
+| `GET /numbering/series/{id}/counters` | Counters: scope, last value, next number as it will print |
+| `POST /numbering/series/{id}/counters/set-next` | `{scope params, nextValue}`; creates the counter if needed; refuses to go down (`COUNTER_CANNOT_DECREASE`, 409) |
+| `GET /numbering/document-types` | Declared types, their parameters, `gaplessRequired` |
+| `GET /numbering/series/{id}/history` | Audit history (§20) |
+
+- **Permissions:** `numbering.series.read`, `numbering.series.write`; `ADMINISTRATOR` has both.
+- **Audit:** series changes and `set-next` are audited (§20). Ordinary number allocation is not; the document that gets the number is.
+
+### 21.8 Code
+
+```
+platform/numbering/
+├── DocumentType.java           key, description, parameters, gaplessRequired, default series
+├── DocumentTypes.java          register() in the registerDocumentTypes phase, freeze()
+├── NumberPattern.java          Pure: parse + validate against a DocumentType, scope, render
+├── NumberRequest.java          companyId, type, params, optional series code
+├── DocumentNumbers.java        next(uow, request); published in the ServiceRegistry
+├── Mode.java                   GAPLESS | GAPS_ALLOWED
+└── internal/                   JdbcDocumentNumbers, SeriesRepository, CounterRepository,
+                                NumberSeriesService + controller (admin API). Modules may not import it.
+```
+
+`ModuleHost` gets the new phase `registerDocumentTypes(documentTypes)`, run after `registerEntities` and before `registerServices`. Section 4.1 needs updating once it's built.
+
+### 21.9 Tests
+
+- **`NumberPatternTest`** (pure):
+  - parsing and rendering, padding, counter overflow past its width
+  - every rejected pattern of §21.3
+  - bad and too-long values
+  - scope order
+- **`DocumentNumbersMySqlTest`**, with test-only document types:
+  - gapless: consecutive numbers, a rollback leaves no gap
+  - gaps allowed: a rollback leaves a gap, and the next number continues
+  - separate counters per scope, per series and per company
+  - default series created on first use, including two concurrent first uses
+  - disabled and unknown series refused; `gaplessRequired` refuses a `GAPS_ALLOWED` series
+  - 20 threads on one counter: unique in both modes, consecutive with no gaps in `GAPLESS`
+  - 20 threads on 20 terminals in `GAPLESS`, each holding its transaction open: none waits on another
+- **`NumberingRoutesMySqlTest`**:
+  - CRUD and validation
+  - pattern frozen after use; one default per type
+  - `set-next` only upward
+  - permissions, company isolation, audit entries
+
+### 21.10 Implementation order
+
+1. `NumberPattern` + its tests (no database). Done 2026-11-25.
+2. V9 migration, repositories, `DocumentTypes` + the new ModuleHost phase, `DocumentNumbers`, and the MySQL tests.
+3. Admin API, permissions, audit, docs/API_GUIDE.md section and Postman requests.
+4. First real users: `gl.journal-entry` (GL, §14 step 5), then sales documents.
+
+### 21.11 Known gaps and limits
+
+- **Store and terminal values are not checked** against any table; they're plain strings until stores and terminals exist.
+- **No offline numbering**: a terminal that can't reach the server can't number a document.
+- **`GAPS_ALLOWED` uses a second connection** while the caller's transaction holds its own. With the pool at 6, heavy concurrent use can wait for connections; raise the pool or take these numbers before opening the main transaction if it shows up.
+- **A long gapless transaction blocks its counter** (only that scope) until it commits.
+- **No date tokens or periodic reset**, by design (§21.1); a yearly restart is a new series.
