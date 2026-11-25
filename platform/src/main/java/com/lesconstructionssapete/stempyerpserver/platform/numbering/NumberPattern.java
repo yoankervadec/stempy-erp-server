@@ -26,7 +26,8 @@ import com.lesconstructionssapete.stempyerpserver.platform.error.ValidationFaile
  * CO-{STORE_NO:3}{TERMINAL_NO:2}{SEQ:6}    -> CO-01203012346   (store 12, terminal 3, counter 12346)
  * </pre>
  *
- * Every parameter of the pattern also separates the counter: {@link Applied#scope()}
+ * Every parameter of the pattern also separates the counter:
+ * {@link Applied#scope()}
  * names the counter a set of values uses. Widths are fixed so that two value
  * combinations can never print the same number.
  *
@@ -46,7 +47,9 @@ public final class NumberPattern {
   /** The counter token's name. Reserved: no parameter may use it. */
   public static final String COUNTER = "SEQ";
 
-  /** Parameter names: upper case, digits and underscores, starting with a letter. */
+  /**
+   * Parameter names: upper case, digits and underscores, starting with a letter.
+   */
   public static final Pattern PARAMETER_NAME = Pattern.compile("[A-Z][A-Z0-9_]{0,49}");
 
   /** What a parameter value may contain (before padding). */
@@ -81,8 +84,9 @@ public final class NumberPattern {
   /**
    * Parses and validates a pattern.
    *
-   * @param text                 the pattern, e.g. {@code CO-{STORE_NO:3}{TERMINAL_NO:2}{SEQ:6}}
-   * @param declaredParameters   the parameters the document type can supply
+   * @param text               the pattern, e.g.
+   *                           {@code CO-{STORE_NO:3}{TERMINAL_NO:2}{SEQ:6}}
+   * @param declaredParameters the parameters the document type can supply
    * @throws IllegalArgumentException with a client-safe message naming the
    *                                  problem
    */
@@ -103,43 +107,45 @@ public final class NumberPattern {
     int i = 0;
     while (i < text.length()) {
       char c = text.charAt(i);
-      if (c == '{') {
-        int close = text.indexOf('}', i + 1);
-        int nextOpen = text.indexOf('{', i + 1);
-        if (close < 0 || (nextOpen >= 0 && nextOpen < close)) {
-          throw new IllegalArgumentException("'{' at position " + (i + 1) + " is not closed");
-        }
-        Part token = token(text.substring(i + 1, close), i + 1, declared);
-        switch (token) {
-          case Counter counter -> {
-            counters++;
-            length += counter.width();
+      switch (c) {
+        case '{' -> {
+          int close = text.indexOf('}', i + 1);
+          int nextOpen = text.indexOf('{', i + 1);
+          if (close < 0 || (nextOpen >= 0 && nextOpen < close)) {
+            throw new IllegalArgumentException("'{' at position " + (i + 1) + " is not closed");
           }
-          case Parameter parameter -> {
-            if (parameters.put(parameter.name(), parameter.width()) != null) {
-              throw new IllegalArgumentException("parameter " + parameter.name() + " appears more than once");
+          Part token = token(text.substring(i + 1, close), i + 1, declared);
+          switch (token) {
+            case Counter counter -> {
+              counters++;
+              length += counter.width();
             }
-            length += parameter.width();
+            case Parameter parameter -> {
+              if (parameters.put(parameter.name(), parameter.width()) != null) {
+                throw new IllegalArgumentException("parameter " + parameter.name() + " appears more than once");
+              }
+              length += parameter.width();
+            }
+            case Literal literal -> throw new AssertionError(literal);
           }
-          case Literal literal -> throw new AssertionError(literal);
+          parts.add(token);
+          i = close + 1;
         }
-        parts.add(token);
-        i = close + 1;
-      } else if (c == '}') {
-        throw new IllegalArgumentException("'}' at position " + (i + 1) + " has no matching '{'");
-      } else {
-        int end = i;
-        while (end < text.length() && text.charAt(end) != '{' && text.charAt(end) != '}') {
-          char ch = text.charAt(end);
-          if (ch < 0x21 || ch > 0x7E) {
-            throw new IllegalArgumentException("character at position " + (end + 1)
-                + " is not allowed: literal text is printable ASCII with no spaces");
+        case '}' -> throw new IllegalArgumentException("'}' at position " + (i + 1) + " has no matching '{'");
+        default -> {
+          int end = i;
+          while (end < text.length() && text.charAt(end) != '{' && text.charAt(end) != '}') {
+            char ch = text.charAt(end);
+            if (ch < 0x21 || ch > 0x7E) {
+              throw new IllegalArgumentException("character at position " + (end + 1)
+                  + " is not allowed: literal text is printable ASCII with no spaces");
+            }
+            end++;
           }
-          end++;
+          parts.add(new Literal(text.substring(i, end)));
+          length += end - i;
+          i = end;
         }
-        parts.add(new Literal(text.substring(i, end)));
-        length += end - i;
-        i = end;
       }
     }
     if (counters == 0) {
@@ -155,7 +161,10 @@ public final class NumberPattern {
     return new NumberPattern(text, List.copyOf(parts), Collections.unmodifiableMap(parameters));
   }
 
-  /** One {@code {NAME:n}} token, without its braces; {@code position} is 1-based, for messages. */
+  /**
+   * One {@code {NAME:n}} token, without its braces; {@code position} is 1-based,
+   * for messages.
+   */
   private static Part token(String body, int position, Set<String> declared) {
     int colon = body.indexOf(':');
     String name = colon < 0 ? body : body.substring(0, colon);
