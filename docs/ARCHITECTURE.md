@@ -187,7 +187,7 @@ platform/
 ├── audit/                         Audit trail (see §20): AuditLog (record in the caller's transaction, history,
 │                                   prune), AuditEntry / AuditRecord, AuditTrail (EntityChanged listener),
 │                                   AuditHistory (masked view), AuditSettings, AuditPruneJob (audit.prune).
-├── numbering/       Document numbers: per-company series, caller parameters, gapless or not (planned, §21)
+├── numbering/       Document numbers (§21): DocumentTypes, DocumentNumbers, NumberPattern; internal/ = SQL
 ├── settings/        SettingsService (company-scoped key/value with global defaults)
 ├── idempotency/     IdempotencyService (Idempotency-Key on document-creating POSTs)
 └── files/           FileStorage interface, LocalFileStorage (S3-compatible later)
@@ -261,6 +261,7 @@ Every module has one `XxxModule` class implementing `platform.module.ERPModule`,
 0. registerPermissions(permissionRegistry)     -> permissionRegistry.freeze()
 1. registerEntities(entityRegistry)            -> entityRegistry.freeze(declared)  (fails fast on a broken DEF
                                                   or a field permission no module declared)
+1b. registerDocumentTypes(documentTypes)       -> documentTypes.freeze()  (fails on a bad declaration, §21)
    DatabaseMigrator.migrate(...)  ->  DataSources.create(...)  ->  UnitOfWorkFactory
 2. registerServices(serviceRegistry)           -> serviceRegistry.freeze()
 3. registerEventHandlers(eventBus, services)   -> eventBus.freeze()
@@ -748,7 +749,7 @@ Decide these early; they are painful to retrofit.
 - [x] **Soft deletes** on master data (`deleted_at`, honored by the entity framework).
 - [x] **Audit trail** in `audit_log`, in the writing transaction: generic writes through `EntityChanged` (old and new values), roles, memberships, passwords and schedules explicitly; per-record history with field masking (§20).
 - [x] **RBAC** through `PermissionChecker` only: roles + per-user GRANT/DENY overrides, per company (§16).
-- [ ] **Document numbering** per company / document type, gapless or gaps allowed per series (planned, §21).
+- [x] **Document numbering** per company / document type, gapless or gaps allowed per series (§21; admin API still to do).
 - [ ] **Idempotency keys** on POSTs that create financial documents.
 - [x] **Optimistic locking** (`version` column) on mutable entities; enforced by `WriteBuilder` / `WriteExecutor` (version in the PATCH body, `?version=` on DELETE).
 - [x] **Error format:** RFC 7807 everywhere (`ApiError` via `ExceptionMapper`).
@@ -1435,7 +1436,7 @@ Pass `userId` and `requestId` from the `RequestContext` down to the operation's 
 
 ## 21. Document numbering
 
-_Status: planned 2026-11-25, not built (migration V9 to come). Where the code ends up differing, update this section._
+_Status: core built 2026-11-25 (migration V9): `NumberPattern`, document types, `DocumentNumbers`. Admin API not built yet (§21.7, §21.10 step 3)._
 
 Human-readable numbers for issued documents (`INV-000042`, `CO-01203012346`), defined per company as data. Some kinds of document get gapless numbers, others accept gaps.
 
@@ -1451,7 +1452,7 @@ Human-readable numbers for issued documents (`INV-000042`, `CO-01203012346`), de
   - `GAPS_ALLOWED` takes it in its own short transaction, committed at once: a rollback loses it, and nobody waits.
   - A document type can require `GAPLESS` (journal entries, invoices).
 - **Numbers are online only.** The server hands out every number; terminals don't number offline.
-- **A used series is frozen.** Once a series has issued a number, its pattern and mode can't change; to change the format, create a new series and make it the default. Changing which parameters are printed would otherwise restart counters into duplicates.
+- **A used series is frozen.** Once a series has a counter, its pattern, mode and start value can't change; to change the format, create a new series and make it the default. Changing which parameters are printed would otherwise restart counters into duplicates.
 - **Counters only move up.** An admin can set a counter's next value to continue the old system's numbering, but never lower it.
 - **The document table is the backstop.** Every numbered table has `UNIQUE (company_id, <doc>_no)`.
 
@@ -1461,7 +1462,7 @@ Human-readable numbers for issued documents (`INV-000042`, `CO-01203012346`), de
 | --- | --- | --- |
 | Document type | code, `registerDocumentTypes` phase | `sales.customer-order`, parameters `STORE_NO`, `TERMINAL_NO` |
 | Number series | `number_series`, per company | `CO`: `CO-{STORE_NO:3}{TERMINAL_NO:2}{SEQ:6}`, `GAPS_ALLOWED`, default |
-| Counter | `number_series_counters`, per series + scope | scope `STORE_NO=012;TERMINAL_NO=03`, `last_value` 12345 |
+| Counter | `number_series_counters`, per series + scope | scope `STORE_NO=012;TERMINAL_NO=03`, `last_number` 12345 |
 
 A document type can have several series in a company (`CO` in stores, `WEB` online); exactly one enabled series is the default.
 
@@ -1520,7 +1521,7 @@ String no = documentNumbers.next(uow, NumberRequest.of(companyId, "sales.custome
 
 - **Take a gapless number last**, just before the insert, so the counter row stays locked only briefly.
 - **Never delete a numbered gapless document**: cancel or reverse it (credit note, reversing entry). Drafts get no number.
-- **Default series on first use.** If a company has no series at all for the type (enabled or not) and the type declares a default, it is created and made the default in the caller's transaction. Two concurrent first uses: the loser's insert is ignored and it reads the winner's row.
+- **Default series on first use.** If a company has no *default* series for the type (enabled or not) and the type declares one, it is created as the default, in a short transaction of its own (committed even if the caller rolls back). A disabled default is never replaced, and a series that already uses the default's code is never promoted: both give `NUMBER_SERIES_NOT_FOUND`. Two concurrent first uses: the second insert is ignored and both read the same row.
 - **Errors:**
   - unregistered type: `IllegalStateException` (a wiring bug)
   - no usable series (none, disabled, unknown code, or no default declared): `ConflictException` `NUMBER_SERIES_NOT_FOUND`
@@ -1528,11 +1529,18 @@ String no = documentNumbers.next(uow, NumberRequest.of(companyId, "sales.custome
 
 ### 21.5 How a number is taken
 
-1. Resolve the series (requested code or default, enabled) and validate the parameters; build the scope and the padded values.
-2. `GAPLESS`: in the caller's UnitOfWork. `GAPS_ALLOWED`: in a new UnitOfWork from `UnitOfWorkFactory`, committed right after step 4.
-3. `INSERT INTO number_series_counters (series_id, scope, last_value) VALUES (?, ?, start_value) ON DUPLICATE KEY UPDATE last_value = last_value + 1`. This creates the counter or increments it, and locks the row.
-4. `SELECT last_value ... WHERE series_id = ? AND scope = ?`: the row is ours until commit.
-5. Render the pattern with the value, and mark the series used (`first_used_at`, set once) so its pattern and mode freeze.
+The pool runs MySQL's default REPEATABLE READ, which shapes every step (`JdbcDocumentNumbers`):
+
+1. **Series:** read without locks in the caller's transaction (the requested code, or the enabled default). If the company has no default and the type declares one, it is inserted (`INSERT IGNORE`) and read back with a current read (`FOR SHARE`) in a short transaction of its own; the caller's snapshot may predate it.
+2. **Check:** the stored pattern is parsed against the type's parameters, and a `GAPS_ALLOWED` series of a `gaplessRequired` type is refused. Either problem is an `IllegalStateException` (data written around the admin API).
+3. **Values:** `NumberPattern.apply` checks the parameters and gives the scope.
+4. **Counter row:** if it doesn't exist (a non-locking read), it is created with `INSERT IGNORE ... last_number = start_value - 1` in a short transaction of its own.
+   - Not in the caller's transaction: concurrent first inserts there take shared locks that deadlock when they upgrade, and an `UPDATE` that finds no row leaves a gap lock blocking the insert until the caller commits.
+   - Not `INSERT ... ON DUPLICATE KEY UPDATE`, for the same deadlock.
+5. **Increment:** `UPDATE ... SET last_number = last_number + 1`, then `SELECT last_number`.
+   - `GAPLESS`: in the caller's transaction. The row (that series and scope only) stays locked until the caller ends; a rollback undoes the increment.
+   - `GAPS_ALLOWED`: in a transaction of its own, committed at once. If the counter was missing, step 4 runs and the increment is retried once.
+6. **Render:** `format(last_number)`.
 
 ### 21.6 Tables (V9)
 
@@ -1546,8 +1554,7 @@ CREATE TABLE `number_series` (
   `pattern` VARCHAR(255) NOT NULL,                -- 'CO-{STORE_NO:3}{TERMINAL_NO:2}{SEQ:6}'
   `mode` ENUM('GAPLESS', 'GAPS_ALLOWED') NOT NULL,
   `start_value` BIGINT UNSIGNED NOT NULL DEFAULT 1, -- first value of every new counter
-  `is_default` BOOLEAN NOT NULL DEFAULT FALSE,    -- one per (company, document_type), enforced in code
-  `first_used_at` TIMESTAMP NULL,                 -- set on the first number; pattern and mode frozen after
+  `is_default` BOOLEAN NOT NULL DEFAULT FALSE,    -- one per (company, document_type): unique on a generated column
   -- standard columns: version, created_at/by, updated_at/by, is_enabled
   UNIQUE KEY `uq_number_series` (`company_id`, `document_type`, `code`),
   FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`)
@@ -1557,7 +1564,7 @@ CREATE TABLE `number_series_counters` (
   `id` BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
   `series_id` BIGINT UNSIGNED NOT NULL,
   `scope` VARCHAR(255) NOT NULL,                  -- 'STORE_NO=012;TERMINAL_NO=03', '' without parameters
-  `last_value` BIGINT UNSIGNED NOT NULL,
+  `last_number` BIGINT UNSIGNED NOT NULL,
   `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY `uq_number_series_counters` (`series_id`, `scope`),
   FOREIGN KEY (`series_id`) REFERENCES `number_series`(`id`)
@@ -1570,7 +1577,7 @@ Series are never deleted (only disabled): their counters and the numbers they is
 
 | Route | Does |
 | --- | --- |
-| `QUERY /numbering/series`, `GET /numbering/series/{id}` | Series of the current company, with `used` |
+| `QUERY /numbering/series`, `GET /numbering/series/{id}` | Series of the current company, with `used` (it has a counter) |
 | `POST /numbering/series` | Create; validates the pattern against the document type |
 | `PATCH /numbering/series/{id}` | Description, enabled, default (switches the old default off in the same transaction); pattern / mode / start value only while unused (`NUMBER_SERIES_IN_USE`, 409, otherwise) |
 | `GET /numbering/series/{id}/counters` | Counters: scope, last value, next number as it will print |
@@ -1621,7 +1628,7 @@ platform/numbering/
 ### 21.10 Implementation order
 
 1. `NumberPattern` + its tests (no database). Done 2026-11-25.
-2. V9 migration, repositories, `DocumentTypes` + the new ModuleHost phase, `DocumentNumbers`, and the MySQL tests.
+2. V9 migration, repositories, `DocumentTypes` + the new ModuleHost phase, `DocumentNumbers`, and the MySQL tests. Done 2026-11-25.
 3. Admin API, permissions, audit, docs/API_GUIDE.md section and Postman requests.
 4. First real users: `gl.journal-entry` (GL, §14 step 5), then sales documents.
 
@@ -1629,6 +1636,8 @@ platform/numbering/
 
 - **Store and terminal values are not checked** against any table; they're plain strings until stores and terminals exist.
 - **No offline numbering**: a terminal that can't reach the server can't number a document.
-- **`GAPS_ALLOWED` uses a second connection** while the caller's transaction holds its own. With the pool at 6, heavy concurrent use can wait for connections; raise the pool or take these numbers before opening the main transaction if it shows up.
+- **A second connection while the caller holds one:** every `GAPS_ALLOWED` number, and for `GAPLESS` the first use of a counter or of a default series. If every pool connection is held by a caller waiting for a second one, they all wait up to `connectionTimeoutMs` (30 s) and fail. With the pool at 6, keep fewer than 6 request threads taking numbers at once, or raise the pool. The tests use 5 threads.
+- **A "used" series is one with a counter**, even if its only number was rolled back (the counter row was committed on its own).
+- **Values that differ only in letter case share a counter** (`00a` and `00A`): the `scope` column uses the database's case-insensitive collation. Numbers still never repeat, since each call takes the next value.
 - **A long gapless transaction blocks its counter** (only that scope) until it commits.
 - **No date tokens or periodic reset**, by design (§21.1); a yearly restart is a new series.

@@ -20,6 +20,11 @@ import com.lesconstructionssapete.stempyerpserver.platform.events.outbox.Outbox;
 import com.lesconstructionssapete.stempyerpserver.platform.events.outbox.OutboxSettings;
 import com.lesconstructionssapete.stempyerpserver.platform.events.outbox.internal.JdbcOutboxWriter;
 import com.lesconstructionssapete.stempyerpserver.platform.events.outbox.internal.OutboxPruneJob;
+import com.lesconstructionssapete.stempyerpserver.platform.numbering.DocumentNumbers;
+import com.lesconstructionssapete.stempyerpserver.platform.numbering.DocumentTypes;
+import com.lesconstructionssapete.stempyerpserver.platform.numbering.internal.CounterRepository;
+import com.lesconstructionssapete.stempyerpserver.platform.numbering.internal.JdbcDocumentNumbers;
+import com.lesconstructionssapete.stempyerpserver.platform.numbering.internal.SeriesRepository;
 import com.lesconstructionssapete.stempyerpserver.platform.query.QueryLimits;
 import com.lesconstructionssapete.stempyerpserver.platform.scheduler.Scheduler;
 import com.lesconstructionssapete.stempyerpserver.platform.scheduler.SchedulerSettings;
@@ -46,7 +51,8 @@ import com.lesconstructionssapete.stempyerpserver.platform.web.WebServerConfig;
  *
  * <pre>
  * var host = new ModuleHost(modules);        0. permissions, 1. entities (fail fast on a broken DEF or an
- *                                            undeclared field permission, before any DB work)
+ *                                            undeclared field permission, before any DB work), then
+ *                                            document types (fail fast on a bad declaration)
  *   ... migrate, open the pool ...
  * host.start(uowFactory);                    2. platform services + module services, then 3. event handlers
  * host.services().get(UsersApi.class)        (a CLI command stops here)
@@ -65,6 +71,7 @@ public final class ModuleHost {
   private final List<ERPModule> modules;
   private final PermissionRegistry permissions = new PermissionRegistry();
   private final EntityRegistry entities = new EntityRegistry();
+  private final DocumentTypes documentTypes = new DocumentTypes();
   private UnitOfWorkFactory uowFactory;
   private ServiceRegistry services;
   private final Scheduler scheduler = new Scheduler();
@@ -79,10 +86,16 @@ public final class ModuleHost {
     permissions.freeze();
     this.modules.forEach(m -> m.registerEntities(entities));
     entities.freeze(permissions::contains); // throws on a bad relation or undeclared field permission
+    this.modules.forEach(m -> m.registerDocumentTypes(documentTypes)); // throws on a bad declaration
+    documentTypes.freeze();
   }
 
   public PermissionRegistry permissions() {
     return permissions;
+  }
+
+  public DocumentTypes documentTypes() {
+    return documentTypes;
   }
 
   public EntityRegistry entities() {
@@ -92,7 +105,7 @@ public final class ModuleHost {
   /**
    * Publishes the platform services every module may use (UnitOfWorkFactory,
    * EventBus, EntityRegistry, PermissionRegistry, PermissionChecker,
-   * EntityEndpoints, Scheduler, Outbox, AuditLog), then each module's own, then
+   * EntityEndpoints, Scheduler, Outbox, AuditLog, DocumentTypes, DocumentNumbers), then each module's own, then
    * wires event handlers (synchronous and async), then job types. The
    * registries are frozen afterwards. Nothing runs yet: see startScheduler()
    * and startOutbox().
@@ -120,6 +133,9 @@ public final class ModuleHost {
         eventBus, clock, auditLog, () -> registry.find(UserDirectory.class)));
     registry.register(Scheduler.class, scheduler);
     registry.register(Outbox.class, outbox);
+    registry.register(DocumentTypes.class, documentTypes);
+    registry.register(DocumentNumbers.class, new JdbcDocumentNumbers(documentTypes, uowFactory,
+        new SeriesRepository(), new CounterRepository()));
     modules.forEach(m -> m.registerServices(registry));
     registry.freeze();
 

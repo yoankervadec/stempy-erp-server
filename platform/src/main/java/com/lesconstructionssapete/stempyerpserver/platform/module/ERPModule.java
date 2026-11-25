@@ -2,13 +2,14 @@ package com.lesconstructionssapete.stempyerpserver.platform.module;
 
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.events.EventBus;
+import com.lesconstructionssapete.stempyerpserver.platform.numbering.DocumentTypes;
 import com.lesconstructionssapete.stempyerpserver.platform.scheduler.Scheduler;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.web.Routes;
 
 /**
  * A business module. ModuleHost calls every module through each phase, in order:
- * permissions, entities, services, event handlers, jobs (registered in every mode, run only
+ * permissions, entities, document types, services, event handlers, jobs (registered in every mode, run only
  * in server mode), routes. Override only the phases the module takes part in; the others do
  * nothing.
  */
@@ -24,6 +25,13 @@ public interface ERPModule {
   }
 
   void registerEntities(EntityRegistry entityRegistry);
+
+  /**
+   * Declares the kinds of document the module numbers (docs/ARCHITECTURE.md
+   * §21.4). Runs before services, with no database.
+   */
+  default void registerDocumentTypes(DocumentTypes documentTypes) {
+  }
 
   default void registerServices(ServiceRegistry serviceRegistry) {
   }

@@ -197,6 +197,14 @@ class ArchitectureTest {
 
   @ArchTest
   @SuppressWarnings("unused")
+  static final ArchRule modules_use_only_the_public_numbering_api = noClasses()
+      .that().resideInAPackage(ROOT + "..")
+      .should().dependOnClassesThat().resideInAPackage("..platform.numbering.internal..")
+      .because("number series and counters are platform internals; modules use DocumentNumbers, "
+          + "NumberRequest and DocumentTypes");
+
+  @ArchTest
+  @SuppressWarnings("unused")
   static final ArchRule only_module_classes_see_the_service_registry = noClasses()
       .that(not(partOfAModuleClass()))
       .should().dependOnClassesThat().belongToAnyOf(ServiceRegistry.class)
