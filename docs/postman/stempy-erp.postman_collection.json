@@ -78,6 +78,21 @@
       "key": "runId",
       "value": "",
       "description": "Set by Run now"
+    },
+    {
+      "key": "documentType",
+      "value": "gl.journal-entry",
+      "description": "Document type used by the Document numbering requests (see List document types)"
+    },
+    {
+      "key": "seriesId",
+      "value": "",
+      "description": "Set by Create / Get series"
+    },
+    {
+      "key": "seriesVersion",
+      "value": "",
+      "description": "Set by Create / Get / Update series"
     }
   ],
   "item": [
@@ -1333,6 +1348,438 @@
               ]
             }
           }
+        }
+      ]
+    },
+    {
+      "name": "Document numbering",
+      "description": "Number series and their counters. See docs/API_GUIDE.md section 8. Set documentType to a key from List document types first.",
+      "item": [
+        {
+          "name": "List document types",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/numbering/document-types",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "numbering",
+                "document-types"
+              ]
+            },
+            "description": "What can be numbered: key, parameters a pattern may use, gaplessRequired, default series. Empty until a module declares a document type (none does yet; GL journal entries will be first)."
+          }
+        },
+        {
+          "name": "Create series (stores id, version)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/numbering/series",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "numbering",
+                "series"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documentType\": \"{{documentType}}\",\n  \"code\": \"PM\",\n  \"description\": \"Created from the Postman collection\",\n  \"pattern\": \"PM-{SEQ:6}\",\n  \"mode\": \"GAPLESS\",\n  \"startValue\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "A series for {{documentType}}. Left out, isDefault is true when the type has no default yet. Fails with UNKNOWN_DOCUMENT_TYPE until a module declares that type."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"seriesId\", row.id);",
+                  "  pm.collectionVariables.set(\"seriesVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List series",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/numbering/series?documentType={{documentType}}&limit=50&offset=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "numbering",
+                "series"
+              ],
+              "query": [
+                {
+                  "key": "documentType",
+                  "value": "{{documentType}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "The company's series, by document type then code. Filter with documentType."
+          }
+        },
+        {
+          "name": "Get series (stores version)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/numbering/series/{{seriesId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "numbering",
+                "series",
+                "{{seriesId}}"
+              ]
+            },
+            "description": "One series, with used (it has a counter: pattern, mode and start value are frozen)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"seriesVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update series (uses the last version read)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/numbering/series/{{seriesId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "numbering",
+                "series",
+                "{{seriesId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": {{seriesVersion}},\n  \"description\": \"Changed from Postman\",\n  \"pattern\": \"PM{SEQ:8}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Fields left out keep their value. pattern, mode and startValue only while the series is unused (409 NUMBER_SERIES_IN_USE otherwise)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"seriesVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Make this series the default",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/numbering/series/{{seriesId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "numbering",
+                "series",
+                "{{seriesId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": {{seriesVersion}},\n  \"isDefault\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Takes the flag off the old default in the same transaction. isDefault: false is refused: make another series the default instead."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"seriesVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Counters",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/numbering/series/{{seriesId}}/counters",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "numbering",
+                "series",
+                "{{seriesId}}",
+                "counters"
+              ]
+            },
+            "description": "One counter per combination of parameter values: scope, lastNumber, nextNumber, and next as it will print."
+          }
+        },
+        {
+          "name": "Set next number (continue an old system)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/numbering/series/{{seriesId}}/counters/set-next",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "numbering",
+                "series",
+                "{{seriesId}}",
+                "counters",
+                "set-next"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"params\": {},\n  \"nextNumber\": 5001\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Moves one counter up so its next number is nextNumber; creates it if needed. params: the values of the pattern's parameters ({} when it has none). Lowering a counter is refused (409 COUNTER_CANNOT_DECREASE)."
+          }
+        },
+        {
+          "name": "Series history (who changed what)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/numbering/series/{{seriesId}}/history?limit=20&offset=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "numbering",
+                "series",
+                "{{seriesId}}",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "CREATED, UPDATED and COUNTER_SET entries, newest first. Needs audit.history.read."
+          }
+        },
+        {
+          "name": "Disable series",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/numbering/series/{{seriesId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "numbering",
+                "series",
+                "{{seriesId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": {{seriesVersion}},\n  \"isEnabled\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Series are never deleted. A disabled series gives no numbers (callers get 409 NUMBER_SERIES_NOT_FOUND)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"seriesVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
         }
       ]
     },

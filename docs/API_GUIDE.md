@@ -32,7 +32,7 @@ INSERT INTO units_of_measure (code, description, is_enabled) VALUES ('UN', 'Unit
 -- note the ids (SELECT id, code FROM currencies; ...): the collection assumes 1 and 1
 ```
 
-Optional, to test permissions and multiple companies, see §8.
+Optional, to test permissions and multiple companies, see §9.
 
 ---
 
@@ -371,7 +371,84 @@ A run is one execution: `trigger` is `SCHEDULE`, `RETRY` or `MANUAL`; `status` g
 
 ---
 
-## 8. Optional: a second user and company, to test permissions
+## 8. Document numbering
+
+Numbers for issued documents, such as `INV-000042` or `CO-01203012346`. **Document types** are code: each module declares what it numbers and which values a caller passes in (`GET /numbering/document-types`). **Number series** are per company and say how the numbers look: a pattern, a mode, a start value. Each series keeps one **counter** per combination of parameter values, so every store and terminal counts on its own.
+
+No module declares a document type yet (GL journal entries will be first), so on a running server `GET /numbering/document-types` returns `[]` and creating a series fails with `UNKNOWN_DOCUMENT_TYPE`. The tests use their own types.
+
+| Method | Path | Body | Permission | Returns |
+| --- | --- | --- | --- | --- |
+| `GET` | `/numbering/document-types` | – | `.read` | `200 [documentType]` |
+| `GET` | `/numbering/series?documentType=&limit=&offset=` | – | `.read` | `200 { "data": [series], "page": {limit, offset} }` |
+| `POST` | `/numbering/series` | the series' fields | `.manage` | `201 series`, `Location` |
+| `GET` | `/numbering/series/{id}` | – | `.read` | `200 series` |
+| `PATCH` | `/numbering/series/{id}` | `version` + only the fields to change | `.manage` | `200 series` |
+| `GET` | `/numbering/series/{id}/counters` | – | `.read` | `200 [counter]` |
+| `POST` | `/numbering/series/{id}/counters/set-next` | `{ "params": {...}, "nextNumber": N }` | `.manage` | `200 counter` |
+| `GET` | `/numbering/series/{id}/history?limit=&offset=` | – | `.read` + `audit.history.read` | `200 { "data": [entry], "page": {...} }`, newest first (§5) |
+
+Permissions: `numbering.series.read` and `numbering.series.manage`, on **the request's company**. Another company's series is `404`. Series are never deleted: set `isEnabled` to `false`.
+
+### Patterns
+
+| Token | Means |
+| --- | --- |
+| `{SEQ:6}` | the counter, zero-padded to 6 digits (it grows past 6 instead of failing); exactly one per pattern |
+| `{STORE_NO:3}` | a value the caller passes, left-padded with `0` to 3 characters; the width is required |
+| anything else | literal text: printable ASCII, no spaces, no braces |
+
+| Pattern | Values | Number |
+| --- | --- | --- |
+| `INV-{SEQ:6}` | | `INV-000042` |
+| `CO-{STORE_NO:3}{TERMINAL_NO:2}{SEQ:6}` | store `12`, terminal `3`, counter 12346 | `CO-01203012346` |
+
+Only the parameters the document type declares may appear. A pattern is at most 255 characters, and a number at most 50 at its padded widths. Parameter values are letters, digits and `-`, at most their width (longer is refused, never cut), and `12` and `012` are the same store.
+
+### Series fields
+
+| Field | Type | Create | Rules |
+| --- | --- | --- | --- |
+| `documentType` | string | required | a key from `GET /numbering/document-types`; cannot be changed afterwards |
+| `code` | string | required | upper-case letters, digits, `-`, `_`, max 50; unique per document type in the company; cannot be changed (callers ask for a series by its code) |
+| `description` | string | optional | max 255 |
+| `pattern` | string | required | see above |
+| `mode` | `GAPLESS` \| `GAPS_ALLOWED` | required | `GAPLESS`: a cancelled document gives its number back. `GAPS_ALLOWED`: it is lost, and nobody waits. Some types require `GAPLESS` (`gaplessRequired`) |
+| `startValue` | int | optional (default 1) | the first number of every new counter; 1 to 999999999999999999 |
+| `isDefault` | boolean | optional | the series used when a caller doesn't name one. On create, left out: `true` if the type has no default yet. Making a series the default takes the flag off the old one. It can't be set to `false`: make another series the default instead (`CANNOT_UNSET`) |
+| `isEnabled` | boolean | optional (default `true`) | a disabled series gives no numbers (`409 NUMBER_SERIES_NOT_FOUND` to the caller) |
+
+Returned only: `id`, `version`, `typeRegistered` (false: no module on this server declares the type), `used` (it has a counter), `createdAt`, `createdBy` (`null`: created by the server, see below), `updatedAt`, `updatedBy`.
+
+- **A used series keeps its shape.** Once it has a counter, `pattern`, `mode` and `startValue` can't change (`409 NUMBER_SERIES_IN_USE`). To change the format, create a new series and make it the default.
+- **Built-in default.** A company with no default series for a type gets the type's own default (e.g. `CO`) on the first number. It then shows up here with `createdBy: null`. A disabled default is never replaced.
+- Validation codes: `UNKNOWN_DOCUMENT_TYPE`, `INVALID_PATTERN` (the message says what and where), `GAPLESS_REQUIRED`, `ALREADY_EXISTS`, `INVALID_FORMAT`, `OUT_OF_RANGE`, `READ_ONLY`.
+
+```http
+POST /numbering/series
+{
+  "documentType": "<a key from /numbering/document-types>",
+  "code": "WEB",
+  "description": "Online orders",
+  "pattern": "WEB-{SEQ:6}",
+  "mode": "GAPS_ALLOWED"
+}
+```
+
+### Counters
+
+`GET .../counters` lists each counter: `scope` (`STORE_NO=012;TERMINAL_NO=03`, or `""` for a pattern without parameters), `params` (the same as values), `lastNumber`, `nextNumber` and `next` (that number as it will print).
+
+**Continue an old system's numbering** with `set-next`. It creates the counter if needed:
+
+```http
+POST /numbering/series/{id}/counters/set-next
+{ "params": { "STORE_NO": "12", "TERMINAL_NO": "3" }, "nextNumber": 5001 }
+```
+
+A counter only moves up (`409 COUNTER_CANNOT_DECREASE`): lowering it would issue numbers again. Sending the current next number changes nothing. If a gapless document is being saved on that counter at that moment, the request waits for it. Each move is in the series' history as `COUNTER_SET`.
+
+## 9. Optional: a second user and company, to test permissions
 
 ```sql
 INSERT INTO companies (code, description, is_enabled) VALUES ('DEMO', 'Demo company', TRUE);
@@ -405,7 +482,7 @@ WHERE u.user_no = 'U1' AND c.code = 'LCS';
 
 ---
 
-## 9. Things worth trying
+## 10. Things worth trying
 
 **Authentication**
 - [ ] Login with a wrong password, then an unknown user: same `401 INVALID_CREDENTIALS`, same message.
@@ -415,7 +492,7 @@ WHERE u.user_no = 'U1' AND c.code = 'LCS';
 - [ ] Logout, then reuse the token: `401`.
 - [ ] `set-password U1` while logged in: every session of U1 ends.
 
-**Companies and permissions** (after §8)
+**Companies and permissions** (after §9)
 - [ ] U1 with two companies: `GET /auth/me` without `X-Company-Id` uses the default; with `X-Company-Id: <DEMO id>` you see DEMO.
 - [ ] `X-Company-Id: 999` → `403 COMPANY_ACCESS_DENIED`; `X-Company-Id: abc` → `400 INVALID_COMPANY_ID`.
 - [ ] Data created in LCS is invisible (`404` / not listed) with `X-Company-Id: <DEMO id>`.

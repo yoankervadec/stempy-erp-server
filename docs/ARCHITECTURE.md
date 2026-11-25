@@ -325,7 +325,8 @@ modules/
 ├── bank/             bank accounts, statements, reconciliation, payment runs
 ├── approvals/        generic approval workflows (states, approvers, thresholds)
 └── system/
-    └── scheduling/   scheduler admin API under /scheduler (schedules, run now, history; §17.5)
+    ├── scheduling/   scheduler admin API under /scheduler (schedules, run now, history; §17.5)
+    └── numbering/    numbering admin API under /numbering (series, counters, set-next, history; §21.7)
 ```
 
 Roles and permissions will land in `users` (the module that already owns identity) rather than a separate `auth` module.
@@ -1375,7 +1376,7 @@ Who changed what, when, and from what to what, for every generic write and for t
 
 - **Same transaction, no exceptions.** `AuditLog.record(uow, entry)` writes with the caller's UnitOfWork: an entry exists if and only if its change committed, and a change whose entry can't be written fails. Not the outbox: an audit trail that may miss writes is not one.
 - **Old and new values, only what changed.** A generic update first locks the row and reads the current values of the fields it changes (`SELECT ... FOR UPDATE`, one extra query); `EntityChanged` carries field -> old/new, compared by value (`0.2500` equals `0.25`). A PATCH that changes nothing records nothing.
-- **One sink, two producers.** `AuditTrail` (an `EntityChanged` listener, subscribed by ModuleHost before any module) records every generic create / update / delete with no module code. Hand-written writes call `AuditLog` from the operation that makes the change: role assignments and memberships (`users`), password changes (never a value), schedules (`system/scheduling`).
+- **One sink, two producers.** `AuditTrail` (an `EntityChanged` listener, subscribed by ModuleHost before any module) records every generic create / update / delete with no module code. Hand-written writes call `AuditLog` from the operation that makes the change: role assignments and memberships (`users`), password changes (never a value), schedules (`system/scheduling`), number series and counter moves (`system/numbering`).
 - **Names as clients see them.** Changes are keyed by API field names; `FieldChanges.records(before, after)` diffs two versions of any record for hand-written writes.
 - **Reading respects field permissions.** A history shows `{"masked": true}` for a field the reader may not read (its `readPermission`, or an internal field): that it changed, not to what. Internal fields are never written in the first place (clients can't set them).
 - **No foreign keys.** The history outlives the rows and users it names; `UserDirectory` (implemented by `users`) still names deleted users.
@@ -1436,7 +1437,7 @@ Pass `userId` and `requestId` from the `RequestContext` down to the operation's 
 
 ## 21. Document numbering
 
-_Status: core built 2026-11-25 (migration V9): `NumberPattern`, document types, `DocumentNumbers`. Admin API not built yet (§21.7, §21.10 step 3)._
+_Status: built 2026-11-25 (migration V9). How to call the admin API: docs/API_GUIDE.md §8._
 
 Human-readable numbers for issued documents (`INV-000042`, `CO-01203012346`), defined per company as data. Some kinds of document get gapless numbers, others accept gaps.
 
@@ -1575,18 +1576,21 @@ Series are never deleted (only disabled): their counters and the numbers they is
 
 ### 21.7 Admin API and permissions
 
+Module `modules/system/numbering` (`NumberingModule`), routes under `/numbering`. How to call it: docs/API_GUIDE.md §8. Like the scheduler's admin module, it edits the V9 tables with its own repository (`NumberSeriesAdminRepository`) and never touches `platform.numbering.internal` (ArchUnit).
+
 | Route | Does |
 | --- | --- |
-| `QUERY /numbering/series`, `GET /numbering/series/{id}` | Series of the current company, with `used` (it has a counter) |
-| `POST /numbering/series` | Create; validates the pattern against the document type |
-| `PATCH /numbering/series/{id}` | Description, enabled, default (switches the old default off in the same transaction); pattern / mode / start value only while unused (`NUMBER_SERIES_IN_USE`, 409, otherwise) |
-| `GET /numbering/series/{id}/counters` | Counters: scope, last value, next number as it will print |
-| `POST /numbering/series/{id}/counters/set-next` | `{scope params, nextValue}`; creates the counter if needed; refuses to go down (`COUNTER_CANNOT_DECREASE`, 409) |
-| `GET /numbering/document-types` | Declared types, their parameters, `gaplessRequired` |
+| `GET /numbering/document-types` | Declared types: parameters, `gaplessRequired`, default series |
+| `GET /numbering/series?documentType=`, `GET /numbering/series/{id}` | Series of the current company, with `used` (it has a counter) and `typeRegistered` |
+| `POST /numbering/series` | Create; validates the pattern against the document type and `gaplessRequired`. `isDefault` left out: `true` if the type has no default yet |
+| `PATCH /numbering/series/{id}` | Description, enabled, default (switches the old default off in the same transaction); pattern / mode / start value only while unused (`NUMBER_SERIES_IN_USE`, 409). `isDefault: false` is refused (`CANNOT_UNSET`): an unset default would bring the type's built-in default back. `documentType` and `code` are read-only |
+| `GET /numbering/series/{id}/counters` | Counters: scope, values, last number, next number as it will print |
+| `POST /numbering/series/{id}/counters/set-next` | `{params, nextNumber}`; creates the counter if needed; refuses to go down (`COUNTER_CANNOT_DECREASE`, 409) |
 | `GET /numbering/series/{id}/history` | Audit history (§20) |
 
-- **Permissions:** `numbering.series.read`, `numbering.series.write`; `ADMINISTRATOR` has both.
-- **Audit:** series changes and `set-next` are audited (§20). Ordinary number allocation is not; the document that gets the number is.
+- **Permissions:** `numbering.series.read`, `numbering.series.manage`; `ADMINISTRATOR` has both. Another company's series is `404`.
+- **Audit** (entity `numberSeries`): `CREATED` (with `documentType`), `UPDATED`, also on the old default when the flag moves, and `COUNTER_SET` with `counters[scope].nextNumber` old/new. Ordinary number allocation is not audited; the document that gets the number is.
+- **"Used" holds until commit.** `PATCH` locks the series row first, and a counter's first insert reads that row (foreign key), so no series becomes used between the check and the update.
 
 ### 21.8 Code
 
@@ -1629,7 +1633,7 @@ platform/numbering/
 
 1. `NumberPattern` + its tests (no database). Done 2026-11-25.
 2. V9 migration, repositories, `DocumentTypes` + the new ModuleHost phase, `DocumentNumbers`, and the MySQL tests. Done 2026-11-25.
-3. Admin API, permissions, audit, docs/API_GUIDE.md section and Postman requests.
+3. Admin API, permissions, audit, docs/API_GUIDE.md section and Postman requests. Done 2026-11-25.
 4. First real users: `gl.journal-entry` (GL, §14 step 5), then sales documents.
 
 ### 21.11 Known gaps and limits
