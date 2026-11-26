@@ -266,6 +266,16 @@ public final class EntityEndpoints {
     };
   }
 
+  /**
+   * One row as {@code rc} sees it (same company, live, readable fields only),
+   * in its own read-only transaction: what GET returns. For hand-written
+   * writes, so their responses have the same shape as the generic routes'.
+   * Checks no permission: the caller already did.
+   */
+  public <E> Optional<Map<String, Object>> read(RequestContext rc, EntityDefinition<E> entity, long id) {
+    return uowFactory.executeReadOnly(uow -> row(uow, entity, id, rc));
+  }
+
   // ---- internals ----
 
   private RequestContext authorize(Context ctx, String permission) {

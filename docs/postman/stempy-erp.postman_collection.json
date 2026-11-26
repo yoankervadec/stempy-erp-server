@@ -93,6 +93,31 @@
       "key": "seriesVersion",
       "value": "",
       "description": "Set by Create / Get / Update series"
+    },
+    {
+      "key": "headingAccountId",
+      "value": "",
+      "description": "Set by Create heading account"
+    },
+    {
+      "key": "accountId",
+      "value": "",
+      "description": "Set by Create account"
+    },
+    {
+      "key": "accountVersion",
+      "value": "",
+      "description": "Set by Create / Get / Update account"
+    },
+    {
+      "key": "fiscalYearStart",
+      "value": "2026-01-01",
+      "description": "First day of the fiscal year to create (the 1st of a month)"
+    },
+    {
+      "key": "periodId",
+      "value": "",
+      "description": "Set by Create fiscal year (its first period)"
     }
   ],
   "item": [
@@ -1780,6 +1805,577 @@
               }
             }
           ]
+        }
+      ]
+    },
+    {
+      "name": "General ledger",
+      "description": "Chart of accounts, fiscal years and periods. See docs/API_GUIDE.md section 9.",
+      "item": [
+        {
+          "name": "Create heading account (stores id)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/accounts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "accounts"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountNo\": \"1000\",\n  \"name\": \"Current assets\",\n  \"accountType\": \"ASSET\",\n  \"isHeading\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "A heading groups accounts in reports and never takes postings."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"headingAccountId\", row.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create account under the heading (stores id, version)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/accounts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "accounts"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountNo\": \"1010\",\n  \"name\": \"Bank\",\n  \"accountType\": \"ASSET\",\n  \"parentId\": {{headingAccountId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "parentId must be a heading of the same company."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"accountId\", row.id);",
+                  "  pm.collectionVariables.set(\"accountVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Query: the chart, by number",
+          "request": {
+            "method": "QUERY",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/accounts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "accounts"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sort\": [{ \"field\": \"accountNo\" }]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Generic search (API guide section 6)."
+          }
+        },
+        {
+          "name": "Query: asset accounts under a heading",
+          "request": {
+            "method": "QUERY",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/accounts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "accounts"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"where\": { \"and\": [\n    { \"field\": \"accountType\", \"op\": \"equals\", \"value\": \"ASSET\" },\n    { \"field\": \"parent.accountNo\", \"op\": \"equals\", \"value\": \"1000\" }\n  ] },\n  \"sort\": [{ \"field\": \"accountNo\" }]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Filters through the parent relation."
+          }
+        },
+        {
+          "name": "Get account (stores version)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/accounts/{{accountId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "accounts",
+                "{{accountId}}"
+              ]
+            },
+            "description": "One account."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"accountVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update account (uses the last version read)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/accounts/{{accountId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "accounts",
+                "{{accountId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": {{accountVersion}},\n  \"name\": \"Bank - main account\",\n  \"manualPosting\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Fields left out keep their value; null clears parentId or description."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"accountVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Account history (who changed what)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/accounts/{{accountId}}/history?limit=20&offset=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "accounts",
+                "{{accountId}}",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "Needs audit.history.read."
+          }
+        },
+        {
+          "name": "Disable account",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/accounts/{{accountId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "accounts",
+                "{{accountId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": {{accountVersion}},\n  \"isEnabled\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Accounts are never deleted."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"accountVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List fiscal years with their periods",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/fiscal-years",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "fiscal-years"
+              ]
+            },
+            "description": "Oldest first, each with its 12 periods."
+          }
+        },
+        {
+          "name": "Create fiscal year (stores its first period id)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/fiscal-years",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "fiscal-years"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"startDate\": \"{{fiscalYearStart}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "12 monthly periods, all OPEN. The company's first year may start on the 1st of any month; later ones must start the day after the previous one ends."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"periodId\", row.periods[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get period",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/periods/{{periodId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "periods",
+                "{{periodId}}"
+              ]
+            },
+            "description": "One period: dates and status."
+          }
+        },
+        {
+          "name": "Close period",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/periods/{{periodId}}/close",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "periods",
+                "{{periodId}}",
+                "close"
+              ]
+            },
+            "description": "Nothing can be posted into a closed period. Needs gl.period.manage."
+          }
+        },
+        {
+          "name": "Reopen period",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/periods/{{periodId}}/reopen",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "periods",
+                "{{periodId}}",
+                "reopen"
+              ]
+            },
+            "description": "Needs gl.period.reopen, a separate permission."
+          }
+        },
+        {
+          "name": "Period history (closes and reopens)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/periods/{{periodId}}/history?limit=20&offset=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "periods",
+                "{{periodId}}",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "Needs audit.history.read."
+          }
         }
       ]
     },

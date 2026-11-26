@@ -315,7 +315,8 @@ modules/
 ├── company/          legal entities, fiscal calendars, currencies, exchange rates (tables exist in V1)
 ├── tax/              TaxApi: sales taxes for every province (rules, rates, document rounding; §19).
 │                     Tax postings to GL later
-├── gl/               chart of accounts, journals, periods, reports
+├── gl/               general ledger (§22): chart of accounts, fiscal years and periods (built);
+│                     dimensions, journal posting, reports (planned)
 ├── sales/            quotes, sales orders, fulfillment, invoicing
 ├── ar/               customer invoices, receipts, aging
 ├── ap/               vendor bills, payments, aging
@@ -1650,7 +1651,7 @@ platform/numbering/
 
 ## 22. General ledger
 
-_Status: planned 2026-11-25, not built (migrations V10+ to come). Where the code ends up differing, update this section._
+_Status: step 1 built 2026-11-25 (migration V10: accounts, fiscal years, periods; how to call it: docs/API_GUIDE.md §9). Steps 2 to 4 planned. Where the code ends up differing, update this section._
 
 The books of each company: a chart of accounts, fiscal years cut into monthly periods, balanced journal entries numbered without gaps, configurable dimensions on journal lines, and a trial balance. Module `modules/gl`, publishing `GeneralLedgerApi`. Other modules post through that API; the listeners that turn their events into entries (§9) come with those modules.
 
@@ -1671,16 +1672,18 @@ The books of each company: a chart of accounts, fiscal years cut into monthly pe
 
 | Column | Meaning |
 | --- | --- |
-| `account_no` | Free text, max 20, unique in the company (`1000`, `4010-01`). Sorting is by this text, so keep a fixed width if you want numeric order |
-| `name`, `description` | |
+| `account_no` | Letters, digits, `.`, `-`, `_`, starting with a letter or digit, max 20, unique in the company, ignoring case (`1000`, `4010-01`). Sorting is by this text, so keep a fixed width if you want numeric order |
+| `name`, `description` | Max 100 and 255 |
 | `account_type` | `ASSET`, `LIABILITY`, `EQUITY`, `REVENUE`, `EXPENSE`. Normal balance: debit for ASSET / EXPENSE, credit for the others |
 | `parent_id` | Optional heading account, for grouping in reports. Same company, must be a heading, no cycles |
 | `is_heading` | A heading groups other accounts and never takes postings (the old system's `allow_posting = false`) |
 | `manual_posting` | `false` for control accounts (accounts receivable, payable, inventory, tax): only the module that owns them may post, never a manual entry. Keeps sub-ledgers reconcilable (§13) |
 | `is_enabled` | A disabled account takes no new postings; its history stays |
 
-- Accounts are never deleted. Once an account has postings, its `account_type` and `is_heading` can't change (the history would change meaning).
-- Reads go through the generic entity routes (§5: query, filters, history). Writes are hand-written because of the rules above.
+- Accounts are never deleted. Once an account has postings, its `account_type` and `is_heading` can't change (the history would change meaning). That rule arrives with the journal tables (step 3).
+- A heading that has child accounts stays a heading (`HAS_CHILDREN`). Moving an account under itself or one of its own sub-accounts is refused (`CYCLE`).
+- Reads go through the generic entity routes (§5: query, filters, history; entity `glAccount`). Writes are hand-written (`AccountService`) because the entity framework has no hook for these rules. They answer with the row as the generic `GET` shows it (`EntityEndpoints.read`) and audit with the same entity name and field names, so the generic history shows them.
+- Parents and ancestors are read with shared locks while an account is created or moved, so a parent can't stop being a heading, and two concurrent moves can't build a cycle.
 
 ### 22.3 Dimensions
 
@@ -1698,7 +1701,9 @@ The books of each company: a chart of accounts, fiscal years cut into monthly pe
 
 ### 22.4 Fiscal years and periods
 
-- `POST /gl/fiscal-years {startDate}` creates the year and its 12 periods (`2026-04` ... `2027-03`, each a calendar month). The first year of a company may start on the 1st of any month; later years must follow on without a gap or overlap.
+- `POST /gl/fiscal-years {startDate}` creates the year and its 12 periods (`2026-04` ... `2027-03`, each a calendar month). The first year of a company may start on the 1st of any month; later years must follow on without a gap or overlap (`NOT_CONTIGUOUS`). The company row is locked while a year is created, so two first years can't both start.
+- A year is named by its calendar year (`2026`) when it starts in January, otherwise by both (`2026-2027`). Periods are named by the month they cover (`2026-04`).
+- Fiscal years can't be deleted or changed yet.
 - A period is `OPEN` or `CLOSED`. New periods are `OPEN`.
 - **Closing** needs `gl.period.manage`. **Reopening** needs `gl.period.reopen`. Both are audited.
 - **Posting vs closing, concurrently:** posting reads its period with a shared lock (`FOR SHARE`) in its transaction; closing takes an exclusive lock. So a close waits for entries being posted, and a posting never lands in a period that closed under it.
@@ -1775,7 +1780,7 @@ All per company (the request's), `ADMINISTRATOR` has them all, writes audited (�
 
 ### 22.10 Implementation order
 
-1. **Accounts, fiscal years, periods** (V10): tables, account and period APIs, close / reopen, tests.
+1. **Accounts, fiscal years, periods** (V10): tables, account and period APIs, close / reopen, tests. Done 2026-11-25.
 2. **Dimensions** (V11): dimensions, values, sets, account rules, their APIs, tests.
 3. **Posting** (V12): `GeneralLedgerApi`, the posting service and its checks, numbering type `gl.journal-entry`, manual `POST` with `platform/idempotency`, reversal, `JournalEntryPosted`, tests (balance, periods, concurrency with close, rollback leaves no number used).
 4. **Reports:** trial balance, account ledger, tests.
@@ -1789,3 +1794,5 @@ All per company (the request's), `ADMINISTRATOR` has them all, writes audited (�
 - **Base currency only.**
 - **Dimension values aren't linked to master data** (stores, projects) until those tables exist.
 - **Reports compute from the lines** every time.
+- **No fiscal-year history route**: creating a year is audited (entity `glFiscalYear`), but only periods have a `/history` route.
+- **Fiscal years can't be deleted**, even before any posting. A wrong first year is fixed with SQL for now.

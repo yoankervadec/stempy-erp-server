@@ -3,6 +3,7 @@ package com.lesconstructionssapete.stempyerpserver.modules;
 import java.time.Clock;
 import java.util.List;
 
+import com.lesconstructionssapete.stempyerpserver.modules.gl.GlModule;
 import com.lesconstructionssapete.stempyerpserver.modules.masterdata.items.ItemsModule;
 import com.lesconstructionssapete.stempyerpserver.modules.system.numbering.NumberingModule;
 import com.lesconstructionssapete.stempyerpserver.modules.system.scheduling.SchedulingModule;
@@ -36,6 +37,7 @@ public final class AllModules {
         new TaxModule(),
         new ItemsModule(),
         new SchedulingModule(Clock.systemUTC()),
-        new NumberingModule(Clock.systemUTC()));
+        new NumberingModule(Clock.systemUTC()),
+        new GlModule(Clock.systemUTC()));
   }
 }

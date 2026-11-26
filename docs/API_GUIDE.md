@@ -32,7 +32,7 @@ INSERT INTO units_of_measure (code, description, is_enabled) VALUES ('UN', 'Unit
 -- note the ids (SELECT id, code FROM currencies; ...): the collection assumes 1 and 1
 ```
 
-Optional, to test permissions and multiple companies, see §9.
+Optional, to test permissions and multiple companies, see §10.
 
 ---
 
@@ -448,7 +448,58 @@ POST /numbering/series/{id}/counters/set-next
 
 A counter only moves up (`409 COUNTER_CANNOT_DECREASE`): lowering it would issue numbers again. Sending the current next number changes nothing. If a gapless document is being saved on that counter at that moment, the request waits for it. Each move is in the series' history as `COUNTER_SET`.
 
-## 9. Optional: a second user and company, to test permissions
+## 9. General ledger
+
+The books of the request's company. Built so far: the **chart of accounts** and **fiscal years** with their periods. Journal entries, dimensions and reports come next (docs/ARCHITECTURE.md §22).
+
+### Accounts
+
+| Method | Path | Body | Permission | Returns |
+| --- | --- | --- | --- | --- |
+| `QUERY` | `/gl/accounts` | a search (§6) | `gl.account.read` | `200 { "data": [account], "page": {...} }` |
+| `GET` | `/gl/accounts/{id}` | – | `gl.account.read` | `200 account` |
+| `GET` | `/gl/accounts/{id}/history` | – | `gl.account.read` + `audit.history.read` | `200 { "data": [entry], "page": {...} }` (§5) |
+| `POST` | `/gl/accounts` | the account's fields | `gl.account.manage` | `201 account`, `Location` |
+| `PATCH` | `/gl/accounts/{id}` | `version` + only the fields to change | `gl.account.manage` | `200 account` |
+
+| Field | Type | Create | Rules |
+| --- | --- | --- | --- |
+| `accountNo` | string | required | letters, digits, `.`, `-`, `_`, max 20; unique in the company, ignoring case. Sorted as text: use a fixed width (`1000`, `1010`) |
+| `name` | string | required | max 100 |
+| `description` | string | optional | max 255 |
+| `accountType` | `ASSET` \| `LIABILITY` \| `EQUITY` \| `REVENUE` \| `EXPENSE` | required | debit-normal: `ASSET`, `EXPENSE` |
+| `parentId` | id or `null` | optional | a **heading** account of the same company, for grouping. Not the account itself or one of its sub-accounts (`CYCLE`) |
+| `isHeading` | boolean | optional (`false`) | a heading groups accounts and never takes postings. A heading with sub-accounts stays one (`HAS_CHILDREN`) |
+| `manualPosting` | boolean | optional (`true`) | `false` for control accounts (receivables, payables, tax): only their module may post there, never a manual entry |
+| `isEnabled` | boolean | optional (`true`) | accounts are never deleted: disable them |
+
+Returned only: `id`, `companyId`, `version`, `createdAt`, `createdBy`, `updatedAt`, `updatedBy`, `deletedAt` (always `null`). Searches can use `parent.accountNo` (and other `parent.` fields) as well. Validation codes: `ALREADY_EXISTS`, `INVALID_FORMAT`, `INVALID_REFERENCE` (no such account in this company), `NOT_A_HEADING`, `CYCLE`, `HAS_CHILDREN`.
+
+```http
+POST /gl/accounts
+{ "accountNo": "1000", "name": "Current assets", "accountType": "ASSET", "isHeading": true }
+
+POST /gl/accounts
+{ "accountNo": "1010", "name": "Bank", "accountType": "ASSET", "parentId": <the heading's id> }
+```
+
+### Fiscal years and periods
+
+| Method | Path | Body | Permission | Returns |
+| --- | --- | --- | --- | --- |
+| `GET` | `/gl/fiscal-years` | – | `gl.period.read` | `200 [fiscalYear]`, oldest first, each with its `periods` |
+| `POST` | `/gl/fiscal-years` | `{ "startDate": "2026-04-01" }` | `gl.period.manage` | `201 fiscalYear` |
+| `GET` | `/gl/periods/{id}` | – | `gl.period.read` | `200 period` |
+| `POST` | `/gl/periods/{id}/close` | – | `gl.period.manage` | `200 period` |
+| `POST` | `/gl/periods/{id}/reopen` | – | `gl.period.reopen` | `200 period` |
+| `GET` | `/gl/periods/{id}/history?limit=&offset=` | – | `gl.period.read` + `audit.history.read` | `200 { "data": [entry], "page": {...} }`: closes and reopens |
+
+- A fiscal year is 12 monthly periods, created together, all `OPEN`. It starts on the 1st of a month (`NOT_FIRST_OF_MONTH`). The company's first year may start in any month; each later one must start the day after the previous one ends (`NOT_CONTIGUOUS`). So the first year sets the company's year-end.
+- Names: a year starting in January is `2026`, otherwise `2026-2027`. A period is named by its month (`2026-04`).
+- Entries (once posting exists) must be dated in an `OPEN` period. Closing a period stops all posting into it. Reopening is a separate permission, so the person who closes the books isn't necessarily allowed to reopen them. Closing a closed period, or reopening an open one, is `409 PERIOD_ALREADY_CLOSED` / `PERIOD_ALREADY_OPEN`.
+- Another company's periods are `404`.
+
+## 10. Optional: a second user and company, to test permissions
 
 ```sql
 INSERT INTO companies (code, description, is_enabled) VALUES ('DEMO', 'Demo company', TRUE);
@@ -482,7 +533,7 @@ WHERE u.user_no = 'U1' AND c.code = 'LCS';
 
 ---
 
-## 10. Things worth trying
+## 11. Things worth trying
 
 **Authentication**
 - [ ] Login with a wrong password, then an unknown user: same `401 INVALID_CREDENTIALS`, same message.
@@ -492,7 +543,7 @@ WHERE u.user_no = 'U1' AND c.code = 'LCS';
 - [ ] Logout, then reuse the token: `401`.
 - [ ] `set-password U1` while logged in: every session of U1 ends.
 
-**Companies and permissions** (after §9)
+**Companies and permissions** (after §10)
 - [ ] U1 with two companies: `GET /auth/me` without `X-Company-Id` uses the default; with `X-Company-Id: <DEMO id>` you see DEMO.
 - [ ] `X-Company-Id: 999` → `403 COMPANY_ACCESS_DENIED`; `X-Company-Id: abc` → `400 INVALID_COMPANY_ID`.
 - [ ] Data created in LCS is invisible (`404` / not listed) with `X-Company-Id: <DEMO id>`.
