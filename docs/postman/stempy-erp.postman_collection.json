@@ -118,6 +118,11 @@
       "key": "periodId",
       "value": "",
       "description": "Set by Create fiscal year (its first period)"
+    },
+    {
+      "key": "dimensionId",
+      "value": "",
+      "description": "Set by Create dimension"
     }
   ],
   "item": [
@@ -1810,7 +1815,7 @@
     },
     {
       "name": "General ledger",
-      "description": "Chart of accounts, fiscal years and periods. See docs/API_GUIDE.md section 9.",
+      "description": "Chart of accounts, fiscal years and periods, dimensions. See docs/API_GUIDE.md section 9.",
       "item": [
         {
           "name": "Create heading account (stores id)",
@@ -2181,6 +2186,205 @@
               }
             }
           ]
+        },
+        {
+          "name": "Create dimension (stores id)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/dimensions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "dimensions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"STORE\",\n  \"name\": \"Stores\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Codes: upper case, digits, _; fixed once created."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"dimensionId\", row.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create dimension value",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/dimension-values",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "dimension-values"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dimensionId\": {{dimensionId}},\n  \"code\": \"012\",\n  \"name\": \"Downtown\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Value codes are unique within their dimension (409 DUPLICATE_VALUE otherwise)."
+          }
+        },
+        {
+          "name": "Query: values of a dimension",
+          "request": {
+            "method": "QUERY",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/dimension-values",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "dimension-values"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"where\": { \"field\": \"dimension.code\", \"op\": \"equals\", \"value\": \"STORE\" },\n  \"sort\": [{ \"field\": \"code\" }]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Filters through the dimension relation."
+          }
+        },
+        {
+          "name": "Account dimension rules",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/accounts/{{accountId}}/dimension-rules",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "accounts",
+                "{{accountId}}",
+                "dimension-rules"
+              ]
+            },
+            "description": "What the account's lines must (REQUIRED) or may not (NOT_ALLOWED) carry."
+          }
+        },
+        {
+          "name": "Replace account dimension rules (uses the account version)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/accounts/{{accountId}}/dimension-rules",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "accounts",
+                "{{accountId}}",
+                "dimension-rules"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": {{accountVersion}},\n  \"rules\": { \"STORE\": \"REQUIRED\" }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Replaces all the account's rules ({} removes them). Send the account's version: it goes up by one. Run Get account first."
+          }
         },
         {
           "name": "List fiscal years with their periods",

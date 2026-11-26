@@ -7,6 +7,11 @@ import java.util.Objects;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.ChangePeriodStatusOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.CreateAccountOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.CreateFiscalYearOperation;
+import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.DescribeDimensionSetOperation;
+import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.FindOrCreateDimensionSetOperation;
+import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.ListDimensionRulesOperation;
+import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.ReplaceDimensionRulesOperation;
+import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.ResolveDimensionsOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.FindAccountOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.FindPeriodOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.ListPeriodsOperation;
@@ -23,9 +28,8 @@ import com.lesconstructionssapete.stempyerpserver.platform.web.EntityEndpoints;
 import com.lesconstructionssapete.stempyerpserver.platform.web.Routes;
 
 /**
- * The general ledger (docs/ARCHITECTURE.md §22). This step: the chart of
- * accounts, fiscal years and periods. Dimensions, posting and reports follow
- * (§22.10).
+ * The general ledger (docs/ARCHITECTURE.md §22). Built: the chart of accounts,
+ * fiscal years and periods, dimensions. Posting and reports follow (§22.10).
  *
  * Depends on the users module (created_by / updated_by relations), so it must
  * come after it in AllModules.
@@ -35,6 +39,7 @@ public class GlModule implements ERPModule {
   private final Clock clock;
   private AccountService accounts; // built in registerServices, used by registerRoutes
   private PeriodService periods;
+  private DimensionService dimensions;
 
   public GlModule(Clock clock) {
     // Whole seconds: what a TIMESTAMP column stores.
@@ -53,12 +58,15 @@ public class GlModule implements ERPModule {
         .declare(AccountService.MANAGE, "Create and change the company's accounts")
         .declare(PeriodService.READ, "See the company's fiscal years and periods")
         .declare(PeriodService.MANAGE, "Create fiscal years and close periods")
-        .declare(PeriodService.REOPEN, "Reopen closed periods, so entries can be posted into them again");
+        .declare(PeriodService.REOPEN, "Reopen closed periods, so entries can be posted into them again")
+        .declare(DimensionService.READ, "See the company's dimensions and their values")
+        .declare(DimensionService.CREATE, "Create dimensions and dimension values")
+        .declare(DimensionService.UPDATE, "Rename, enable and disable dimensions and dimension values");
   }
 
   @Override
   public void registerEntities(EntityRegistry entityRegistry) {
-    entityRegistry.registerAll(Account.class);
+    entityRegistry.registerAll(Account.class, Dimension.class, DimensionValue.class);
   }
 
   @Override
@@ -68,17 +76,24 @@ public class GlModule implements ERPModule {
     var audit = serviceRegistry.get(AuditLog.class);
     var accountRepository = new AccountRepository();
     var periodRepository = new PeriodRepository();
+    var dimensionRepository = new DimensionRepository();
     accounts = new AccountService(uowFactory, permissions, clock, new FindAccountOperation(accountRepository),
         new CreateAccountOperation(accountRepository, audit), new UpdateAccountOperation(accountRepository, audit));
     periods = new PeriodService(uowFactory, permissions, clock, new ListPeriodsOperation(periodRepository),
         new FindPeriodOperation(periodRepository), new CreateFiscalYearOperation(periodRepository, audit),
         new ChangePeriodStatusOperation(periodRepository, audit), audit,
         serviceRegistry.find(UserDirectory.class)); // the users module, before this one, publishes it
+    dimensions = new DimensionService(uowFactory, permissions, clock, new FindAccountOperation(accountRepository),
+        new ListDimensionRulesOperation(dimensionRepository),
+        new ReplaceDimensionRulesOperation(accountRepository, dimensionRepository, audit),
+        new ResolveDimensionsOperation(dimensionRepository), new FindOrCreateDimensionSetOperation(dimensionRepository),
+        new DescribeDimensionSetOperation(dimensionRepository));
   }
 
   @Override
   public void registerRoutes(Routes routes, ServiceRegistry serviceRegistry) {
     new AccountController(accounts, serviceRegistry.get(EntityEndpoints.class)).register(routes);
     new PeriodController(periods).register(routes);
+    new DimensionController(dimensions, serviceRegistry.get(EntityEndpoints.class)).register(routes);
   }
 }

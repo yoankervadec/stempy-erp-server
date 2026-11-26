@@ -75,4 +75,14 @@ public class AccountRepository {
         f.accountNo(), f.name(), f.description(), f.accountType(), f.parentId(), f.isHeading(), f.manualPosting(),
         f.isEnabled(), now, userId, id, version);
   }
+
+  /**
+   * Bumps the version and update stamps of a row this transaction has locked:
+   * for changes kept in other tables (dimension rules) that are still changes
+   * to the account.
+   */
+  public void touch(UnitOfWork uow, long id, long userId, Instant now) {
+    Jdbc.update(uow, "UPDATE gl_accounts SET version = version + 1, updated_at = ?, updated_by = ? WHERE id = ?",
+        now, userId, id);
+  }
 }

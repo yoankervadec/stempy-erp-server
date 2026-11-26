@@ -315,8 +315,8 @@ modules/
 ├── company/          legal entities, fiscal calendars, currencies, exchange rates (tables exist in V1)
 ├── tax/              TaxApi: sales taxes for every province (rules, rates, document rounding; §19).
 │                     Tax postings to GL later
-├── gl/               general ledger (§22): chart of accounts, fiscal years and periods (built);
-│                     dimensions, journal posting, reports (planned)
+├── gl/               general ledger (§22): chart of accounts, fiscal years and periods, dimensions (built);
+│                     journal posting, reports (planned)
 ├── sales/            quotes, sales orders, fulfillment, invoicing
 ├── ar/               customer invoices, receipts, aging
 ├── ap/               vendor bills, payments, aging
@@ -1651,7 +1651,7 @@ platform/numbering/
 
 ## 22. General ledger
 
-_Status: step 1 built 2026-11-25 (migration V10: accounts, fiscal years, periods; how to call it: docs/API_GUIDE.md §9). Steps 2 to 4 planned. Where the code ends up differing, update this section._
+_Status: steps 1 and 2 built 2026-11-25 (migrations V10: accounts, fiscal years, periods; V11: dimensions). How to call them: docs/API_GUIDE.md §9. Steps 3 and 4 planned. Where the code ends up differing, update this section._
 
 The books of each company: a chart of accounts, fiscal years cut into monthly periods, balanced journal entries numbered without gaps, configurable dimensions on journal lines, and a trial balance. Module `modules/gl`, publishing `GeneralLedgerApi`. Other modules post through that API; the listeners that turn their events into entries (§9) come with those modules.
 
@@ -1696,8 +1696,14 @@ The books of each company: a chart of accounts, fiscal years cut into monthly pe
 - Why not columns: dimensions are data you define, so the table can't have a column per dimension. Why not one row per line and dimension: every line would need several extra rows, and grouping lines by a combination would mean comparing rows.
 
 **Rules per account** (optional): an account can require a dimension (`REQUIRED`: e.g. every expense line needs a `PROJECT`) or forbid one (`NOT_ALLOWED`: e.g. no `STORE` on bank accounts). Checked at posting.
+- Replaced as a whole: `PUT /gl/accounts/{id}/dimension-rules {version, rules: {CODE: rule}}`. They are part of the account: they need `gl.account.manage`, take the account's `version`, bump it, and are audited on the account (`dimensionRules`, old and new as `{code: rule}` maps).
 
-**Changing them later:** a dimension or value can be renamed or disabled, never deleted. A disabled value takes no new postings; its history stays. Codes are fixed once used.
+**Changing them later:** a dimension or value can be renamed or disabled, never deleted. A disabled value takes no new postings; its history stays. Codes are fixed from creation (`immutable`).
+
+**As built (step 2):**
+- Dimensions (`glDimension`) and values (`glDimensionValue`) are plain generic entities (§5.3): `QUERY`, `GET`, history, `POST`, `PATCH`, no `DELETE`. Dimension codes: `[A-Z][A-Z0-9_]`, max 20, unique in the company. Value codes: letters, digits, `.`, `-`, `_`, max 50, unique within their dimension. That last one is the database's unique key (the generic `unique()` is per company), so a duplicate is `409 DUPLICATE_VALUE` rather than a field error.
+- Codes match ignoring case, like the unique keys: `store` finds `STORE`.
+- `DimensionService.resolveSet(companyId, {dimension code: value code}, fieldPrefix)` is what posting will call. It checks every pair (`UNKNOWN_DIMENSION`, `DIMENSION_DISABLED`, `UNKNOWN_VALUE`, `VALUE_DISABLED`, `DUPLICATE_DIMENSION`, reported as `fieldPrefix.CODE`), then finds or creates the set. Creation: `INSERT IGNORE` on (company, hash) and the entries, in a short transaction of its own; a concurrent first use waits on the key and reads the same set. It has no HTTP route.
 
 ### 22.4 Fiscal years and periods
 
@@ -1756,7 +1762,7 @@ JournalEntryRef je = generalLedger.post(uow, JournalEntryRequest.of(companyId, i
 | `gl_periods` | fiscal year, `period_no` 1-12, `start_date`, `end_date`, `status`, closed/reopened at/by; unique (company, `start_date`) |
 | `gl_dimensions`, `gl_dimension_values` | §22.3; codes unique per company / per dimension |
 | `gl_dimension_sets`, `gl_dimension_set_entries` | a set (company, SHA-256 of its sorted pairs, unique) and its (dimension, value) pairs |
-| `gl_account_dimension_rules` | account, dimension, `REQUIRED` / `NOT_ALLOWED` |
+| `gl_account_dimension_rules` | account, dimension, `rule_type` `REQUIRED` / `NOT_ALLOWED` |
 | `gl_journal_entries` | §22.5; unique (company, `entry_no`) |
 | `gl_journal_lines` | §22.5, plus `company_id` and `posting_date` copied from the entry for the report index |
 | `idempotency_keys` | `platform/idempotency`: company, user, key, request hash, response, expiry |
@@ -1768,7 +1774,8 @@ Amounts are `DECIMAL(19,4)` (V1 convention), always rounded to the currency's mi
 | Routes | Permission |
 | --- | --- |
 | Accounts: generic `QUERY` / `GET` / history; hand-written `POST`, `PATCH` | `gl.account.read`, `gl.account.manage` |
-| Dimensions and values, account dimension rules | `gl.dimension.read`, `gl.dimension.manage` |
+| Dimensions and values (generic routes) | `gl.dimension.read`, `gl.dimension.create`, `gl.dimension.update` |
+| Account dimension rules | `gl.account.read`, `gl.account.manage` |
 | Fiscal years and periods: list, create a year, close a period | `gl.period.read`, `gl.period.manage` |
 | Reopen a period | `gl.period.reopen` |
 | Journal entries: list, get (with lines) | `gl.journal.read` |
@@ -1781,7 +1788,7 @@ All per company (the request's), `ADMINISTRATOR` has them all, writes audited (�
 ### 22.10 Implementation order
 
 1. **Accounts, fiscal years, periods** (V10): tables, account and period APIs, close / reopen, tests. Done 2026-11-25.
-2. **Dimensions** (V11): dimensions, values, sets, account rules, their APIs, tests.
+2. **Dimensions** (V11): dimensions, values, sets, account rules, their APIs, tests. Done 2026-11-25.
 3. **Posting** (V12): `GeneralLedgerApi`, the posting service and its checks, numbering type `gl.journal-entry`, manual `POST` with `platform/idempotency`, reversal, `JournalEntryPosted`, tests (balance, periods, concurrency with close, rollback leaves no number used).
 4. **Reports:** trial balance, account ledger, tests.
 5. Then the first transactional module (§14 step 6) posts through it.

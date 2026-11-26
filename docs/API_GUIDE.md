@@ -450,7 +450,7 @@ A counter only moves up (`409 COUNTER_CANNOT_DECREASE`): lowering it would issue
 
 ## 9. General ledger
 
-The books of the request's company. Built so far: the **chart of accounts** and **fiscal years** with their periods. Journal entries, dimensions and reports come next (docs/ARCHITECTURE.md §22).
+The books of the request's company. Built so far: the **chart of accounts**, **fiscal years** with their periods, and **dimensions**. Journal entries and reports come next (docs/ARCHITECTURE.md §22).
 
 ### Accounts
 
@@ -498,6 +498,24 @@ POST /gl/accounts
 - Names: a year starting in January is `2026`, otherwise `2026-2027`. A period is named by its month (`2026-04`).
 - Entries (once posting exists) must be dated in an `OPEN` period. Closing a period stops all posting into it. Reopening is a separate permission, so the person who closes the books isn't necessarily allowed to reopen them. Closing a closed period, or reopening an open one, is `409 PERIOD_ALREADY_CLOSED` / `PERIOD_ALREADY_OPEN`.
 - Another company's periods are `404`.
+
+### Dimensions
+
+Extra tags on journal lines beyond the account, defined by each company: `STORE`, `PROJECT`, `DEPARTMENT`... and their values (`STORE` = `012` "Downtown"). Journal entries will carry them; reports by account ignore them.
+
+| Method | Path | Body | Permission | Returns |
+| --- | --- | --- | --- | --- |
+| `QUERY` / `GET` / `GET .../history` | `/gl/dimensions`, `/gl/dimension-values` | a search (§6) | `gl.dimension.read` | as for products (§5) |
+| `POST` | `/gl/dimensions` | `{ "code": "STORE", "name": "Stores" }` | `gl.dimension.create` | `201 dimension` |
+| `POST` | `/gl/dimension-values` | `{ "dimensionId": 3, "code": "012", "name": "Downtown" }` | `gl.dimension.create` | `201 value` |
+| `PATCH` | `/gl/dimensions/{id}`, `/gl/dimension-values/{id}` | `version` + `name` and/or `isEnabled` | `gl.dimension.update` | `200` |
+| `GET` | `/gl/accounts/{id}/dimension-rules` | – | `gl.account.read` | `200 [ { "dimensionCode", "rule" } ]` |
+| `PUT` | `/gl/accounts/{id}/dimension-rules` | `{ "version": N, "rules": { "PROJECT": "REQUIRED", "STORE": "NOT_ALLOWED" } }` | `gl.account.manage` | `200` the rules |
+
+- **Codes are fixed once created** (a `PATCH` of `code` is refused). Dimension codes: upper case, digits, `_`, max 20, unique in the company. Value codes: letters, digits, `.`, `-`, `_`, max 50, unique **within their dimension**: a duplicate is `409 DUPLICATE_VALUE`. Codes match ignoring case.
+- Nothing is deleted: disable a dimension or a value (`isEnabled: false`) and it takes no new postings.
+- Values can be searched by their dimension: `{"where": {"field": "dimension.code", "op": "equals", "value": "STORE"}}`.
+- **Account rules** say which dimensions an account's lines must carry (`REQUIRED`) or may not carry (`NOT_ALLOWED`); any other dimension is optional. `PUT` replaces all of them (`{}` removes them all). Rules are part of the account: send the **account's** `version`, which goes up by one, and the change shows in the account's history as `dimensionRules`. Codes: `UNKNOWN_DIMENSION`, `INVALID_VALUE`.
 
 ## 10. Optional: a second user and company, to test permissions
 
