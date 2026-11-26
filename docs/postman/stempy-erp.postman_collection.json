@@ -1845,7 +1845,7 @@
     },
     {
       "name": "General ledger",
-      "description": "Chart of accounts, fiscal years and periods, dimensions, journal entries. See docs/API_GUIDE.md section 9.",
+      "description": "Chart of accounts, fiscal years and periods, dimensions, journal entries, reports. See docs/API_GUIDE.md section 9.",
       "item": [
         {
           "name": "Create heading account (stores id)",
@@ -2829,6 +2829,86 @@
               ]
             },
             "description": "POSTED and REVERSED. Needs audit.history.read."
+          }
+        },
+        {
+          "name": "Trial balance",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/reports/trial-balance?from=2026-01-01&to=2026-12-31&includeZero=false",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "reports",
+                "trial-balance"
+              ],
+              "query": [
+                {
+                  "key": "from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "key": "to",
+                  "value": "2026-12-31"
+                },
+                {
+                  "key": "includeZero",
+                  "value": "false"
+                }
+              ]
+            },
+            "description": "Signed, debit-positive. Add dimension=STORE&value=012 to filter; includeZero=true for accounts with nothing."
+          }
+        },
+        {
+          "name": "Account ledger",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/reports/account-ledger?accountNo={{debitAccountNo}}&from=2026-01-01&to=2026-12-31",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "reports",
+                "account-ledger"
+              ],
+              "query": [
+                {
+                  "key": "accountNo",
+                  "value": "{{debitAccountNo}}"
+                },
+                {
+                  "key": "from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "key": "to",
+                  "value": "2026-12-31"
+                }
+              ]
+            },
+            "description": "One posting account's lines with a running balance (at most 5,000)."
           }
         }
       ]

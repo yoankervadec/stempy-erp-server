@@ -317,7 +317,7 @@ modules/
 ├── tax/              TaxApi: sales taxes for every province (rules, rates, document rounding; §19).
 │                     Tax postings to GL later
 ├── gl/               general ledger (§22): GeneralLedgerApi; chart of accounts, fiscal years and periods,
-│                     dimensions, journal entries and reversals (built); reports (planned)
+│                     dimensions, journal entries and reversals, trial balance and account ledger
 ├── sales/            quotes, sales orders, fulfillment, invoicing
 ├── ar/               customer invoices, receipts, aging
 ├── ap/               vendor bills, payments, aging
@@ -779,7 +779,7 @@ Decide these early; they are painful to retrofit.
 2.  `platform/security` + `modules/users` (sessions, login throttle, set-password CLI), multi-company users + RBAC (§16).  Admin API for roles / overrides / memberships (with the generic write side).
 3.  `platform/events` (sync bus ), `platform/audit` (done 2026-11-24, §20),  `platform/numbering`, `platform/settings`.
 4.  `modules/masterdata/items` (query only) ; `shared.Money` (done 2026-11-24, §6) ; `modules/tax` calculation (done 2026-11-24, §19) ;  `modules/company`, `masterdata/customers`, `masterdata/vendors`.
-5.  `modules/gl` (accounts, periods, journal posting, trial balance): planned, §22.
+5.  `modules/gl` (accounts, periods, journal posting, trial balance): done 2026-11-25, §22.
 6.  First transactional module (e.g. `sales` or `ap`) wired to GL through events, as the reference implementation for all later modules.
 7.  `platform/scheduler` (done 2026-11-23, §17) + outbox dispatcher (done 2026-11-24, its own loop, §18).
 8.  Remaining modules (inventory, purchasing, bank, fixed assets, approvals).
@@ -1652,7 +1652,7 @@ platform/numbering/
 
 ## 22. General ledger
 
-_Status: steps 1 to 3 built 2026-11-25 (migrations V10: accounts, fiscal years, periods; V11: dimensions; V12: idempotency keys; V13: journal entries). How to call them: docs/API_GUIDE.md §9. Step 4 (reports) planned. Where the code ends up differing, update this section._
+_Status: built 2026-11-25, steps 1 to 4 (migrations V10: accounts, fiscal years, periods; V11: dimensions; V12: idempotency keys; V13: journal entries; reports need no migration). How to call it: docs/API_GUIDE.md §9. Next: the first module that posts through it (§14 step 6)._
 
 The books of each company: a chart of accounts, fiscal years cut into monthly periods, balanced journal entries numbered without gaps, configurable dimensions on journal lines, and a trial balance. Module `modules/gl`, publishing `GeneralLedgerApi`. Other modules post through that API; the listeners that turn their events into entries (§9) come with those modules.
 
@@ -1750,6 +1750,14 @@ An entry: company, `entry_no`, `posting_date` (and so its period), `description`
 - **Account ledger**: the lines of one account in a date range, with a running balance and each line's dimensions.
 - Computed from the lines (`SUM ... GROUP BY`), with an index on (company, account, posting date). Fine for years of entries at this size. Stored period balances only if this ever shows up in profiles.
 
+**As built (step 4):** `GET /gl/reports/trial-balance` and `GET /gl/reports/account-ledger` (`ReportService`, permission `gl.report.read`).
+- **Amounts are signed, debit-positive**: a credit balance is negative, closing = opening + debits - credits. A trial balance's totals (posting accounts only, never the headings' sums) show whether the books balance: opening and closing `0.00`, debits = credits.
+- **Openings are cumulative from the first entry** for every account, revenue and expense included: with no year-end close (§22.11), they don't restart at the fiscal year.
+- Trial balance rows follow the chart: account-number order, each heading before its accounts, with `level`. A heading shows the sum of everything under it. Accounts with no opening and no movement are left out (and headings with nothing left under them), unless `includeZero=true`. Disabled accounts are included: they may hold balances.
+- Both reports take an optional filter on one dimension value (`dimension=STORE&value=012`), enabled or not: only lines whose set holds it count, openings included.
+- The account ledger lists a posting account's lines in date, entry and line order, with the line's description (or else the entry's), dimensions and a running balance. More than 5,000 lines in the range is refused (`TOO_MANY_LINES`): narrow the dates. A heading is refused (`HEADING_ACCOUNT`): use the trial balance.
+- Each report reads in one read-only transaction: one consistent snapshot.
+
 ### 22.7 Using it from another module
 
 ```java
@@ -1804,13 +1812,14 @@ All per company (the request's), `ADMINISTRATOR` has them all, writes audited (�
 1. **Accounts, fiscal years, periods** (V10): tables, account and period APIs, close / reopen, tests. Done 2026-11-25.
 2. **Dimensions** (V11): dimensions, values, sets, account rules, their APIs, tests. Done 2026-11-25.
 3. **Posting** (V12, V13): `GeneralLedgerApi`, the posting service and its checks, numbering type `gl.journal-entry`, manual `POST` with `platform/idempotency`, reversal, `JournalEntryPosted`, tests (balance, periods, rollback leaves no number used, concurrent retries post once). Done 2026-11-25.
-4. **Reports:** trial balance, account ledger, tests.
+4. **Reports:** trial balance, account ledger, tests. Done 2026-11-25.
 5. Then the first transactional module (§14 step 6) posts through it.
 
 ### 22.11 Known gaps and limits (planned)
 
 - **No drafts or recurring entries**: an entry is posted when it is created.
-- **No year-end close** into retained earnings, no balance sheet or income statement yet.
+- **No year-end close** into retained earnings, no balance sheet or income statement yet. Until then, a trial balance's revenue and expense openings include every earlier year.
+- **The account ledger has no paging**: at most 5,000 lines per request.
 - **No chart-of-accounts template** for new companies.
 - **Base currency only.**
 - **Dimension values aren't linked to master data** (stores, projects) until those tables exist.

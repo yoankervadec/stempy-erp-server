@@ -450,7 +450,7 @@ A counter only moves up (`409 COUNTER_CANNOT_DECREASE`): lowering it would issue
 
 ## 9. General ledger
 
-The books of the request's company: the **chart of accounts**, **fiscal years** with their periods, **dimensions** and **journal entries**. Reports come next (docs/ARCHITECTURE.md §22).
+The books of the request's company: the **chart of accounts**, **fiscal years** with their periods, **dimensions**, **journal entries**, and two **reports**, the trial balance and the account ledger (docs/ARCHITECTURE.md §22).
 
 ### Accounts
 
@@ -548,6 +548,20 @@ Idempotency-Key: 2f1c6a52-6d0e-4b8e-9a3c-0c5f0b7f4a11
 - **The entry returned:** `id`, `entryNo`, `postingDate`, `periodId`, `description`, `sourceType` (`MANUAL`, or e.g. `sales.invoice` for entries other modules post), `sourceId`, `sourceNo`, `reversalOfId`, `reversedById`, `currency`, `total`, `postedAt`, `postedBy`, and `lines`: `lineNo`, `accountId`, `accountNo`, `accountName`, `debit`, `credit` (one is `"0.00"`), `description`, `dimensions`.
 
 **Idempotency-Key** (optional, recommended for any client that retries): send a new unique value, such as a UUID, with each new entry. If the response is lost and you send the same request again with the same key, the entry is not posted twice: you get the first one back, with the header `Idempotent-Replayed: true`. The same key with a different body is `409 IDEMPOTENCY_KEY_REUSED`. A request that was refused (422, 409) keeps nothing, so you can fix it and resend with the same key. Keys are remembered for 7 days, per user.
+
+### Reports
+
+| Method | Path | Permission | Returns |
+| --- | --- | --- | --- |
+| `GET` | `/gl/reports/trial-balance?from=&to=[&dimension=&value=][&includeZero=true]` | `gl.report.read` | `200` the trial balance |
+| `GET` | `/gl/reports/account-ledger?accountNo=&from=&to=[&dimension=&value=]` | `gl.report.read` | `200` the account's lines |
+
+- **`from` and `to` are required** (`to` on or after `from`). Both reports can be limited to one dimension value: `dimension=STORE&value=012` (both, or neither).
+- **Amounts are signed, debit-positive:** a debit balance is positive, a credit balance negative (sales show as `-1050.00`). `closing = opening + debits - credits`.
+- **Opening** is everything before `from`, for every account. There is no year-end close yet, so revenue and expense openings include earlier years.
+- **Trial balance:** `rows` follow the chart (account-number order, each heading before its accounts, `level` = depth), each with `amounts {opening, debits, credits, closing}`. A heading shows the sum of what's under it. Accounts with nothing to show are left out unless `includeZero=true`. `totals` adds up the posting accounts: when the books balance, opening and closing are `0.00` and debits equal credits.
+- **Account ledger:** one posting account's `opening`, `debits`, `credits`, `closing`, and its `lines` in date order: `entryId`, `entryNo`, `lineNo`, `postingDate`, `description` (the line's, else the entry's), `sourceType`, `sourceNo`, `debit`, `credit`, the running `balance`, `dimensions`. At most 5,000 lines (`TOO_MANY_LINES`: narrow the dates). Codes: `UNKNOWN_ACCOUNT`, `HEADING_ACCOUNT`.
+- Other codes: `REQUIRED`, `BEFORE_FROM`, `UNKNOWN_VALUE` (no such dimension value); a date that doesn't parse is `400 INVALID_PARAMETER`.
 
 ## 10. Optional: a second user and company, to test permissions
 

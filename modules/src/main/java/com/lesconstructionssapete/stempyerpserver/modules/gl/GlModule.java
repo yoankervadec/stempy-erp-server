@@ -16,6 +16,8 @@ import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.InsertJo
 import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.ListDimensionRulesOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.ListJournalEntriesOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.ListJournalLinesOperation;
+import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.LoadAccountLedgerOperation;
+import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.LoadTrialBalanceOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.ListPeriodsOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.LoadPostingContextOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.MarkReversedOperation;
@@ -41,8 +43,8 @@ import com.lesconstructionssapete.stempyerpserver.platform.web.Routes;
 
 /**
  * The general ledger (docs/ARCHITECTURE.md §22): the chart of accounts, fiscal
- * years and periods, dimensions, journal entries. Publishes GeneralLedgerApi.
- * Reports follow (§22.10 step 4).
+ * years and periods, dimensions, journal entries, and the trial balance and
+ * account ledger reports. Publishes GeneralLedgerApi.
  *
  * Depends on the users module (created_by / updated_by relations), so it must
  * come after it in AllModules.
@@ -54,6 +56,7 @@ public class GlModule implements ERPModule {
   private PeriodService periods;
   private DimensionService dimensions;
   private JournalService journal;
+  private ReportService reports;
 
   public GlModule(Clock clock) {
     // Whole seconds: what a TIMESTAMP column stores.
@@ -78,7 +81,8 @@ public class GlModule implements ERPModule {
         .declare(DimensionService.UPDATE, "Rename, enable and disable dimensions and dimension values")
         .declare(JournalService.READ, "See the company's journal entries")
         .declare(JournalService.POST, "Post manual journal entries")
-        .declare(JournalService.REVERSE, "Reverse posted journal entries");
+        .declare(JournalService.REVERSE, "Reverse posted journal entries")
+        .declare(ReportService.READ, "See the trial balance and account ledgers");
   }
 
   @Override
@@ -124,6 +128,9 @@ public class GlModule implements ERPModule {
         serviceRegistry.get(Idempotency.class), new FindJournalEntryOperation(journalRepository),
         new ListJournalLinesOperation(journalRepository), new ListJournalEntriesOperation(journalRepository), audit,
         serviceRegistry.find(UserDirectory.class));
+    var reportRepository = new ReportRepository();
+    reports = new ReportService(uowFactory, permissions, dimensions, new LoadTrialBalanceOperation(reportRepository),
+        new LoadAccountLedgerOperation(reportRepository));
   }
 
   @Override
@@ -132,5 +139,6 @@ public class GlModule implements ERPModule {
     new PeriodController(periods).register(routes);
     new DimensionController(dimensions, serviceRegistry.get(EntityEndpoints.class)).register(routes);
     new JournalController(journal).register(routes);
+    new ReportController(reports).register(routes);
   }
 }
