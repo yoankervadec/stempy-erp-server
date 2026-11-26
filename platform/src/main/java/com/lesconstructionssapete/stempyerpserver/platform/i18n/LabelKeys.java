@@ -51,6 +51,21 @@ public final class LabelKeys {
     return new String[] { action(resourceKey, action) + ".param." + param, field[0], field[1] };
   }
 
+  /** A layout section: the resource's own, else a shared one ("section.general"). */
+  public static String[] section(String resourceKey, String section) {
+    return new String[] { resourceKey + ".section." + section, "section." + section };
+  }
+
+  /** A layout collection: the resource's own, else the child entity's plural label. */
+  public static String[] collection(String resourceKey, String collection, String childKey) {
+    return new String[] { resourceKey + ".collection." + collection, resource(childKey) };
+  }
+
+  /** A built-in record tab ("tab.history"). */
+  public static String tab(String tab) {
+    return "tab." + tab;
+  }
+
   /** An audit action ("CREATED", "POSTED"). */
   public static String auditAction(String action) {
     return "audit.action." + action;

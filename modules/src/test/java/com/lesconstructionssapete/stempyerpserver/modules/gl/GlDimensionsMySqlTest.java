@@ -397,4 +397,24 @@ class GlDimensionsMySqlTest {
     assertEquals("lines[3].dimensions.STORE", fe.field());
     assertTrue(fe.message().contains("nope"), fe.message());
   }
+
+  // ---- a derived layout on real data (docs/ARCHITECTURE.md §23.7) ----
+
+  @Test
+  void aDimensionsDerivedPageListsItsValues() throws Exception {
+    JsonNode dimension = null;
+    for (JsonNode r : ok(200, call("GET", "/meta", null, reader)).get("resources")) {
+      if (r.get("key").asText().equals("glDimension")) {
+        dimension = r;
+      }
+    }
+    JsonNode layout = dimension.get("layout");
+
+    assertTrue(layout.get("derived").asBoolean());
+    assertEquals("[\"code\",\"name\",\"isEnabled\"]", layout.get("sections").get(0).get("fields").toString());
+    JsonNode values = layout.get("collections").get(0);
+    assertEquals("Valeurs de dimension", values.get("label").asText());
+    assertEquals("{\"resource\":\"glDimensionValue\",\"field\":\"dimensionId\"}", values.get("source").toString());
+    assertEquals("page", dimension.get("presentation").asText());
+  }
 }

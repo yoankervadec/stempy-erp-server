@@ -3,6 +3,7 @@ package com.lesconstructionssapete.stempyerpserver.modules.masterdata.items;
 import com.lesconstructionssapete.stempyerpserver.modules.common.Entities;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityDefinition;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Field;
+import com.lesconstructionssapete.stempyerpserver.platform.entity.Relation;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.SortKey;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.StandardEntity;
 
@@ -26,6 +27,10 @@ public class ProductCategory extends StandardEntity {
   public static final Field<ProductCategory, String> DESCRIPTION = DEF.string(
       "description", "description", ProductCategory::description, ProductCategory::setDescription)
       .required().maxLength(255).filterable().sortable();
+
+  /** The category's products: filters like "products.productNo", the products table of its page. */
+  public static final Relation<ProductCategory, Product> PRODUCTS_REL = DEF.oneToMany(
+      "products", () -> Product.DEF, "product_category_id");
 
   /** UI hints (docs/ARCHITECTURE.md §23.4). */
   static {

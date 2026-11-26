@@ -41,6 +41,10 @@ public class Account extends StandardEntity {
   /** Lets clients filter and sort on the heading, e.g. "parent.accountNo". */
   public static final Relation<Account, Account> PARENT_REL = DEF.manyToOne("parent", () -> Account.DEF, "parent_id");
 
+  /** The accounts grouped under this heading (its page's sub-accounts table). */
+  public static final Relation<Account, Account> CHILDREN_REL = DEF.oneToMany("children", () -> Account.DEF,
+      "parent_id");
+
   public static final Field<Account, Boolean> IS_HEADING = DEF.bool(
       "isHeading", "is_heading", Account::isHeading, Account::setHeading)
       .filterable();

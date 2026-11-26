@@ -3,6 +3,7 @@ package com.lesconstructionssapete.stempyerpserver.platform.testsupport;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityDefinition;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Field;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Presentation;
+import com.lesconstructionssapete.stempyerpserver.platform.entity.Relation;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.SortKey;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.StandardEntity;
 
@@ -17,6 +18,9 @@ public final class TestPart extends StandardEntity {
       .required().filterable();
   public static final Field<TestPart, String> NOTE = DEF.string("note", "note", p -> p.note, (p, v) -> p.note = v)
       .writePermission("part.note.write").multiline();
+
+  /** The part's stock rows (a layout collection in the tests). */
+  public static final Relation<TestPart, TestStock> STOCK_REL = DEF.oneToMany("stock", () -> TestStock.DEF, "part_id");
 
   static {
     DEF.titleField(CODE).subtitleField(NAME).listColumns(CODE, NAME).defaultSort(SortKey.asc(CODE))

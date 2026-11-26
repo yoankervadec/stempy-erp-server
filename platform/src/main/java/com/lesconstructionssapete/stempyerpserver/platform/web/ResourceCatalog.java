@@ -44,9 +44,10 @@ public final class ResourceCatalog {
    * @param rules       what a record's state allows; null: nothing beyond
    *                    permissions
    * @param actions     what it does besides create / update / delete
+   * @param layout      how a record is laid out; null: derived (MetaRoutes)
    */
   public record Resource(String key, String module, String path, EntityDefinition<?> entity,
-      Map<Action, String> permissions, RecordRules rules, List<ResourceAction> actions) {
+      Map<Action, String> permissions, RecordRules rules, List<ResourceAction> actions, RecordLayout layout) {
 
     public Resource {
       Objects.requireNonNull(key, "key");
@@ -58,7 +59,11 @@ public final class ResourceCatalog {
     }
 
     Resource with(Map<Action, String> permissions, RecordRules rules, List<ResourceAction> actions) {
-      return new Resource(key, module, path, entity, permissions, rules, actions);
+      return new Resource(key, module, path, entity, permissions, rules, actions, layout);
+    }
+
+    Resource withLayout(RecordLayout layout) {
+      return new Resource(key, module, path, entity, permissions, rules, actions, layout);
     }
 
     public Optional<String> permission(Action action) {
@@ -88,7 +93,7 @@ public final class ResourceCatalog {
     }
     Map<Action, String> permissions = new EnumMap<>(Action.class);
     actions.forEach(a -> permissions.put(a, a.permission(permissionPrefix)));
-    byKey.put(entity.name(), new Resource(entity.name(), module, path, entity, permissions, null, List.of()));
+    byKey.put(entity.name(), new Resource(entity.name(), module, path, entity, permissions, null, List.of(), null));
   }
 
   /** From EntityEndpoints.declareWrite(). */
@@ -119,6 +124,18 @@ public final class ResourceCatalog {
     byKey.put(r.key(), r.with(r.permissions(), Objects.requireNonNull(rules, "rules"), r.actions()));
   }
 
+  /** From EntityEndpoints.layout(). */
+  synchronized void layout(EntityDefinition<?> entity, RecordLayout layout) {
+    Resource r = existing(entity);
+    if (layout.entity() != entity) {
+      throw new IllegalArgumentException("A layout of " + layout.entity().name() + " given for " + entity.name());
+    }
+    if (r.layout() != null) {
+      throw new IllegalStateException(entity.name() + " already has a layout");
+    }
+    byKey.put(r.key(), r.withLayout(layout));
+  }
+
   /** From EntityEndpoints.action(). */
   synchronized void action(EntityDefinition<?> entity, ResourceAction action) {
     Resource r = existing(entity);
@@ -131,12 +148,13 @@ public final class ResourceCatalog {
   }
 
   /**
-   * The texts every declared action needs and some language lacks: its label,
-   * its confirmation (when it asks one), each parameter's label
-   * (docs/ARCHITECTURE.md §23.5). Actions are declared with the routes, so
-   * ModuleHost checks this at startup rather than a test of the bundles.
+   * The texts the declared actions and layouts need and some language lacks
+   * (docs/ARCHITECTURE.md §23.5): an action's label, its confirmation (when
+   * it asks one), each parameter's label; a layout's section and collection
+   * labels. Both are declared with the routes, so ModuleHost checks this at
+   * startup rather than a test of the i18n files.
    */
-  public List<String> missingActionLabels(Messages messages) {
+  public List<String> missingLabels(Messages messages) {
     List<String> missing = new ArrayList<>();
     for (Language language : Language.values()) {
       Map<String, String> texts = messages.all(language);
@@ -149,14 +167,27 @@ public final class ResourceCatalog {
           }
           a.params().forEach(p -> keys.add(LabelKeys.actionParam(r.key(), a.name(), p.name())));
           for (String[] alternatives : keys) {
-            if (Arrays.stream(alternatives).noneMatch(texts::containsKey)) {
-              missing.add(language.code() + ": " + String.join(" or ", alternatives));
-            }
+            check(texts, alternatives, language, missing);
+          }
+        }
+        if (r.layout() != null) {
+          for (RecordLayout.Section section : r.layout().sections()) {
+            check(texts, LabelKeys.section(r.key(), section.name()), language, missing);
+          }
+          for (RecordLayout.Collection c : r.layout().collections()) {
+            check(texts, LabelKeys.collection(r.key(), c.name(), c.relation().target().name()), language, missing);
           }
         }
       }
     }
     return missing;
+  }
+
+  private static void check(Map<String, String> texts, String[] alternatives, Language language,
+      List<String> missing) {
+    if (Arrays.stream(alternatives).noneMatch(texts::containsKey)) {
+      missing.add(language.code() + ": " + String.join(" or ", alternatives));
+    }
   }
 
   private Resource existing(EntityDefinition<?> entity) {

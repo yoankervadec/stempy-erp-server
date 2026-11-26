@@ -3,6 +3,7 @@ package com.lesconstructionssapete.stempyerpserver.modules.gl;
 import com.lesconstructionssapete.stempyerpserver.modules.common.Entities;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityDefinition;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Field;
+import com.lesconstructionssapete.stempyerpserver.platform.entity.Relation;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.SortKey;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.StandardEntity;
 
@@ -31,6 +32,10 @@ public class Dimension extends StandardEntity {
   public static final Field<Dimension, Boolean> IS_ENABLED = DEF.bool(
       "isEnabled", "is_enabled", Dimension::isEnabled, Dimension::setEnabled)
       .filterable();
+
+  /** The dimension's values (its page's table; filters like "values.code"). */
+  public static final Relation<Dimension, DimensionValue> VALUES_REL = DEF.oneToMany(
+      "values", () -> DimensionValue.DEF, "dimension_id");
 
   /** UI hints (docs/ARCHITECTURE.md §23.4). */
   static {

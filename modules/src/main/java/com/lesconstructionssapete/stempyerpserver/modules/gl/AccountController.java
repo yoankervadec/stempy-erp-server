@@ -5,6 +5,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.error.ErpException;
 import com.lesconstructionssapete.stempyerpserver.platform.error.ResourceNotFoundException;
 import com.lesconstructionssapete.stempyerpserver.platform.web.EntityEndpoints;
 import com.lesconstructionssapete.stempyerpserver.platform.web.JsonBodies;
+import com.lesconstructionssapete.stempyerpserver.platform.web.RecordLayout;
 import com.lesconstructionssapete.stempyerpserver.platform.web.RequestContext;
 import com.lesconstructionssapete.stempyerpserver.platform.web.RequestContexts;
 import com.lesconstructionssapete.stempyerpserver.platform.web.Routes;
@@ -43,6 +44,13 @@ public class AccountController {
     entities.declareWrite(Account.DEF, EntityEndpoints.Action.CREATE, "gl.account.manage");
     entities.declareWrite(Account.DEF, EntityEndpoints.Action.UPDATE, "gl.account.manage");
     entities.rules(Account.DEF, service);
+    entities.layout(Account.DEF, RecordLayout.of(Account.DEF)
+        .section("general", 2, Account.ACCOUNT_NO, Account.NAME, Account.ACCOUNT_TYPE, Account.PARENT_ID,
+            Account.DESCRIPTION)
+        .section("posting", 3, Account.IS_HEADING, Account.MANUAL_POSTING, Account.IS_ENABLED)
+        .collection(Account.CHILDREN_REL, c -> c
+            .columns(Account.ACCOUNT_NO, Account.NAME, Account.ACCOUNT_TYPE, Account.IS_ENABLED))
+        .tab(RecordLayout.HISTORY));
     routes.post(PATH, ctx -> {
       RequestContext rc = RequestContexts.require(ctx);
       long id = service.createAccount(rc, JsonBodies.read(ctx, JsonNode.class));

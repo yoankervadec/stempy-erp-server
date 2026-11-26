@@ -19,6 +19,8 @@ import com.lesconstructionssapete.stempyerpserver.platform.entity.Field;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.FieldAccess;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.FieldType;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Operator;
+import com.lesconstructionssapete.stempyerpserver.platform.entity.Presentation;
+import com.lesconstructionssapete.stempyerpserver.platform.entity.Relation;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.SortKey;
 import com.lesconstructionssapete.stempyerpserver.platform.i18n.LabelKeys;
 import com.lesconstructionssapete.stempyerpserver.platform.i18n.Language;
@@ -41,7 +43,8 @@ import io.javalin.http.Context;
  *   "resources": [{ "key": "product", "label", "labelOne", "module": "masterdata.items", "path": "/masterdata/products",
  *     "can": { "read", "create", "update", "delete", "history" }, "idField": "id", "versionField": "version",
  *     "title": "productNo", "subtitle": "name", "listColumns": [...], "defaultSort": [{ "field", "dir" }],
- *     "presentation": "modal", "searchable": true (QUERY's "search" works),
+ *     "presentation": "modal" | "page", "searchable": true (QUERY's "search" works),
+ *     "layout": { "derived", "sections", "collections", "summary", "tabs" } (§23.7),
  *     "actions": [{ "name", "label", "scope": "record" | "resource", "method", "path", "confirm",
  *                   "params": [like fields] }],
  *     "fields": [{ "name", "label", "type", "ref"?, "values"? [{ "value", "label" }], "required", "unique", "maxLength"?, "min"?, "max"?,
@@ -146,7 +149,7 @@ public final class MetaRoutes {
     List<? extends Field<?, ?>> readable = entity.readableFields(access);
     List<Map<String, Object>> fields = new ArrayList<>();
     for (Field<?, ?> f : readable) {
-      fields.add(field(rc, r, f, access, create, update));
+      fields.add(field(rc, r.key(), entity, f, access, create, update));
     }
     Language language = rc.language();
     Map<String, Object> out = new LinkedHashMap<>();
@@ -163,11 +166,144 @@ public final class MetaRoutes {
     out.put("subtitle", entity.subtitleField().filter(readable::contains).map(Field::name).orElse(null));
     out.put("listColumns", listColumns(entity, readable));
     out.put("defaultSort", defaultSort(entity, readable));
-    out.put("presentation", entity.presentation().name().toLowerCase(Locale.ROOT));
+    RecordLayout layout = r.layout() != null ? r.layout() : derivedLayout(entity);
+    Map<String, Object> described = layout(rc, r, layout, access, create, update, (Boolean) can.get("history"));
+    boolean tables = !((List<?>) described.get("collections")).isEmpty();
+    out.put("presentation", entity.declaredPresentation().orElse(tables ? Presentation.PAGE : Presentation.MODAL)
+        .name().toLowerCase(Locale.ROOT));
     out.put("searchable", !QueryTranslator.searchFields(entity, access).isEmpty());
     out.put("fields", fields);
+    out.put("layout", described);
     out.put("actions", actions(rc, r));
     return out;
+  }
+
+  // ---- layouts (§23.7) ----
+
+  /**
+   * The layout as this caller sees it: fields they can't read are left out
+   * (and a section left empty), a collection whose child resource they can't
+   * read is left out, the history tab needs its permission.
+   */
+  private Map<String, Object> layout(RequestContext rc, Resource r, RecordLayout layout, FieldAccess access,
+      boolean create, boolean update, boolean history) {
+    Language language = rc.language();
+    List<Map<String, Object>> sections = new ArrayList<>();
+    for (RecordLayout.Section s : layout.sections()) {
+      List<String> names = readableNames(s.fields(), access);
+      if (names.isEmpty()) {
+        continue;
+      }
+      Map<String, Object> section = new LinkedHashMap<>();
+      section.put("name", s.name());
+      section.put("label", messages.label(language, s.name(), LabelKeys.section(r.key(), s.name())));
+      section.put("columns", s.columns());
+      section.put("fields", names);
+      sections.add(section);
+    }
+    List<Map<String, Object>> collections = new ArrayList<>();
+    for (RecordLayout.Collection c : layout.collections()) {
+      EntityDefinition<?> child = c.relation().target();
+      Optional<Resource> childResource = catalog.forEntity(child);
+      if (childResource.isPresent() && !can(rc, childResource.get(), Action.READ)) {
+        continue;
+      }
+      List<Map<String, Object>> columns = new ArrayList<>();
+      for (Field<?, ?> f : c.columns()) {
+        if (!f.isInternal() && access.canRead(f)) {
+          columns.add(field(rc, child.name(), child, f, access, c.editable() && create, c.editable() && update));
+        }
+      }
+      Map<String, Object> collection = new LinkedHashMap<>();
+      collection.put("name", c.name());
+      collection.put("label", messages.label(language, c.name(),
+          LabelKeys.collection(r.key(), c.name(), child.name())));
+      collection.put("entity", child.name());
+      collection.put("source", childResource.map(target -> source(target, c)).orElse(null));
+      collection.put("editable", c.editable() && (create || update));
+      collection.put("fixedRows", c.fixedRows());
+      collection.put("columns", columns);
+      collection.put("footerSums", readableNames(c.footerSums(), access));
+      collections.add(collection);
+    }
+    List<Map<String, Object>> tabs = new ArrayList<>();
+    for (String tab : layout.tabs()) {
+      if (!tab.equals(RecordLayout.HISTORY) || history) {
+        tabs.add(pair("name", tab, "label", messages.label(language, tab, LabelKeys.tab(tab))));
+      }
+    }
+    Map<String, Object> out = new LinkedHashMap<>();
+    out.put("derived", r.layout() == null);
+    out.put("sections", sections);
+    out.put("collections", collections);
+    out.put("summary", readableNames(layout.summary(), access));
+    out.put("tabs", tabs);
+    return out;
+  }
+
+  /**
+   * Where a collection's rows come from when its child is a resource: QUERY
+   * {resource path} where {field} equals the record's id. Otherwise null: the
+   * rows come with the record (documents, §23.8).
+   */
+  private static Map<String, Object> source(Resource target, RecordLayout.Collection c) {
+    String fk = c.relation().foreignKey();
+    return target.entity().fields().stream().filter(f -> f.column().equals(fk) && !f.isInternal()).findFirst()
+        .<Map<String, Object>>map(f -> pair("resource", target.key(), "field", f.name()))
+        .orElse(null);
+  }
+
+  private static List<String> readableNames(List<Field<?, ?>> fields, FieldAccess access) {
+    return fields.stream().filter(f -> !f.isInternal() && access.canRead(f)).map(Field::name).toList();
+  }
+
+  /**
+   * The layout of an entity that declares none: its own fields ("general", in
+   * declaration order), the server-filled ones ("record": created / updated
+   * at and by), a read-only table per one-to-many relation (its target's list
+   * columns), the history tab.
+   */
+  static RecordLayout derivedLayout(EntityDefinition<?> entity) {
+    RecordLayout layout = RecordLayout.of(entity);
+    List<Field<?, ?>> own = new ArrayList<>();
+    List<Field<?, ?>> record = new ArrayList<>();
+    List<String> audit = new ArrayList<>();
+    for (String column : new String[] { entity.createdAtColumn(), entity.createdByColumn(),
+        entity.updatedAtColumn(), entity.updatedByColumn() }) {
+      if (column != null) {
+        audit.add(column);
+      }
+    }
+    for (Field<?, ?> f : entity.fields()) {
+      if (f.isInternal() || f.isId() || f.isVersion() || f.column().equals(entity.softDeleteColumn())) {
+        continue;
+      }
+      (audit.contains(f.column()) ? record : own).add(f);
+    }
+    if (!own.isEmpty()) {
+      layout.section("general", 2, own.toArray(Field<?, ?>[]::new));
+    }
+    if (!record.isEmpty()) {
+      layout.section("record", 2, record.toArray(Field<?, ?>[]::new));
+    }
+    for (Relation<?, ?> rel : entity.relations()) {
+      if (rel.kind() != Relation.Kind.ONE_TO_MANY) {
+        continue;
+      }
+      EntityDefinition<?> child = rel.target();
+      List<Field<?, ?>> columns = new ArrayList<>(child.listColumns());
+      if (columns.isEmpty()) {
+        for (Field<?, ?> f : child.fields()) {
+          if (!f.isInternal() && !f.isId() && !f.isVersion() && (f.isFilterable() || f.isSortable())) {
+            columns.add(f);
+          }
+        }
+      }
+      if (!columns.isEmpty()) {
+        layout.collection(rel, c -> c.columns(columns.toArray(Field<?, ?>[]::new)));
+      }
+    }
+    return layout.tab(RecordLayout.HISTORY);
   }
 
   /**
@@ -229,13 +365,17 @@ public final class MetaRoutes {
     return out;
   }
 
-  private Map<String, Object> field(RequestContext rc, Resource resource, Field<?, ?> f,
+  /**
+   * @param labelKey the resource key, or the child entity's name for a
+   *                 collection's columns: where its label keys start
+   */
+  private Map<String, Object> field(RequestContext rc, String labelKey, EntityDefinition<?> entity, Field<?, ?> f,
       FieldAccess access, boolean create, boolean update) {
     Language language = rc.language();
     Map<String, Object> out = new LinkedHashMap<>();
     out.put("name", f.name());
-    out.put("label", messages.label(language, f.name(), LabelKeys.field(resource.key(), f.name())));
-    Optional<Resource> ref = catalog.referenceOf(resource.entity(), f).filter(target -> can(rc, target, Action.READ));
+    out.put("label", messages.label(language, f.name(), LabelKeys.field(labelKey, f.name())));
+    Optional<Resource> ref = catalog.referenceOf(entity, f).filter(target -> can(rc, target, Action.READ));
     out.put("type", ref.isPresent() ? "reference" : f.type().name());
     ref.ifPresent(target -> out.put("ref", target.key()));
     Object[] constants = f.type().javaType().getEnumConstants();

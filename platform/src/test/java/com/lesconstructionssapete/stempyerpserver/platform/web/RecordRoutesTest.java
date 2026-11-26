@@ -222,8 +222,8 @@ class RecordRoutesTest {
   void everyActionTextIsCheckedInEveryLanguage() throws Exception {
     start(part("P-1", "Pump"));
 
-    assertEquals(List.of(), catalog.missingActionLabels(MESSAGES));
-    List<String> missing = catalog.missingActionLabels(Messages.empty());
+    assertEquals(List.of(), catalog.missingLabels(MESSAGES));
+    List<String> missing = catalog.missingLabels(Messages.empty());
     assertTrue(missing.contains("fr: part.action.archive.confirm"), missing.toString());
     assertTrue(missing.contains("en: part.action.import"), missing.toString());
   }

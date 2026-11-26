@@ -1834,7 +1834,7 @@ All per company (the request's), `ADMINISTRATOR` has them all, writes audited (�
 
 ## 23. Server-driven UI
 
-_Status: planned 2026-11-25; steps 2 to 6 built 2026-11-25/26 (catalog, `GET /meta`, UI hints, translation, list and record reads; migration V14). How to call it: docs/API_GUIDE.md §10. Steps in §23.12._
+_Status: planned 2026-11-25; steps 2 to 7 built 2026-11-25/26 (catalog, `GET /meta`, UI hints, translation, list and record reads, layouts; migration V14). How to call it: docs/API_GUIDE.md §10. Steps in §23.12._
 
 The desktop client (Electron + React, in its own repository, built later) should be almost entirely generic: one list page, one record modal, one record page and one action dialog serve every resource. The server already describes its entities (`EntityDefinition`, §5) and their routes (`EntityEndpoints`). This section makes it publish everything a screen needs, **per caller, per company and in the caller's language**, so the client only renders what it is told. Hand-written React is kept for screens the layouts below can't express.
 
@@ -2039,7 +2039,16 @@ layouts.define(SalesOrder.DEF)
 - A collection is editable when its document is written whole (§23.8) and the caller may update. Rows can be added and removed unless the collection says `.fixedRows()`.
 - **Derived layout** for a resource with none declared: one section with every readable field in declaration order, then one read-only table per `oneToMany` relation whose target the caller can read, then the history tab when allowed.
 - Labels: `<resource>.section.<name>`, `<resource>.collection.<name>`.
-- `layouts` is `platform/ui/RecordLayouts`, in the ServiceRegistry. Layouts are checked at startup: every field must belong to its entity, and a collection's entity must be the target of a relation of the parent.
+- Layouts are checked when built: every field must belong to its entity, and a collection must go through one of the entity's own one-to-many relations.
+
+**As built (step 7):**
+- `platform/web/RecordLayout` (`of(DEF).section(name, columns, fields...)`, `.collection(oneToManyRelation, c -> c.columns(...).footerSum(...).editable().fixedRows())`, `.summary(...)`, `.tab(RecordLayout.HISTORY)`), registered with `EntityEndpoints.layout(entity, layout)` (no separate registry). Declaring it in the module's route registration keeps `platform/web` out of the entity classes.
+- In `/meta`, `resource.layout`: `derived`, `sections` (`name`, `label`, `columns`, `fields` by name; a section left empty by permissions is dropped), `collections` (`name`, `label`, `entity`, `source`, `editable`, `fixedRows`, `columns` described like fields with the child entity's labels, `footerSums`), `summary`, `tabs` (`name`, `label`; history only with `audit.history.read`). A collection whose child is a resource the caller can't read is left out.
+- **Where a collection's rows come from**: a child that is itself a resource has `source: {resource, field}`; the client lists it with `QUERY {that path}` where `field` equals the record's id (products of a category, sub-accounts, a dimension's values). A child that isn't a resource has `source: null`: its rows come in the record itself, which arrives with documents (step 8).
+- `presentation`: declared on the entity, else `page` when the layout (as the caller sees it) has a table, else `modal`.
+- Derived layout (`MetaRoutes.derivedLayout`): `general` (the entity's own fields in declaration order), `record` (the created / updated at and by columns), one read-only table per one-to-many relation (the target's list columns), the history tab.
+- Labels: `<resource>.section.<name>` else the shared `section.general` / `section.record`; `<resource>.collection.<name>` else the child's plural; `tab.history`. Declared layouts' labels are part of the startup check (`ResourceCatalog.missingLabels`).
+- Relations added for it (they also allow filters such as `products.productNo`): `ProductCategory.products`, `Account.children`, `Dimension.values`. Declared: products (`general`, `pricing`), categories (`general` + products), accounts (`general`, `posting` + sub-accounts). Dimensions and their values use the derived layout.
 
 ### 23.8 Documents: a header and its lines, written whole
 
@@ -2113,7 +2122,7 @@ The client gets one generic report page with export. The trial balance and accou
 4. **Translation**: V14 (`users.language`, `companies.default_language`), language on `RequestContext`, `Messages`, label bundles for every module, translated errors with `params`, history labels, `PATCH /auth/me`, the completeness test. Done 2026-11-25.
 5. **Lists**: `_refs`, `hasMore`, `search`, CORS. Done 2026-11-26.
 6. **Records**: `_meta`, `GET /new`, actions with parameters, `409` with the current row. Done 2026-11-26.
-7. **Layouts**: `RecordLayouts`, declared and derived, in `/meta`.
+7. **Layouts**: `RecordLayout`, declared and derived, in `/meta`. Done 2026-11-26.
 8. **Documents**: `DocumentEndpoints`, `DocumentRules`, `/calculate`, tested on a test-only header-and-lines entity.
 9. **GL pilot**: accounts (declared writes), journal entries (page with a `lines` collection, `reverse`), periods (`close`, `reopen`), trial balance and account ledger as reports.
 10. **Later**: export, saved views, bulk actions, change feed, printing, attachments and notes, each in its own commit.

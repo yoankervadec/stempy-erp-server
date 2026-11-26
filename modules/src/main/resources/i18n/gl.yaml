@@ -27,6 +27,13 @@ glAccount.field.manualPosting:
   en: Manual entries allowed
   fr: Écritures manuelles permises
 
+glAccount.section.posting:
+  en: Posting
+  fr: Comptabilisation
+glAccount.collection.children:
+  en: Sub-accounts
+  fr: Sous-comptes
+
 enum.AccountType.ASSET:
   en: Asset
   fr: Actif

@@ -513,4 +513,23 @@ class ItemWriteRoutesMySqlTest {
     assertEquals("HW", current.get("_refs").get("productCategoryId").get("title").asText());
     assertEquals("Renamed", MySqlTestStack.json(staleDelete).get("current").get("name").asText());
   }
+
+  // ---- layouts (docs/ARCHITECTURE.md §23.7) ----
+
+  @Test
+  void productsAndCategoriesHaveTheirDeclaredLayouts() throws Exception {
+    JsonNode product = metaResource(editor, "product");
+    JsonNode category = metaResource(editor, "productCategory");
+
+    JsonNode sections = product.get("layout").get("sections");
+    assertEquals("Général", sections.get(0).get("label").asText());
+    assertEquals("Prix", sections.get(1).get("label").asText());
+    assertEquals("[\"unitAmount\",\"currencyId\",\"unitOfMeasureId\"]", sections.get(1).get("fields").toString());
+    assertEquals("modal", product.get("presentation").asText());
+    // a category's page lists its products: QUERY /masterdata/products where productCategoryId = its id
+    JsonNode products = category.get("layout").get("collections").get(0);
+    assertEquals("Produits", products.get("label").asText());
+    assertEquals("{\"resource\":\"product\",\"field\":\"productCategoryId\"}", products.get("source").toString());
+    assertEquals("page", category.get("presentation").asText());
+  }
 }

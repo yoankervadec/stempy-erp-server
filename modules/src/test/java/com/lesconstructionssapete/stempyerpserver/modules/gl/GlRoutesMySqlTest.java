@@ -495,4 +495,18 @@ class GlRoutesMySqlTest {
     assertTrue(blank.get("isEnabled").asBoolean());
     rejected(403, "PERMISSION_DENIED", call("GET", "/gl/accounts/new", null, reader));
   }
+
+  // ---- layouts (docs/ARCHITECTURE.md §23.7) ----
+
+  @Test
+  void anAccountsPageListsItsSubAccounts() throws Exception {
+    JsonNode layout = metaAccounts(accountant).get("layout");
+
+    assertFalse(layout.get("derived").asBoolean());
+    assertEquals("Comptabilisation", layout.get("sections").get(1).get("label").asText());
+    JsonNode children = layout.get("collections").get(0);
+    assertEquals("Sous-comptes", children.get("label").asText());
+    assertEquals("{\"resource\":\"glAccount\",\"field\":\"parentId\"}", children.get("source").toString());
+    assertEquals("page", metaAccounts(accountant).get("presentation").asText());
+  }
 }

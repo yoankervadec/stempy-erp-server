@@ -6,6 +6,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.module.ERPModule;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ServiceRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.web.EntityEndpoints;
+import com.lesconstructionssapete.stempyerpserver.platform.web.RecordLayout;
 import com.lesconstructionssapete.stempyerpserver.platform.web.Routes;
 
 /**
@@ -46,5 +47,16 @@ public class ItemsModule implements ERPModule {
     crud.register(routes, "/masterdata/products", Product.DEF, "masterdata.product");
     crud.rules(Product.DEF, new ProductService(new FindBaseCurrencyOperation(new ItemRepository())));
     crud.register(routes, "/masterdata/product-categories", ProductCategory.DEF, "masterdata.productCategory");
+
+    // Record layouts (docs/ARCHITECTURE.md §23.7)
+    crud.layout(Product.DEF, RecordLayout.of(Product.DEF)
+        .section("general", 2, Product.PRODUCT_NO, Product.NAME, Product.PRODUCT_CATEGORY_ID, Product.IS_ENABLED)
+        .section("pricing", 2, Product.UNIT_AMOUNT, Product.CURRENCY_ID, Product.UNIT_OF_MEASURE_ID)
+        .tab(RecordLayout.HISTORY));
+    crud.layout(ProductCategory.DEF, RecordLayout.of(ProductCategory.DEF)
+        .section("general", 2, ProductCategory.CODE, ProductCategory.DESCRIPTION, ProductCategory.IS_ENABLED)
+        .collection(ProductCategory.PRODUCTS_REL, c -> c
+            .columns(Product.PRODUCT_NO, Product.NAME, Product.UNIT_AMOUNT, Product.IS_ENABLED))
+        .tab(RecordLayout.HISTORY));
   }
 }

@@ -210,6 +210,15 @@ public final class EntityEndpoints {
   }
 
   /**
+   * How a record of an entity registered here is laid out (sections, child
+   * tables, totals, tabs), for GET /meta (docs/ARCHITECTURE.md §23.7). Without
+   * one, /meta derives a layout.
+   */
+  public void layout(EntityDefinition<?> entity, RecordLayout layout) {
+    catalog.layout(entity, layout);
+  }
+
+  /**
    * Describes an action of an entity registered here, for GET /meta and the
    * records' "_meta". The module registers its route itself.
    */

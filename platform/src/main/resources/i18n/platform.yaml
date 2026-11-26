@@ -37,6 +37,17 @@ field.isEnabled:
   en: Enabled
   fr: Actif
 
+# Layouts: the derived sections, the built-in tabs (a resource's own <key>.section.<name> wins)
+section.general:
+  en: General
+  fr: Général
+section.record:
+  en: Record
+  fr: Suivi
+tab.history:
+  en: History
+  fr: Historique
+
 audit.action.CREATED:
   en: Created
   fr: Création

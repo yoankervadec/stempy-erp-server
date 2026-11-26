@@ -46,7 +46,7 @@ public class EntityDefinition<E> {
   private Field<E, ?> subtitleField;
   private List<Field<E, ?>> listColumns = List.of();
   private List<SortKey> defaultSort = List.of();
-  private Presentation presentation = Presentation.MODAL;
+  private Presentation presentation;
 
   private EntityDefinition(String name, String table, Supplier<E> factory) {
     this.name = apiName(name);
@@ -210,7 +210,7 @@ public class EntityDefinition<E> {
     return this;
   }
 
-  /** Where one record opens. Default: MODAL. */
+  /** Where one record opens. Default: PAGE when its layout has child tables, else MODAL. */
   public EntityDefinition<E> presentation(Presentation presentation) {
     this.presentation = Objects.requireNonNull(presentation, "presentation");
     return this;
@@ -252,8 +252,14 @@ public class EntityDefinition<E> {
     return defaultSort.isEmpty() && idField != null ? List.of(SortKey.desc(idField)) : defaultSort;
   }
 
+  /** As declared; MODAL when undeclared (GET /meta also looks at the layout: declaredPresentation()). */
   public Presentation presentation() {
-    return presentation;
+    return presentation == null ? Presentation.MODAL : presentation;
+  }
+
+  /** Empty when the entity leaves it to its layout. */
+  public Optional<Presentation> declaredPresentation() {
+    return Optional.ofNullable(presentation);
   }
 
   // ---- relation declarations ----

@@ -30,6 +30,10 @@ product.field.productCategoryId:
   en: Category
   fr: Catégorie
 
+product.section.pricing:
+  en: Pricing
+  fr: Prix
+
 productCategory:
   en: Product categories
   fr: Catégories de produits

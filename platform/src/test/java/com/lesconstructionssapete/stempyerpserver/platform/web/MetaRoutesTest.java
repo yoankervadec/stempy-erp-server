@@ -83,6 +83,10 @@ class MetaRoutesTest {
       endpoints.register(routes, "/parts", TestPart.DEF, "inv.part");
       endpoints.register(routes, "/stock", TestStock.DEF, "inv.stock", Action.READ);
       endpoints.declareWrite(TestStock.DEF, Action.UPDATE, "inv.stock.manage");
+      endpoints.layout(TestStock.DEF, RecordLayout.of(TestStock.DEF)
+          .section("general", 2, TestStock.PART_ID, TestStock.STATUS, TestStock.QUANTITY)
+          .section("value", 1, TestStock.VALUE)
+          .summary(TestStock.VALUE));
       catalog.freeze();
       new MetaRoutes(catalog, checker, messages).register(routes);
     });
@@ -346,5 +350,67 @@ class MetaRoutesTest {
     String en = get("inv.part.read", DevAuthFilter.LANGUAGE_HEADER, "en").headers().firstValue("ETag").orElseThrow();
 
     assertFalse(fr.equals(en));
+  }
+
+  // ---- layouts (§23.7) ----
+
+  @Test
+  void anEntityWithoutALayoutGetsADerivedOne() throws Exception {
+    start();
+
+    JsonNode layout = resource(meta("inv.part.read, inv.stock.read, " + AuditLog.READ_PERMISSION), "part")
+        .get("layout");
+
+    assertTrue(layout.get("derived").asBoolean());
+    JsonNode general = layout.get("sections").get(0);
+    assertEquals("general", general.get("name").asText());
+    assertEquals("[\"code\",\"name\",\"note\"]", general.get("fields").toString());
+    JsonNode record = layout.get("sections").get(1);
+    assertEquals("record", record.get("name").asText());
+    assertEquals("[\"createdAt\",\"createdBy\",\"updatedAt\",\"updatedBy\"]", record.get("fields").toString());
+    // one table per one-to-many relation; its rows: QUERY the stock where partId = the part's id
+    JsonNode stock = layout.get("collections").get(0);
+    assertEquals("stock", stock.get("name").asText());
+    assertEquals("{\"resource\":\"stock\",\"field\":\"partId\"}", stock.get("source").toString());
+    assertFalse(stock.get("editable").asBoolean());
+    assertEquals("partId", stock.get("columns").get(0).get("name").asText());
+    assertEquals("history", layout.get("tabs").get(0).get("name").asText());
+  }
+
+  @Test
+  void aCallerOnlySeesTheTablesAndTabsTheyMayRead() throws Exception {
+    start();
+
+    JsonNode layout = resource(meta("inv.part.read"), "part").get("layout");
+
+    assertEquals("[]", layout.get("collections").toString());
+    assertEquals("[]", layout.get("tabs").toString());
+  }
+
+  @Test
+  void aDeclaredLayoutIsSentAsDeclaredMinusWhatTheCallerCantRead() throws Exception {
+    start();
+
+    JsonNode withValue = resource(meta("inv.stock.read, stock.value.read"), "stock").get("layout");
+    JsonNode without = resource(meta("inv.stock.read"), "stock").get("layout");
+
+    assertFalse(withValue.get("derived").asBoolean());
+    assertEquals(2, withValue.get("sections").get(0).get("columns").asInt());
+    // the test texts have no section.general: the humanized name
+    assertEquals("General", withValue.get("sections").get(0).get("label").asText());
+    assertEquals("[\"value\"]", withValue.get("summary").toString());
+    // the value needs stock.value.read: its section and the summary go
+    assertEquals(1, without.get("sections").size());
+    assertEquals("[]", without.get("summary").toString());
+  }
+
+  @Test
+  void aLayoutWithTablesOpensOnAPageUnlessDeclared() throws Exception {
+    start();
+
+    // TestPart declares PAGE; stock has no table: modal; widgets: no table, modal
+    assertEquals("page", resource(meta("inv.part.read"), "part").get("presentation").asText());
+    assertEquals("modal", resource(meta("inv.stock.read"), "stock").get("presentation").asText());
+    assertEquals("modal", resource(meta("widget.widget.read"), "widget").get("presentation").asText());
   }
 }
