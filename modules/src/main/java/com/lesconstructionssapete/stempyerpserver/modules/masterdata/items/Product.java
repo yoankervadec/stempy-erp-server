@@ -6,6 +6,7 @@ import com.lesconstructionssapete.stempyerpserver.modules.common.Entities;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityDefinition;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Field;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Relation;
+import com.lesconstructionssapete.stempyerpserver.platform.entity.SortKey;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.StandardEntity;
 
 public class Product extends StandardEntity {
@@ -52,6 +53,14 @@ public class Product extends StandardEntity {
   public static final Field<Product, Boolean> IS_ENABLED = DEF.bool(
       "isEnabled", "is_enabled", Product::isEnabled, Product::setEnabled)
       .filterable();
+
+  /** UI hints (docs/ARCHITECTURE.md §23.4). unit_amount is DECIMAL(19, 4). */
+  static {
+    UNIT_AMOUNT.scale(4).money(CURRENCY_ID);
+    DEF.subtitleField(NAME)
+        .listColumns(PRODUCT_NO, NAME, PRODUCT_CATEGORY_ID, UNIT_AMOUNT, IS_ENABLED)
+        .defaultSort(SortKey.asc(PRODUCT_NO));
+  }
 
   public String productNo() {
     return productNo;

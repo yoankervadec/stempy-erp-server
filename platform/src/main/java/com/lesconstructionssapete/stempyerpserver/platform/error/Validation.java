@@ -82,6 +82,13 @@ public final class Validation {
         : this;
   }
 
+  /** Trailing zeros don't count: 1.50 has one decimal. */
+  public Validation maxScale(String field, BigDecimal value, int scale) {
+    return value != null && value.stripTrailingZeros().scale() > scale
+        ? add(field, "TOO_MANY_DECIMALS", "must have at most " + scale + " decimals")
+        : this;
+  }
+
   /** A rule with no standard check; same one-error-per-field rule applies. */
   public Validation add(String field, String code, String message) {
     if (failed.add(field)) {

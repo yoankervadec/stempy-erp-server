@@ -246,4 +246,63 @@ class MetaRoutesTest {
     catalog.freeze();
     assertThrows(IllegalStateException.class, () -> catalog.enterModule("late"));
   }
+
+  // ---- UI hints (§23.4) ----
+
+  @Test
+  void undeclaredHintsGetTheirDefaults() throws Exception {
+    start();
+
+    JsonNode widget = resource(meta("widget.widget.read"), "widget");
+
+    // no unique string field: the id names a widget
+    assertEquals("id", widget.get("title").asText());
+    assertTrue(widget.get("subtitle").isNull());
+    // filterable or sortable, readable, not the id
+    assertEquals("[\"name\"]", widget.get("listColumns").toString());
+    assertEquals("[{\"field\":\"id\",\"dir\":\"desc\"}]", widget.get("defaultSort").toString());
+    assertEquals("modal", widget.get("presentation").asText());
+  }
+
+  @Test
+  void declaredHintsAreSent() throws Exception {
+    start();
+
+    JsonNode part = resource(meta("inv.part.read"), "part");
+
+    assertEquals("code", part.get("title").asText());
+    assertEquals("name", part.get("subtitle").asText());
+    assertEquals("[\"code\",\"name\"]", part.get("listColumns").toString());
+    assertEquals("[{\"field\":\"code\",\"dir\":\"asc\"}]", part.get("defaultSort").toString());
+    assertEquals("page", part.get("presentation").asText());
+    assertEquals("multiline", field(part, "note").get("format").asText());
+    assertFalse(field(part, "name").has("format"));
+  }
+
+  @Test
+  void decimalsCarryTheirScaleAndMoneyItsCurrency() throws Exception {
+    start();
+
+    JsonNode stock = resource(meta("inv.stock.read, stock.value.read, inv.part.read"), "stock");
+
+    assertEquals(3, field(stock, "quantity").get("scale").asInt());
+    JsonNode value = field(stock, "value");
+    assertEquals(MetaRoutes.DEFAULT_SCALE, value.get("scale").asInt());
+    assertEquals("money", value.get("format").asText());
+    assertEquals("currencyId", value.get("currencyField").asText());
+    assertFalse(field(stock, "partId").has("scale"));
+    // references() without a relation
+    assertEquals("part", field(stock, "replacementId").get("ref").asText());
+  }
+
+  @Test
+  void hintsOnUnreadableFieldsAreLeftOut() throws Exception {
+    start();
+
+    JsonNode stock = resource(meta("inv.stock.read"), "stock");
+
+    // value needs stock.value.read
+    assertEquals("[\"partId\",\"status\"]", stock.get("listColumns").toString());
+    assertEquals("integer", field(stock, "replacementId").get("type").asText());
+  }
 }

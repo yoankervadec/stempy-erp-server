@@ -86,6 +86,14 @@ public class EntityRegistry {
           }
         }
       }
+      for (Field<?, ?> f : def.fields()) {
+        f.referencedEntity().ifPresent(target -> {
+          if (byName.get(target.name()) != target) {
+            throw new IllegalStateException(def.name() + "." + f.name()
+                + " references unregistered entity " + target.name());
+          }
+        });
+      }
       for (Relation<?, ?> r : def.relations()) {
         EntityDefinition<?> target = r.target();
         if (byName.get(target.name()) != target) {

@@ -1834,7 +1834,7 @@ All per company (the request's), `ADMINISTRATOR` has them all, writes audited (�
 
 ## 23. Server-driven UI
 
-_Status: planned 2026-11-25; step 2 built 2026-11-25 (catalog and `GET /meta`, no migration). How to call it: docs/API_GUIDE.md §10. Steps in §23.12._
+_Status: planned 2026-11-25; steps 2 and 3 built 2026-11-25 (catalog, `GET /meta`, UI hints; no migration). How to call it: docs/API_GUIDE.md §10. Steps in §23.12._
 
 The desktop client (Electron + React, in its own repository, built later) should be almost entirely generic: one list page, one record modal, one record page and one action dialog serve every resource. The server already describes its entities (`EntityDefinition`, §5) and their routes (`EntityEndpoints`). This section makes it publish everything a screen needs, **per caller, per company and in the caller's language**, so the client only renders what it is told. Hand-written React is kept for screens the layouts below can't express.
 
@@ -1881,16 +1881,24 @@ All optional, all with a default:
 | Hint | Default | Used for |
 | --- | --- | --- |
 | `DEF.titleField(f)`, `subtitleField(f)` | first `unique()` string field, else `id`; no subtitle | Pickers, reference cells, modal titles, breadcrumbs |
-| `DEF.listColumns(...)` | readable fields that are filterable or sortable | Columns shown by default |
+| `DEF.listColumns(...)` | readable fields that are filterable or sortable, except the id and version | Columns shown by default |
 | `DEF.defaultSort(...)` | `id` descending | First load of a list |
 | `DEF.presentation(MODAL / PAGE)` | `MODAL`, `PAGE` when the layout has collections | Where a record opens |
 | `Field.references(() -> T.DEF)` | the target of a `manyToOne` whose foreign key is the field's column | Reference pickers, `_refs` (§23.10) |
-| `Field.scale(n)` | 2 for decimals | Input step and display |
-| `Field.format(MONEY, currencyField)`, `PERCENT`, `MULTILINE` | from the type | Editors and display |
+| `Field.scale(n)` | 2 for decimals, display only | Input step and display; when declared, also a rule (`TOO_MANY_DECIMALS`) |
+| `Field.money()`, `money(currencyField)`, `percent()`, `multiline()` | from the type | Editors and display |
 
 - Enum values come from the enum class itself (`FieldType.javaType().getEnumConstants()`); nothing is declared.
 - A reference is only shown as a picker if the caller can read the target resource; otherwise it is a read-only id.
 - Gaps found while planning: `Product.unitOfMeasureId` and `currencyId` are plain integers with no relation. They get `references(...)` once units and currencies are resources.
+
+**As built (step 3):**
+- Types in `platform/entity`: `Format` (`MONEY`, `PERCENT`, `MULTILINE`), `Presentation` (`MODAL`, `PAGE`), `SortKey` (`asc(f)`, `desc(f)`). Entities declare their hints in a `static { ... }` block after their fields, since a hint names fields declared after it (`UNIT_AMOUNT.scale(4).money(CURRENCY_ID)`).
+- Mistakes fail at startup: a hint naming another entity's field or an internal one, a sort key that isn't `sortable()`, a format or scale on the wrong type (`scale`, `money`, `percent` need decimals; `multiline` a string; `references` an integer), a currency field of another entity, a `references(...)` target that isn't registered.
+- **A declared scale is enforced**: a value with more decimals is refused (`TOO_MANY_DECIMALS`, trailing zeros don't count) instead of being rounded by the database. Declare it to match the column (`products.unit_amount` is `DECIMAL(19, 4)`: `scale(4)`). Without a declaration, clients show 2 decimals and nothing is checked.
+- `GET /meta` adds per resource `title`, `subtitle` (or `null`), `listColumns`, `defaultSort` (`[{field, dir}]`), `presentation` (`modal` / `page`), and per field `scale` (decimals), `format`, `currencyField`. A hint naming a field the caller can't read is dropped: the title falls back to the id, an empty order to id descending, empty declared columns to the defaults.
+- `presentation` is `MODAL` unless declared; the "PAGE when the layout has collections" default arrives with layouts (step 7).
+- Declared so far: products (title `productNo`, subtitle `name`, five columns, by number, `unitAmount` money in the row's `currencyId` with 4 decimals), product categories, GL accounts (by number, `description` multiline), dimensions, dimension values (title `code`, since it is unique per dimension only).
 
 ### 23.5 Translation
 
@@ -1969,7 +1977,7 @@ Authenticated, no extra permission. It answers for the caller, the request's com
 
 **As built (step 2):**
 - `platform/web/ResourceCatalog` (in the ServiceRegistry) and `platform/web/MetaRoutes`. `ModuleHost.startWebServer` names each module before its `registerRoutes`, freezes the catalog after the last one, then registers `GET /meta`. A resource registered outside a module, an entity registered twice, a write declared for an entity without reads, or a registration after the freeze fails at startup.
-- The body has `apiVersion`, `menu` and `resources` (`key`, `module`, `path`, `can`, `idField`, `versionField`, `fields`). Labels, hints, layouts, actions and reports arrive with their steps; a client must ignore keys it doesn't know.
+- The body has `apiVersion`, `menu` and `resources` (`key`, `module`, `path`, `can`, `idField`, `versionField`, `fields`; the hints of §23.4 since step 3). Labels, layouts, actions and reports arrive with their steps; a client must ignore keys it doesn't know. Every object keeps a fixed key order, so equal answers hash to equal ETags across restarts.
 - Each field: `name`, `type` (`ref`, `values`), `required`, `unique`, `maxLength` / `min` / `max` when set, `filterable`, `sortable`, `operators` (filterable fields), `writable {create, update}`. A field's `pattern()` is not sent: Java and JavaScript regular expressions differ, and the server reports a mismatch as a field error anyway.
 - Self-references work (`glAccount.parentId` is a reference to `glAccount`). Users are not a resource yet, so `createdBy` / `updatedBy` stay integers.
 - Not cached yet: the body is rebuilt per request (in memory, no database access) and hashed for the `ETag`. Add the cache when profiles show it.
@@ -2055,7 +2063,7 @@ The client gets one generic report page with export. The trial balance and accou
 
 1. This plan. Done 2026-11-25.
 2. **Catalog and `GET /meta`**: `ResourceCatalog` filled by `EntityEndpoints`, `MetaRoutes` with fields, permissions (`can`, `writable`), enum values, references from relations, the menu, the ETag. Tests: two users with different roles see different resources and fields. Done 2026-11-25.
-3. **UI hints** (§23.4) and their defaults; products and accounts declare theirs.
+3. **UI hints** (§23.4) and their defaults; products and accounts declare theirs. Done 2026-11-25.
 4. **Translation**: V14 (`users.locale`, `companies.default_locale`), locale on `RequestContext`, `Messages`, label bundles for every module, translated errors with `params`, history labels, the completeness test.
 5. **Lists**: `_refs`, `hasMore`, `search`, CORS.
 6. **Records**: `_meta`, `GET /new`, actions with parameters, `409` with the current row.

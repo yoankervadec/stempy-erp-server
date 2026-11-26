@@ -4,8 +4,11 @@ import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 import com.lesconstructionssapete.stempyerpserver.platform.error.FieldError;
@@ -40,6 +43,10 @@ public final class Field<E, V> {
   private Pattern pattern;
   private String readPermission;
   private String writePermission;
+  private Integer scale;
+  private Format format;
+  private Field<E, Long> currencyField;
+  private Supplier<? extends EntityDefinition<?>> references;
 
   Field(
       String name,
@@ -140,6 +147,69 @@ public final class Field<E, V> {
     return this;
   }
 
+  // ---- UI hints (docs/ARCHITECTURE.md §23.4) ----
+
+  /**
+   * Decimals a value may have, for a decimal field: also a rule, so a value
+   * with more is refused (TOO_MANY_DECIMALS) instead of being rounded by the
+   * database. Match the column's scale. Undeclared: clients show 2 and
+   * nothing is checked.
+   */
+  public Field<E, V> scale(int scale) {
+    requireType(FieldType.DECIMAL, "scale");
+    if (scale < 0 || scale > 10) {
+      throw new IllegalArgumentException(name + ": scale must be 0 to 10");
+    }
+    this.scale = scale;
+    return this;
+  }
+
+  /** An amount in the company's currency. */
+  public Field<E, V> money() {
+    requireType(FieldType.DECIMAL, "money");
+    this.format = Format.MONEY;
+    return this;
+  }
+
+  /** An amount in the currency this row's {@code currencyField} names. */
+  public Field<E, V> money(Field<E, Long> currencyField) {
+    money();
+    this.currencyField = Objects.requireNonNull(currencyField, "currencyField");
+    return this;
+  }
+
+  /** A percentage, stored as such (5.25 is 5.25 %). */
+  public Field<E, V> percent() {
+    requireType(FieldType.DECIMAL, "percent");
+    this.format = Format.PERCENT;
+    return this;
+  }
+
+  /** Text edited in a text area. */
+  public Field<E, V> multiline() {
+    requireType(FieldType.STRING, "multiline");
+    this.format = Format.MULTILINE;
+    return this;
+  }
+
+  /**
+   * This integer holds the id of a row of {@code target}, though no relation
+   * is declared (no join needed). A many-to-one relation whose foreign key is
+   * this field's column says the same without this.
+   */
+  public Field<E, V> references(Supplier<? extends EntityDefinition<?>> target) {
+    requireType(FieldType.LONG, "references");
+    this.references = Objects.requireNonNull(target, "target");
+    return this;
+  }
+
+  private void requireType(FieldType<?> expected, String hint) {
+    if (type != expected) {
+      throw new IllegalStateException(name + ": " + hint + "() needs a " + expected.name() + " field, not "
+          + type.name());
+    }
+  }
+
   Field<E, V> markId() {
     this.id = true;
     this.creatable = false;
@@ -225,6 +295,26 @@ public final class Field<E, V> {
     return readPermission;
   }
 
+  /** The declared scale, null when undeclared. */
+  public Integer scale() {
+    return scale;
+  }
+
+  /** Null when the type says it all. */
+  public Format format() {
+    return format;
+  }
+
+  /** For MONEY in a per-row currency; null otherwise. */
+  public Field<E, Long> currencyField() {
+    return currencyField;
+  }
+
+  /** The entity this field's value points at, when declared with references(). */
+  public Optional<EntityDefinition<?>> referencedEntity() {
+    return references == null ? Optional.empty() : Optional.of(references.get());
+  }
+
   public String writePermission() {
     return writePermission;
   }
@@ -264,6 +354,9 @@ public final class Field<E, V> {
       if (max != null) {
         v.max(name, d, max);
       }
+    }
+    if (scale != null && value instanceof BigDecimal d) {
+      v.maxScale(name, d, scale);
     }
   }
 

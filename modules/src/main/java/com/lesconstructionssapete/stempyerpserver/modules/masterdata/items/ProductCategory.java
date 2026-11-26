@@ -3,6 +3,7 @@ package com.lesconstructionssapete.stempyerpserver.modules.masterdata.items;
 import com.lesconstructionssapete.stempyerpserver.modules.common.Entities;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityDefinition;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Field;
+import com.lesconstructionssapete.stempyerpserver.platform.entity.SortKey;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.StandardEntity;
 
 public class ProductCategory extends StandardEntity {
@@ -25,6 +26,11 @@ public class ProductCategory extends StandardEntity {
   public static final Field<ProductCategory, String> DESCRIPTION = DEF.string(
       "description", "description", ProductCategory::description, ProductCategory::setDescription)
       .required().maxLength(255).filterable().sortable();
+
+  /** UI hints (docs/ARCHITECTURE.md §23.4). */
+  static {
+    DEF.subtitleField(DESCRIPTION).listColumns(CODE, DESCRIPTION, IS_ENABLED).defaultSort(SortKey.asc(CODE));
+  }
 
   public boolean isEnabled() {
     return isEnabled;

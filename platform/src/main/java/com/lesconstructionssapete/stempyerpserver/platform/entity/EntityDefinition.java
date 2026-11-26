@@ -11,6 +11,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
@@ -40,6 +41,12 @@ public class EntityDefinition<E> {
   private String updatedByColumn;
   private Field<E, Long> idField;
   private Field<E, Long> versionField;
+
+  private Field<E, ?> titleField;
+  private Field<E, ?> subtitleField;
+  private List<Field<E, ?>> listColumns = List.of();
+  private List<SortKey> defaultSort = List.of();
+  private Presentation presentation = Presentation.MODAL;
 
   private EntityDefinition(String name, String table, Supplier<E> factory) {
     this.name = apiName(name);
@@ -154,6 +161,99 @@ public class EntityDefinition<E> {
   public <V extends Enum<V>> Field<E, V> enumeration(String name, String column, Class<V> type,
       Function<E, V> g, BiConsumer<E, V> s) {
     return field(name, column, FieldType.enumOf(type), g, s);
+  }
+
+  // ---- UI hints (docs/ARCHITECTURE.md §23.4) ----
+
+  /**
+   * What a row is called in pickers, reference cells and titles. Default: the
+   * first unique string field, else the id.
+   */
+  public EntityDefinition<E> titleField(Field<E, ?> field) {
+    this.titleField = own(field, "titleField");
+    return this;
+  }
+
+  /** Shown under or beside the title (a name beside a code). Default: none. */
+  public EntityDefinition<E> subtitleField(Field<E, ?> field) {
+    this.subtitleField = own(field, "subtitleField");
+    return this;
+  }
+
+  /**
+   * The columns a list shows at first, in order. Default: the readable fields
+   * that are filterable or sortable, except the id and version.
+   */
+  @SafeVarargs
+  public final EntityDefinition<E> listColumns(Field<E, ?>... fields) {
+    List<Field<E, ?>> out = new ArrayList<>();
+    for (Field<E, ?> f : fields) {
+      out.add(own(f, "listColumns"));
+    }
+    this.listColumns = List.copyOf(out);
+    return this;
+  }
+
+  /** A list's first order; every key must be a sortable field. Default: id descending. */
+  public EntityDefinition<E> defaultSort(SortKey... keys) {
+    List<SortKey> out = new ArrayList<>();
+    for (SortKey k : keys) {
+      if (fields.get(k.field().name()) != k.field()) {
+        throw new IllegalArgumentException(name + ".defaultSort: " + k.field().name() + " is not a field of " + name);
+      }
+      if (!k.field().isSortable()) {
+        throw new IllegalArgumentException(name + ".defaultSort: " + k.field().name() + " is not sortable");
+      }
+      out.add(k);
+    }
+    this.defaultSort = List.copyOf(out);
+    return this;
+  }
+
+  /** Where one record opens. Default: MODAL. */
+  public EntityDefinition<E> presentation(Presentation presentation) {
+    this.presentation = Objects.requireNonNull(presentation, "presentation");
+    return this;
+  }
+
+  private Field<E, ?> own(Field<E, ?> field, String hint) {
+    if (field == null || fields.get(field.name()) != field) {
+      throw new IllegalArgumentException(name + "." + hint + ": not a field of " + name);
+    }
+    if (field.isInternal()) {
+      throw new IllegalArgumentException(name + "." + hint + ": " + field.name() + " is internal");
+    }
+    return field;
+  }
+
+  public Field<E, ?> titleField() {
+    if (titleField != null) {
+      return titleField;
+    }
+    for (Field<E, ?> f : fields.values()) {
+      if (f.isUnique() && !f.isInternal() && f.type() == FieldType.STRING) {
+        return f;
+      }
+    }
+    return idField;
+  }
+
+  public Optional<Field<E, ?>> subtitleField() {
+    return Optional.ofNullable(subtitleField);
+  }
+
+  /** As declared; empty when the default applies. */
+  public List<Field<E, ?>> listColumns() {
+    return listColumns;
+  }
+
+  /** As declared, else id descending. */
+  public List<SortKey> defaultSort() {
+    return defaultSort.isEmpty() && idField != null ? List.of(SortKey.desc(idField)) : defaultSort;
+  }
+
+  public Presentation presentation() {
+    return presentation;
   }
 
   // ---- relation declarations ----
@@ -296,6 +396,13 @@ public class EntityDefinition<E> {
   void validateDefinition() {
     if (idField == null) {
       throw new IllegalStateException("Entity " + name + " has no id field");
+    }
+    for (Field<E, ?> f : fields.values()) {
+      Field<E, Long> currency = f.currencyField();
+      if (currency != null && fields.get(currency.name()) != currency) {
+        throw new IllegalStateException(name + "." + f.name() + ": currency field " + currency.name()
+            + " is not a field of " + name);
+      }
     }
   }
 

@@ -4,6 +4,7 @@ import com.lesconstructionssapete.stempyerpserver.modules.common.Entities;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityDefinition;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Field;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Relation;
+import com.lesconstructionssapete.stempyerpserver.platform.entity.SortKey;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.StandardEntity;
 
 /**
@@ -40,6 +41,16 @@ public class DimensionValue extends StandardEntity {
   public static final Field<DimensionValue, Boolean> IS_ENABLED = DEF.bool(
       "isEnabled", "is_enabled", DimensionValue::isEnabled, DimensionValue::setEnabled)
       .filterable();
+
+  /**
+   * UI hints (docs/ARCHITECTURE.md §23.4). The code is unique within its
+   * dimension only, so it is declared as the title.
+   */
+  static {
+    DEF.titleField(CODE).subtitleField(NAME)
+        .listColumns(DIMENSION_ID, CODE, NAME, IS_ENABLED)
+        .defaultSort(SortKey.asc(DIMENSION_ID), SortKey.asc(CODE));
+  }
 
   private Long dimensionId;
   private String code;

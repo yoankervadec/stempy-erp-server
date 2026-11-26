@@ -365,6 +365,15 @@ class ItemWriteRoutesMySqlTest {
     assertEquals("productCategory", category.get("ref").asText());
     assertTrue(metaField(products, "productNo").get("unique").asBoolean());
     assertTrue(metaResource(editor, "productCategory") != null);
+    // the hints Product declares
+    assertEquals("productNo", products.get("title").asText());
+    assertEquals("name", products.get("subtitle").asText());
+    assertEquals("[\"productNo\",\"name\",\"productCategoryId\",\"unitAmount\",\"isEnabled\"]",
+        products.get("listColumns").toString());
+    JsonNode amount = metaField(products, "unitAmount");
+    assertEquals(4, amount.get("scale").asInt());
+    assertEquals("money", amount.get("format").asText());
+    assertEquals("currencyId", amount.get("currencyField").asText());
     // GL is installed, but the editor holds no GL permission
     assertEquals(null, metaResource(editor, "glAccount"));
   }
@@ -378,5 +387,12 @@ class ItemWriteRoutesMySqlTest {
     // the reader can't read categories: a plain id, not a picker
     assertEquals("integer", metaField(products, "productCategoryId").get("type").asText());
     assertEquals(null, metaResource(reader, "productCategory"));
+  }
+
+  @Test
+  void anAmountWithMoreDecimalsThanTheColumnIsRefused() throws Exception {
+    // unit_amount is DECIMAL(19, 4): MySQL would round 0.12345 silently
+    assertEquals(Map.of("unitAmount", "TOO_MANY_DECIMALS"),
+        fieldErrors(send("POST", PRODUCTS, product("P-DEC", "unitAmount", "0.12345"), editor)));
   }
 }

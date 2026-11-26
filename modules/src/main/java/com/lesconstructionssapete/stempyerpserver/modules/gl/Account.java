@@ -4,6 +4,7 @@ import com.lesconstructionssapete.stempyerpserver.modules.common.Entities;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityDefinition;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Field;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Relation;
+import com.lesconstructionssapete.stempyerpserver.platform.entity.SortKey;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.StandardEntity;
 
 /**
@@ -51,6 +52,14 @@ public class Account extends StandardEntity {
   public static final Field<Account, Boolean> IS_ENABLED = DEF.bool(
       "isEnabled", "is_enabled", Account::isEnabled, Account::setEnabled)
       .filterable();
+
+  /** UI hints (docs/ARCHITECTURE.md §23.4): the chart in number order. */
+  static {
+    DESCRIPTION.multiline();
+    DEF.subtitleField(NAME)
+        .listColumns(ACCOUNT_NO, NAME, ACCOUNT_TYPE, PARENT_ID, IS_HEADING, MANUAL_POSTING, IS_ENABLED)
+        .defaultSort(SortKey.asc(ACCOUNT_NO));
+  }
 
   private String accountNo;
   private String name;

@@ -22,12 +22,23 @@ public final class TestStock extends StandardEntity {
   public static final Field<TestStock, Status> STATUS = DEF.enumeration("status", "status", Status.class,
       s -> s.status, (s, v) -> s.status = v).filterable().sortable();
   public static final Field<TestStock, BigDecimal> QUANTITY = DEF.decimal("quantity", "quantity",
-      s -> s.quantity, (s, v) -> s.quantity = v).min("0").max("100000");
+      s -> s.quantity, (s, v) -> s.quantity = v).min("0").max("100000").scale(3);
+  public static final Field<TestStock, Long> CURRENCY_ID = DEF.integer("currencyId", "currency_id",
+      s -> s.currencyId, (s, v) -> s.currencyId = v);
   public static final Field<TestStock, BigDecimal> VALUE = DEF.decimal("value", "value", s -> s.value,
-      (s, v) -> s.value = v).readPermission("stock.value.read");
+      (s, v) -> s.value = v).readPermission("stock.value.read").money(CURRENCY_ID);
+  /** A part to use instead, by id only (no relation, so no join). */
+  public static final Field<TestStock, Long> REPLACEMENT_ID = DEF.integer("replacementId", "replacement_id",
+      s -> s.replacementId, (s, v) -> s.replacementId = v).references(() -> TestPart.DEF);
+
+  static {
+    DEF.listColumns(PART_ID, VALUE, STATUS);
+  }
 
   public Long partId;
   public Status status;
   public BigDecimal quantity;
   public BigDecimal value;
+  public Long currencyId;
+  public Long replacementId;
 }

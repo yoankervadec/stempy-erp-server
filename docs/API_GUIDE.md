@@ -582,12 +582,18 @@ If-None-Match: "<etag>"    (optional: 304 when nothing changed)
     "key": "product", "module": "masterdata.items", "path": "/masterdata/products",
     "can": { "read": true, "create": true, "update": true, "delete": true, "history": false },
     "idField": "id", "versionField": "version",
+    "title": "productNo", "subtitle": "name",
+    "listColumns": ["productNo", "name", "productCategoryId", "unitAmount", "isEnabled"],
+    "defaultSort": [{ "field": "productNo", "dir": "asc" }], "presentation": "modal",
     "fields": [
       { "name": "productNo", "type": "string", "required": true, "unique": true, "maxLength": 50,
         "filterable": true, "sortable": true, "operators": ["equals", "notEquals", "in", "isNull", "contains", "startsWith"],
         "writable": { "create": true, "update": true } },
       { "name": "productCategoryId", "type": "reference", "ref": "productCategory", "required": true, "unique": false,
-        "filterable": true, "sortable": false, "operators": ["equals", "..."], "writable": { "create": true, "update": true } }
+        "filterable": true, "sortable": false, "operators": ["equals", "..."], "writable": { "create": true, "update": true } },
+      { "name": "unitAmount", "type": "decimal", "required": true, "unique": false, "min": "0", "scale": 4,
+        "format": "money", "currencyField": "currencyId", "filterable": true, "sortable": true, "operators": ["..."],
+        "writable": { "create": true, "update": true } }
     ]
   }]
 }
@@ -598,6 +604,7 @@ If-None-Match: "<etag>"    (optional: 304 when nothing changed)
 - **`can`**: the actions you hold the permission for. `history` needs `audit.history.read`. A hand-written write counts when it accepts the generic body on the same path (accounts: `gl.account.manage`).
 - **`writable`**: whether a form may send the field when creating / updating: you can do the action, the field isn't server-managed (`id`, `version`, `createdAt`...) or immutable (on update), and you hold its write permission, if it has one. The server checks again on every write.
 - **`type`**: `string`, `integer`, `decimal`, `boolean`, `date`, `timestamp`, `enum` (with `values`), or `reference` (with `ref`, the target resource's `key`) for a foreign key whose target you can read. A foreign key to something you can't read is a plain `integer`.
+- **Display hints:** `title` / `subtitle` name a row (pickers, modal titles); `listColumns` are the columns to show first; `defaultSort` is the first order (send it as the `QUERY` `sort`); `presentation` says whether a record opens in a `modal` or on a `page`. Decimals have a `scale` (decimals to show and accept: sending more is `422 TOO_MANY_DECIMALS` when the server declares it); `format` is `money` (in the row's `currencyField`, else the company's currency), `percent` (5.25 means 5.25 %) or `multiline` (a text area).
 - `maxLength`, `min`, `max` appear only when the field has them (decimals as strings, like every amount). `operators` (for `QUERY` filters, §6) appear only on filterable fields.
 - **`ETag`**: send it back in `If-None-Match` and the answer is `304` with no body until your permissions, the company or the server's resources change.
 
