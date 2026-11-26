@@ -40,7 +40,7 @@ public class ScheduleRepository {
 
   private static final String SELECT = "SELECT " + columns("s") + " FROM scheduled_jobs s WHERE s.deleted_at IS NULL";
 
-  /** The database's current UTC time, whole seconds (what a TIMESTAMP column stores). */
+  /** The database's current UTC time, whole seconds (what a DATETIME column stores). */
   public Instant now(UnitOfWork uow) {
     return Jdbc.queryFirst(uow, "SELECT UTC_TIMESTAMP() AS now",
         rs -> rs.getObject("now", LocalDateTime.class).toInstant(ZoneOffset.UTC)).orElseThrow();

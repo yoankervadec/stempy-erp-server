@@ -64,7 +64,7 @@ public class UsersModule implements ERPModule {
   public UsersModule(AuthSettings settings, PasswordHasher hasher, Clock clock) {
     this.settings = Objects.requireNonNull(settings, "settings");
     this.hasher = Objects.requireNonNull(hasher, "hasher");
-    // Whole seconds everywhere: what a MySQL TIMESTAMP column stores (it rounds
+    // Whole seconds everywhere: what a MySQL DATETIME column stores (it rounds
     // otherwise), so a time we compute equals the time we read back.
     this.clock = Clock.tick(Objects.requireNonNull(clock, "clock"), Duration.ofSeconds(1));
   }

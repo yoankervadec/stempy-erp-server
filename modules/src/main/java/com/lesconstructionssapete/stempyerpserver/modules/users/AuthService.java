@@ -38,7 +38,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.web.RequestContext;
 /**
  * ORCHESTRATOR for login, logout, "who am I" and password changes.
  *
- * The clock must tick in whole seconds, what a MySQL TIMESTAMP column stores
+ * The clock must tick in whole seconds, what a MySQL DATETIME column stores
  * (UsersModule sets that up).
  *
  * Login runs in two short transactions with the slow password check between

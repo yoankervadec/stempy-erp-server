@@ -134,7 +134,7 @@ public final class EntityEndpoints {
   private final RecordMeta recordMeta;
 
   /**
-   * @param clock         should tick in whole seconds, like a MySQL TIMESTAMP
+   * @param clock         should tick in whole seconds, like a MySQL DATETIME
    * @param userDirectory names the users in histories; looked up per request
    *                      (the users module publishes it after this is built),
    *                      empty: histories show user ids only

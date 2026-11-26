@@ -31,8 +31,8 @@ import com.lesconstructionssapete.stempyerpserver.platform.write.EntityChanged.F
 public class ReplaceDimensionRulesOperation implements Operation<ReplaceDimensionRulesOperation.Input, Void> {
 
   /** @param rules dimension code -> rule; empty: no rules */
-  public record Input(long accountId, int version, Map<String, DimensionRule> rules, long userId, String requestId,
-      Instant now) {
+  public record Input(long companyId, long accountId, int version, Map<String, DimensionRule> rules, long userId,
+      String requestId, Instant now) {
   }
 
   private final AccountRepository accounts;
@@ -47,7 +47,7 @@ public class ReplaceDimensionRulesOperation implements Operation<ReplaceDimensio
 
   @Override
   public Void execute(UnitOfWork uow, Input in) {
-    StoredAccount account = accounts.findForUpdate(uow, in.accountId())
+    StoredAccount account = accounts.findForUpdate(uow, in.companyId(), in.accountId())
         .orElseThrow(() -> new ResourceNotFoundException("NOT_FOUND", "Account " + in.accountId() + " not found"));
     if (account.version() != in.version()) {
       throw new ConflictException("VERSION_CONFLICT", "The account was changed by someone else; reload and retry");
@@ -76,7 +76,7 @@ public class ReplaceDimensionRulesOperation implements Operation<ReplaceDimensio
     }
     dimensions.deleteRules(uow, account.id());
     byId.forEach((dimensionId, rule) -> dimensions.insertRule(uow, account.id(), dimensionId, rule));
-    accounts.touch(uow, account.id(), in.userId(), in.now());
+    accounts.touch(uow, account.companyId(), account.id(), in.userId(), in.now());
     audit.record(uow, new AuditEntry(Account.DEF.name(), account.id(), account.companyId(), AuditEntry.UPDATED,
         in.userId(), in.requestId(), in.now(), Map.of("dimensionRules", new FieldChange(before, after))));
     return null;

@@ -36,7 +36,7 @@ public class NumberingModule implements ERPModule {
   private NumberingService service; // built in registerServices, used by registerRoutes
 
   public NumberingModule(Clock clock) {
-    // Whole seconds: what a TIMESTAMP column stores.
+    // Whole seconds: what a DATETIME column stores.
     this.clock = Clock.tick(Objects.requireNonNull(clock, "clock"), Duration.ofSeconds(1));
   }
 

@@ -127,16 +127,16 @@ public class PeriodService {
   // ---- rules ----
 
   private PeriodView changeStatus(RequestContext rc, long id, PeriodStatus target) {
-    visiblePeriod(rc, id);
     Instant now = clock.instant();
-    uowFactory.run(uow -> changeStatus.execute(uow, new ChangePeriodStatusOperation.Input(id, target, rc.userId(),
-        rc.requestId(), now)));
+    // The operation reads the period in rc's company only: another company's is NOT_FOUND.
+    uowFactory.run(uow -> changeStatus.execute(uow, new ChangePeriodStatusOperation.Input(rc.companyId(), id,
+        target, rc.userId(), rc.requestId(), now)));
     return view(visiblePeriod(rc, id));
   }
 
   private StoredPeriod visiblePeriod(RequestContext rc, long id) {
-    return uowFactory.executeReadOnly(uow -> findPeriod.execute(uow, id))
-        .filter(p -> p.companyId() == rc.companyId())
+    return uowFactory.executeReadOnly(uow -> findPeriod.execute(uow, new FindPeriodOperation.Input(rc.companyId(),
+        id)))
         .orElseThrow(() -> new ResourceNotFoundException("NOT_FOUND", "Period " + id + " not found"));
   }
 

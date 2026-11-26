@@ -77,6 +77,9 @@ class OutboxDispatcherMySqlTest {
   record Blocking(long companyId, String tag) implements DomainEvent {
   }
 
+  record StuckInSql(long companyId, String tag) implements DomainEvent {
+  }
+
   /** What a test handler saw. */
   record Seen(String tag, OutboxDelivery delivery, String thread) {
   }
@@ -113,6 +116,11 @@ class OutboxDispatcherMySqlTest {
         seen(e.tag(), d);
         Thread.sleep(60_000); // interrupted at the timeout
       }).withMaxAttempts(2).withTimeout(Duration.ofMillis(500));
+      bus.subscribeAsync("test.sql-block", StuckInSql.class, (d, e) -> {
+        seen(e.tag(), d);
+        // Interrupting the worker (a virtual thread) closes the socket: the query fails at once.
+        uow.run(u -> Jdbc.queryFirst(u, "SELECT SLEEP(30)", rs -> rs.getInt(1)));
+      }).withMaxAttempts(1).withTimeout(Duration.ofSeconds(1));
       bus.subscribeAsync("test.blocking", Blocking.class, (d, e) -> {
         seen(e.tag(), d);
         while (!gateOpen) {
@@ -305,6 +313,20 @@ class OutboxDispatcherMySqlTest {
     assertEquals(2, row.attempt());
     assertTrue(row.lastError().startsWith("Timed out after PT0.5S (InterruptedException"), row.lastError());
     assertEquals(2, seen("slow").size());
+  }
+
+  @Test
+  void aHandlerBlockedInAQueryIsStoppedAtItsTimeout() {
+    long started = System.nanoTime();
+    publish(new StuckInSql(1, "stuck"));
+    awaitStatus("stuck", OutboxStatus.DEAD);
+
+    long seconds = Duration.ofNanos(System.nanoTime() - started).toSeconds();
+    assertTrue(seconds < 10, "took " + seconds + " s: the query wasn't stopped");
+    OutboxRow row = onlyRow("stuck");
+    assertEquals(1, row.attempt());
+    assertTrue(row.lastError().startsWith("Timed out after PT1S"), row.lastError());
+    assertEquals(1, seen("stuck").size());
   }
 
   // ---- rows left by others ----

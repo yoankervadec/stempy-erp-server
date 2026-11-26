@@ -81,7 +81,7 @@ public final class SchedulerEngine {
     this.recorder = new RunRecorder(uowFactory, schedules, runs, settings.instanceId());
     this.poller = Executors.newSingleThreadScheduledExecutor(threads("scheduler-poll"));
     this.watchdog = Executors.newSingleThreadScheduledExecutor(threads("scheduler-watchdog"));
-    this.workers = Executors.newFixedThreadPool(settings.workerThreads(), threads("scheduler-worker"));
+    this.workers = Executors.newFixedThreadPool(settings.workerThreads(), virtualThreads("scheduler-worker"));
     this.runner = new JobRunner(settings, this.jobTypes, uowFactory, schedules, recorder, systemActor,
         Objects.requireNonNull(companyAccess, "companyAccess"), allPermissions, watchdog);
   }
@@ -302,6 +302,17 @@ public final class SchedulerEngine {
       t.setDaemon(true); // never keep the JVM alive; stop() is what ends runs cleanly
       return t;
     };
+  }
+
+  /**
+   * Workers are virtual threads, still bounded by the fixed pool (workerThreads).
+   * Not for throughput: interrupting a virtual thread blocked in socket I/O
+   * closes the socket, so a timeout or shutdown also stops a handler or job
+   * stuck in a JDBC call (the call fails and the pool discards the connection).
+   * A platform thread blocked in a MySQL read ignores the interrupt.
+   */
+  private static ThreadFactory virtualThreads(String prefix) {
+    return Thread.ofVirtual().name(prefix + "-", 1).factory();
   }
 
   private static boolean awaitQuietly(ExecutorService executor, Duration timeout) {

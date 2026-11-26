@@ -38,7 +38,7 @@ public class CreateAccountOperation implements Operation<CreateAccountOperation.
       v.add("accountNo", "ALREADY_EXISTS", "another account of the company has this number");
     }
     if (f.parentId() != null) {
-      var parent = repository.findForShare(uow, f.parentId()).filter(p -> p.companyId() == in.companyId());
+      var parent = repository.findForShare(uow, in.companyId(), f.parentId());
       if (parent.isEmpty()) {
         v.add("parentId", "INVALID_REFERENCE", "no account " + f.parentId() + " in this company");
       } else if (!parent.get().fields().isHeading()) {

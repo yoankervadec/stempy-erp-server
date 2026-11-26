@@ -12,7 +12,11 @@ import java.util.Optional;
 import com.lesconstructionssapete.stempyerpserver.platform.db.Jdbc;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWork;
 
-/** SQL for gl_accounts writes. Reads for clients go through the generic entity routes. */
+/**
+ * SQL for gl_accounts writes. Reads for clients go through the generic entity routes.
+ * Every lookup and change by id is scoped to a company in the SQL itself, so a
+ * row of another company is never returned or changed.
+ */
 public class AccountRepository {
 
   private static final String COLUMNS = """
@@ -26,26 +30,27 @@ public class AccountRepository {
     return new StoredAccount(rs.getLong("id"), rs.getInt("version"), rs.getLong("company_id"), fields);
   }
 
-  public Optional<StoredAccount> find(UnitOfWork uow, long id) {
-    return Jdbc.queryFirst(uow, "SELECT " + COLUMNS + " FROM gl_accounts WHERE id = ? AND deleted_at IS NULL",
-        AccountRepository::map, id);
+  public Optional<StoredAccount> find(UnitOfWork uow, long companyId, long id) {
+    return Jdbc.queryFirst(uow,
+        "SELECT " + COLUMNS + " FROM gl_accounts WHERE id = ? AND company_id = ? AND deleted_at IS NULL",
+        AccountRepository::map, id, companyId);
   }
 
   /** Locks the row until the transaction ends. */
-  public Optional<StoredAccount> findForUpdate(UnitOfWork uow, long id) {
+  public Optional<StoredAccount> findForUpdate(UnitOfWork uow, long companyId, long id) {
     return Jdbc.queryFirst(uow,
-        "SELECT " + COLUMNS + " FROM gl_accounts WHERE id = ? AND deleted_at IS NULL FOR UPDATE",
-        AccountRepository::map, id);
+        "SELECT " + COLUMNS + " FROM gl_accounts WHERE id = ? AND company_id = ? AND deleted_at IS NULL FOR UPDATE",
+        AccountRepository::map, id, companyId);
   }
 
   /**
    * A row by id with a shared lock: a parent can't stop being a heading (or
    * move) while a child is attached to it.
    */
-  public Optional<StoredAccount> findForShare(UnitOfWork uow, long id) {
+  public Optional<StoredAccount> findForShare(UnitOfWork uow, long companyId, long id) {
     return Jdbc.queryFirst(uow,
-        "SELECT " + COLUMNS + " FROM gl_accounts WHERE id = ? AND deleted_at IS NULL FOR SHARE",
-        AccountRepository::map, id);
+        "SELECT " + COLUMNS + " FROM gl_accounts WHERE id = ? AND company_id = ? AND deleted_at IS NULL FOR SHARE",
+        AccountRepository::map, id, companyId);
   }
 
   /** Whether another account of the company uses this number (case-insensitive, like the unique key). */
@@ -70,14 +75,15 @@ public class AccountRepository {
   }
 
   /** Replaces the editable columns if the row is still at {@code version}. Returns the rows changed. */
-  public int update(UnitOfWork uow, long id, int version, AccountFields f, long userId, Instant now) {
+  public int update(UnitOfWork uow, long companyId, long id, int version, AccountFields f, long userId,
+      Instant now) {
     return Jdbc.update(uow, """
         UPDATE gl_accounts
            SET account_no = ?, name = ?, description = ?, account_type = ?, parent_id = ?, is_heading = ?,
                manual_posting = ?, is_enabled = ?, version = version + 1, updated_at = ?, updated_by = ?
-         WHERE id = ? AND version = ?""",
+         WHERE id = ? AND company_id = ? AND version = ?""",
         f.accountNo(), f.name(), f.description(), f.accountType(), f.parentId(), f.isHeading(), f.manualPosting(),
-        f.isEnabled(), now, userId, id, version);
+        f.isEnabled(), now, userId, id, companyId, version);
   }
 
   /**
@@ -85,9 +91,9 @@ public class AccountRepository {
    * for changes kept in other tables (dimension rules) that are still changes
    * to the account.
    */
-  public void touch(UnitOfWork uow, long id, long userId, Instant now) {
-    Jdbc.update(uow, "UPDATE gl_accounts SET version = version + 1, updated_at = ?, updated_by = ? WHERE id = ?",
-        now, userId, id);
+  public void touch(UnitOfWork uow, long companyId, long id, long userId, Instant now) {
+    Jdbc.update(uow, "UPDATE gl_accounts SET version = version + 1, updated_at = ?, updated_by = ? "
+        + "WHERE id = ? AND company_id = ?", now, userId, id, companyId);
   }
 
   /**

@@ -126,7 +126,11 @@ Then log in with `POST /auth/login`. See [docs/API_GUIDE.md](docs/API_GUIDE.md) 
 ./mvnw test
 ```
 
-The MySQL end-to-end tests use the database named by `TEST_DATABASE_NAME` and are skipped if it is unavailable.
+The MySQL end-to-end tests use the database named by `TEST_DATABASE_NAME` and are skipped if it is unavailable. Before merging to main, require it, so an unreachable database fails the build instead of skipping every MySQL test:
+
+```bash
+./mvnw verify -Dtests.requireDb=true
+```
 
 ---
 

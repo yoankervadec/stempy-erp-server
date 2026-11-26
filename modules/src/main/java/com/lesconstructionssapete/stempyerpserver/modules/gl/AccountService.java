@@ -81,12 +81,14 @@ public class AccountService implements RecordRules {
 
   public void updateAccount(RequestContext rc, long id, JsonNode body) {
     permissions.require(rc, MANAGE);
-    StoredAccount current = uowFactory.executeReadOnly(uow -> findAccount.execute(uow, id))
-        .filter(a -> a.companyId() == rc.companyId())
-        .orElseThrow(() -> new ResourceNotFoundException("NOT_FOUND", "Account " + id + " not found"));
-    AccountForm.Result form = AccountForm.apply(body, current.fields());
     Instant now = clock.instant();
-    uowFactory.run(uow -> updateAccount.execute(uow, new UpdateAccountOperation.Input(id, form.version(),
-        form.fields(), rc.userId(), rc.requestId(), now)));
+    // One transaction: the fields the form starts from, and the update (which locks and checks the version).
+    uowFactory.run(uow -> {
+      StoredAccount current = findAccount.execute(uow, new FindAccountOperation.Input(rc.companyId(), id))
+          .orElseThrow(() -> new ResourceNotFoundException("NOT_FOUND", "Account " + id + " not found"));
+      AccountForm.Result form = AccountForm.apply(body, current.fields());
+      updateAccount.execute(uow, new UpdateAccountOperation.Input(rc.companyId(), id, form.version(),
+          form.fields(), rc.userId(), rc.requestId(), now));
+    });
   }
 }

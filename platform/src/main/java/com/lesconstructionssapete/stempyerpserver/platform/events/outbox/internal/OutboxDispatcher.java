@@ -19,7 +19,6 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.slf4j.Logger;
@@ -78,8 +77,8 @@ public final class OutboxDispatcher {
   private final ScheduledExecutorService watchdog;
   private final AtomicInteger busy = new AtomicInteger();
   private final Semaphore wake = new Semaphore(0);
-  /** Message id -> the worker thread running it, for interrupting at shutdown. */
-  private final Map<Long, Thread> running = new ConcurrentHashMap<>();
+  /** Message id -> the delivery running it, for interrupting at shutdown. */
+  private final Map<Long, ActiveDelivery> running = new ConcurrentHashMap<>();
   private volatile boolean lastClaimFull;
   private volatile boolean stopping;
   private volatile boolean interrupting;
@@ -98,7 +97,7 @@ public final class OutboxDispatcher {
     this.allPermissions = Set.copyOf(allPermissions);
     this.json = Objects.requireNonNull(json, "json");
     this.poller = threads("outbox-poll").newThread(this::loop);
-    this.workers = Executors.newFixedThreadPool(settings.workerThreads(), threads("outbox-worker"));
+    this.workers = Executors.newFixedThreadPool(settings.workerThreads(), virtualThreads("outbox-worker"));
     this.watchdog = Executors.newSingleThreadScheduledExecutor(threads("outbox-watchdog"));
   }
 
@@ -135,7 +134,7 @@ public final class OutboxDispatcher {
     if (!awaitQuietly(workers, settings.shutdownGrace())) {
       LOGGER.warn("Interrupting {} handler(s) still running", busy.get());
       interrupting = true;
-      running.values().forEach(Thread::interrupt);
+      running.values().forEach(ActiveDelivery::interrupt);
       if (!awaitQuietly(workers, INTERRUPT_GRACE)) {
         LOGGER.error("{} handler(s) ignored the interrupt; their leases will expire and another instance will "
             + "retry them", busy.get());
@@ -246,13 +245,9 @@ public final class OutboxDispatcher {
     AsyncSubscription<?> sub = claim.subscription();
     int maxAttempts = maxAttempts(sub);
     Duration timeout = timeout(sub);
-    Thread self = Thread.currentThread();
-    AtomicBoolean timedOut = new AtomicBoolean();
-    running.put(row.id(), self);
-    ScheduledFuture<?> timer = watchdog.schedule(() -> {
-      timedOut.set(true);
-      self.interrupt();
-    }, timeout.toMillis(), TimeUnit.MILLISECONDS);
+    var active = new ActiveDelivery(Thread.currentThread());
+    running.put(row.id(), active);
+    ScheduledFuture<?> timer = watchdog.schedule(active::timeOut, timeout.toMillis(), TimeUnit.MILLISECONDS);
 
     Throwable failure = null;
     boolean unreadable = false;
@@ -269,14 +264,14 @@ public final class OutboxDispatcher {
     } catch (Throwable t) {
       failure = t;
     } finally {
+      active.finish(); // a late timer or shutdown interrupt can't leak into record() or the next delivery
       timer.cancel(false);
       running.remove(row.id());
-      Thread.interrupted(); // a late timer or shutdown interrupt must not leak into the next delivery
     }
     long ms = Duration.ofNanos(System.nanoTime() - started).toMillis();
 
     try {
-      record(claim, maxAttempts, timeout, failure, unreadable, timedOut.get(), ms);
+      record(claim, maxAttempts, timeout, failure, unreadable, active.timedOut(), ms);
     } catch (RuntimeException e) {
       // The lease expires and the reaper retries: the handler may then run twice (at least once).
       LOGGER.error("Could not record the outcome of outbox message {} ({}); it will be retried when its lease "
@@ -384,6 +379,17 @@ public final class OutboxDispatcher {
       t.setDaemon(true); // never keep the JVM alive; stop() is what ends deliveries cleanly
       return t;
     };
+  }
+
+  /**
+   * Workers are virtual threads, still bounded by the fixed pool (workerThreads).
+   * Not for throughput: interrupting a virtual thread blocked in socket I/O
+   * closes the socket, so a timeout or shutdown also stops a handler or job
+   * stuck in a JDBC call (the call fails and the pool discards the connection).
+   * A platform thread blocked in a MySQL read ignores the interrupt.
+   */
+  private static ThreadFactory virtualThreads(String prefix) {
+    return Thread.ofVirtual().name(prefix + "-", 1).factory();
   }
 
   private static boolean awaitQuietly(ExecutorService executor, Duration timeout) {

@@ -58,7 +58,10 @@ import io.github.cdimascio.dotenv.Dotenv;
  * </pre>
  *
  * When the database can't be reached, start() skips the calling test class
- * (and says why on the console) instead of failing the build.
+ * (and says why on the console) instead of failing the build, unless the
+ * database is required: {@code ./mvnw verify -Dtests.requireDb=true} (or
+ * STEMPY_REQUIRE_DB=true in the environment) fails instead. Run that before
+ * merging to main, so a broken setup never passes as "all green".
  *
  * Test classes run one after another (Surefire's default), each wiping and
  * re-seeding the same database, so they never see each other's data.
@@ -85,11 +88,14 @@ public final class MySqlTestStack implements AutoCloseable {
   }
 
   private final HikariDataSource dataSource;
+  private final HikariDataSource autonomousDataSource;
   private final WebServer server;
   private final ModuleHost host;
 
-  private MySqlTestStack(HikariDataSource dataSource, WebServer server, ModuleHost host) {
+  private MySqlTestStack(HikariDataSource dataSource, HikariDataSource autonomousDataSource, WebServer server,
+      ModuleHost host) {
     this.dataSource = dataSource;
+    this.autonomousDataSource = autonomousDataSource;
     this.server = server;
     this.host = host;
   }
@@ -116,13 +122,16 @@ public final class MySqlTestStack implements AutoCloseable {
     var host = new ModuleHost(modules);
     DatabaseMigrator.migrate(db);
     HikariDataSource dataSource = DataSources.create(db);
+    HikariDataSource autonomousDataSource = DataSources.createAutonomous(db);
     try {
       seed(dataSource, seeder);
-      host.start(new UnitOfWorkFactory(dataSource));
+      host.start(new UnitOfWorkFactory(dataSource, autonomousDataSource));
       WebServer server = host.startWebServer(new WebServerConfig("127.0.0.1", 0));
-      return new MySqlTestStack(dataSource, server, host);
+      return new MySqlTestStack(dataSource, autonomousDataSource, server, host);
     } catch (RuntimeException | SQLException e) {
-      dataSource.close();
+      try (autonomousDataSource) {
+        dataSource.close();
+      }
       throw e;
     }
   }
@@ -143,6 +152,11 @@ public final class MySqlTestStack implements AutoCloseable {
 
   public HikariDataSource dataSource() {
     return dataSource;
+  }
+
+  /** The factory the modules were started with (main pool plus its autonomous pool). */
+  public UnitOfWorkFactory uowFactory() {
+    return host.services().get(UnitOfWorkFactory.class);
   }
 
   /**
@@ -194,7 +208,7 @@ public final class MySqlTestStack implements AutoCloseable {
 
   @Override
   public void close() {
-    try (dataSource) {
+    try (autonomousDataSource; dataSource) {
       try {
         server.stop();
       } finally {
@@ -267,7 +281,16 @@ public final class MySqlTestStack implements AutoCloseable {
    * shows "Tests run: 0"), so say it on the console too.
    */
   private static void skip(Class<?> testClass, String reason) {
+    if (databaseRequired()) {
+      throw new IllegalStateException("[" + testClass.getSimpleName() + "] the test database is required "
+          + "(tests.requireDb / STEMPY_REQUIRE_DB) but " + reason);
+    }
     System.err.println("[" + testClass.getSimpleName() + "] SKIPPED: " + reason);
     assumeTrue(false, reason);
+  }
+
+  private static boolean databaseRequired() {
+    return Boolean.parseBoolean(System.getProperty("tests.requireDb"))
+        || Boolean.parseBoolean(System.getenv("STEMPY_REQUIRE_DB"));
   }
 }

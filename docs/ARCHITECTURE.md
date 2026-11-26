@@ -2,11 +2,11 @@
 
 A reference for the project layout, layer rules, and conventions: both **what exists today** and **the target shape** new code should grow into.
 
-_Last synced with the code: 2026-11-23 (after the scheduler, §17)._
+_Last synced with the code: 2026-11-26 (audit fixes, §15)._
 
 **Stack (as declared in the root `pom.xml`):** Java 25 (enforced `[25,26)`), Maven multi-module, Javalin 7, Jackson 2.17, HikariCP 7, **MySQL 8** (Connector/J), Flyway 11 (`flyway-mysql`), slf4j + logback, JUnit 6.
 
-Logging: slf4j + logback-classic (app/src/main/resources/logback.xml prints the request id). Declared but not used yet (kept for planned work): Lettuce (Redis: a shared login throttle if the server is ever replicated; the scheduler does NOT need it, see §17.1), Testcontainers BOM (in dependencyManagement only). ArchUnit enforces the module rules (§11). Authentication uses opaque server-side sessions, not JWT (see §3.4); jjwt was removed.
+Logging: slf4j + logback-classic (app/src/main/resources/logback.xml prints the request id); slf4j-simple is on the platform and modules **test** classpaths only, so the server has exactly one SLF4J provider. Lettuce and the Testcontainers BOM were removed (2026-11-26): add them back when a shared login throttle or containerized tests are actually built. ArchUnit enforces the module rules (§11). Authentication uses opaque server-side sessions, not JWT (see §3.4); jjwt was removed.
 
 ---
 
@@ -71,11 +71,11 @@ modules.X  ->  modules.Y.<Entity>.DEF    (entity relations, read side only)
 
 | Source                                          | Holds                                                                    |
 | ----------------------------------------------- | ------------------------------------------------------------------------ |
-| `app/src/main/resources/application.properties` | `server.port`, Redis port (unused yet), `auth.*` session/login policy, `scheduler.*` (§17.6) |
-| `platform/src/main/resources/db.properties`     | `database.pool.*`, `database.url.params.*` (JDBC URL), `database.mysql.performance.settings.*` (driver properties) |
-| `.env` (repo root, git-ignored) + environment   | Secrets & per-machine: `DATABASE_HOST/PORT/NAME/USER/PASSWORD`. Overrides the files on a shared key. |
+| `app/src/main/resources/application.properties` | `server.port`, `auth.*` session/login policy, `scheduler.*` (§17.6) |
+| `platform/src/main/resources/db.properties`     | `database.pool.*`, `database.autonomousPool.maxSize`, `database.url.params.*` (JDBC URL), `database.mysql.performance.settings.*` (driver properties) |
+| `.env` (repo root, git-ignored, optional) + environment | Secrets & per-machine: `DATABASE_HOST/PORT/NAME/USER/PASSWORD`; in production `DATABASE_USE_SSL`, `DATABASE_SSL_MODE`, `DATABASE_ALLOW_PUBLIC_KEY_RETRIEVAL` (override the matching `database.url.params.*`). Overrides the files on a shared key. |
 
-`app.config.AppSettings.load()` merges the three into one `platform.config.Settings` (typed getters: `get`, `getInt`, `getLong`, `getDuration`, `byPrefix`; a missing or malformed value fails with the key name). Each config record reads its own keys from it: `DatabaseConfig.from(settings)`, `AuthSettings.from(settings)`, `SchedulerSettings.from(settings)`. Anything absent keeps the record's default. Tests build `Settings.of(map)` / `Settings.fromClasspath("db.properties")` instead.
+`app.config.AppSettings.load()` merges the three into one (a missing `.env` is fine: a container sets real environment variables) `platform.config.Settings` (typed getters: `get`, `getInt`, `getLong`, `getDuration`, `byPrefix`; a missing or malformed value fails with the key name). Each config record reads its own keys from it: `DatabaseConfig.from(settings)`, `AuthSettings.from(settings)`, `SchedulerSettings.from(settings)`. Anything absent keeps the record's default. Tests build `Settings.of(map)` / `Settings.fromClasspath("db.properties")` instead.
 
 ---
 
@@ -353,7 +353,7 @@ modules/users/
 ├── EffectivePermissions.java        Pure helper: the §16.5 formula.
 ├── AuthSettings.java                Session/login policy + permission cache TTL; AuthSettings.from(settings)
 │                                    reads auth.*. (UsersModule wraps its Clock with Clock.tick(.., 1s): every
-│                                    time it computes is whole seconds, like a MySQL TIMESTAMP.)
+│                                    time it computes is whole seconds, like a MySQL DATETIME.)
 ├── operations/
 │   ├── FindLoginCandidateOperation.java
 │   ├── CreateSessionOperation.java  also prunes the user's dead sessions
@@ -550,7 +550,7 @@ Keep this package tiny. If a class has business meaning, it belongs in a module.
 | `StandardEntity` | `platform.entity` | 8 fields, 8 Field constants, 16 accessors per entity |
 | `Entities.define` | `modules.common` | the createdByUser / updatedByUser relations per entity |
 | `Jdbc.update / queryFirst / queryList` | `platform.db` | prepare / bind / catch SQLException per repository method |
-| `Timestamps` | `platform.db` | Instant <-> TIMESTAMP (also used by `FieldType.INSTANT`) |
+| `Timestamps` | `platform.db` | Instant <-> UTC DATETIME (also used by `FieldType.INSTANT`) |
 | `Validation` | `platform.error` | hand-built `List<FieldError>` + throw |
 
 ---
@@ -705,14 +705,14 @@ Two event tiers:
 | Pure unit                    | `platform/.../security`, `query`, `entity` | `PasswordHasherTest`, `SessionTokensTest`, `LoginThrottleTest` (manual clock), `QueryTranslatorTest`, `FieldValidationTest` |
 | Web plumbing                 | `platform/.../web/WebServerTest`, `AuthFilterTest` | Real Jetty on a random port; `DevAuthFilter` (test sources only) fakes identities; `FakeDataSource` fakes JDBC |
 | Wiring                       | `modules/.../ModuleEntitiesTest`           | Every module's entities register and freeze; scanner proves no DEF was forgotten         |
-| End-to-end against MySQL     | `AuthRoutesMySqlTest`, `ItemRoutesMySqlTest` | `MySqlTestStack`: full server started like Main (AllModules + ModuleHost), Flyway clean + migrate on `TEST_DATABASE_NAME` (must end in `_test`), seeded data, real logins. Skipped if the DB is unavailable |
+| End-to-end against MySQL     | `AuthRoutesMySqlTest`, `ItemRoutesMySqlTest` | `MySqlTestStack`: full server started like Main (AllModules + ModuleHost), Flyway clean + migrate on `TEST_DATABASE_NAME` (must end in `_test`), seeded data, real logins. Skipped if the DB is unavailable, unless `-Dtests.requireDb=true` / `STEMPY_REQUIRE_DB=true` (then they fail) |
 | Scheduler, pure              | `platform/.../scheduler`                   | `CronExpressionTest` (syntax, month ends, leap years, DST gap and overlap in America/Toronto), `ScheduleSpecTest`, `SchedulesTest`, `RetryPolicyTest`, `SchedulerRegistryTest` |
 | Scheduler against MySQL      | `modules/.../scheduler`, `system/scheduling` | `SchedulerStoreMySqlTest` (row locks, leases, duplicate-fire guard, SYSTEM user), `SchedulerEngineMySqlTest` (the running engine with test jobs: retries, timeouts, misfires, crash recovery, manual runs, two instances, shutdown), `BuiltInJobsMySqlTest`, `SchedulingRoutesMySqlTest` (admin API) |
 | Audit                        | `platform/.../audit`, `write`, `modules/.../audit` | `FieldChangesTest`, `AuditHistoryTest`, `AuditSettingsTest` (no DB); `AuditTrailMySqlTest`, `SecurityAuditMySqlTest`; schedules in `SchedulingRoutesMySqlTest`; `audit.prune` in `BuiltInJobsMySqlTest` (§20.7) |
 | Outbox                       | `platform/.../events`, `modules/.../outbox` | `EventBusAsyncTest` (no DB), `OutboxDispatcherMySqlTest` (delivery, rollback, retries, DEAD, timeouts, leases, two instances, shutdown); `outbox.prune` in `BuiltInJobsMySqlTest` (§18.7) |
 | Architecture                 |                                          | ArchUnit rules (§11)                                                                     |
 
-The MySQL tests use a **local** MySQL configured through `.env`, not Testcontainers (the BOM is declared for a later switch).
+The MySQL tests use a **local** MySQL configured through `.env`, not Testcontainers. There is no CI: before merging to main, run `./mvnw verify -Dtests.requireDb=true`, so a database that can't be reached fails the build instead of skipping every MySQL test.
 
 ---
 
@@ -798,7 +798,20 @@ Open:
 - **Outbox loose ends:** see §18.8.
 - **Tax loose ends:** see §19.5.
 - **Audit loose ends:** see §20.8.
-- **Unused but planned dependencies:** Lettuce (`redis.port` unused; no longer needed by the scheduler), Testcontainers BOM (no module depends on it; the MySQL tests use the local database).
+- **Date-times are `DATETIME` holding UTC** (since V15): never `TIMESTAMP`, which ends in 2038. Correct only because every connection forces its session time zone to UTC (`db.properties`); don't remove those URL parameters.
+- **Login throttling behind a reverse proxy:** `AuthController` keys failures on `ctx.ip()`, the socket address. Behind a proxy (which HTTPS will need) every client shares the proxy's address, so anyone can lock any user out. Needs a trusted-proxies setting for `X-Forwarded-For`, a per-user cap independent of IP, and the failure recorded before the hash check so parallel attempts can't exceed the limit.
+- **Idempotency keys hash `body.toString()`** (`Idempotency.java`): the same body with keys in another order is `IDEMPOTENCY_KEY_REUSED`. Hash a canonical form before clients depend on it.
+- **Only with several instances:** the in-memory login throttle (`LoginThrottle`), the per-instance permission cache (`CachedCompanyAccess`; the `assign-role` CLI never invalidates the running server's), the `MAX(id)+1` SYSTEM user insert (`UserAccountRepository`).
+- **Hand-written GL lookups by id** filter on `company_id` in SQL (2026-11-26), so another company's row is never returned or changed. A locking read can still wait on another company's locked row with that id (InnoDB locks the row before checking the condition); harmless, and short.
+- **Smaller ones:** Jackson 2.17 is old; one query per dimension set in the account ledger and the journal entry view; no upper bound on `offset`; no security headers (`X-Content-Type-Options`, `Cache-Control`); `PasswordHasher.needsRehash` is never called, so raising the iteration count never upgrades existing hashes; a CORS preflight skips `RequestIdFilter.after` (the request id stays in that thread's MDC); `/health/ready` hits the database on every call; no company-consistency foreign keys on the GL link tables (V11, V13); period close/reopen take no `version` (the same-status check stops a double close).
+
+Fixed on 2026-11-26:
+
+- **Pool deadlock:** short transactions opened while holding a connection (numbers, counters, GL dimension sets) use a separate autonomous pool (§21.11).
+- **Explicit session settings:** REPEATABLE READ set on the pool; session time zone forced to UTC; TLS settable from the environment (`DATABASE_USE_SSL`, ...).
+- **2038:** every `TIMESTAMP` column is now `DATETIME` (V15); `ALTER DATABASE` sets utf8mb4, and `DatabaseMigrator` refuses to start on a table or text column in another character set.
+- **Timeouts stop SQL:** scheduler and outbox workers are virtual threads (§17.4); the outbox no longer lets a late timeout or shutdown interrupt leak past a delivery (`ActiveDelivery`).
+- **Build and config:** one SLF4J provider (logback); a missing `.env` no longer stops startup; Lettuce, `redis.port` and the Testcontainers BOM removed; `-Dtests.requireDb=true` makes the MySQL tests fail instead of skipping.
 
 Fixed on 2026-11-18:
 
@@ -1117,7 +1130,7 @@ Names are unique per company and among system rows: a stored generated `company_
 
 ### 17.4 How it runs
 
-Each instance runs one poll thread (`scheduler-poll`), a fixed worker pool (`scheduler-worker-N`) and a watchdog thread. Every `pollInterval`:
+Each instance runs one poll thread (`scheduler-poll`), a fixed pool of `workerThreads` **virtual** worker threads (`scheduler-worker-N`) and a watchdog thread. The workers are virtual for one reason, not throughput: interrupting a virtual thread blocked in socket I/O closes the socket, so a timeout or shutdown also stops a job stuck in a query (the JDBC call fails and Hikari discards the connection). A platform thread blocked in a MySQL read ignores the interrupt. Every `pollInterval`:
 
 1. **Recompute.** Read every row (the table is small) and compare fingerprints. For changed rows, compute the next fire time inside the `[start_at, end_at]` window and store it, only if the fingerprint is still the one read (the first instance wins). An invalid row is logged once per edit and gets no `next_run_at`.
 2. **Reap.** Lock rows whose lease expired (`FOR UPDATE SKIP LOCKED`), mark their `RUNNING` runs `ABANDONED`, clear the lease, and apply the retry rules.
@@ -1247,7 +1260,7 @@ eventBus.subscribeAsync("search.index-entity", EntityChanged.class,     // key: 
 
 ### 18.4 How it runs
 
-`ModuleHost.startOutbox(settings)` (server mode only) starts, on each instance, one poll thread (`outbox-poll`), a worker pool (`outbox-worker-N`) and a watchdog. The loop:
+`ModuleHost.startOutbox(settings)` (server mode only) starts, on each instance, one poll thread (`outbox-poll`), a fixed pool of virtual worker threads (`outbox-worker-N`, virtual so that a timeout also stops a handler stuck in a query, as in §17.4) and a watchdog. The loop:
 
 1. **Reap** (once per `pollInterval`): `PROCESSING` rows whose lease expired go back to `PENDING` after the backoff, or `DEAD` if that was their last attempt.
 2. **Claim**, in one short transaction, at most as many `PENDING` rows with `available_at <= now` as there are idle workers, only for subscription keys registered on **this** instance: `PROCESSING`, `attempt + 1`, lease = now + timeout + 30 s.
@@ -1533,7 +1546,7 @@ String no = documentNumbers.next(uow, NumberRequest.of(companyId, "sales.custome
 
 ### 21.5 How a number is taken
 
-The pool runs MySQL's default REPEATABLE READ, which shapes every step (`JdbcDocumentNumbers`):
+The pool runs REPEATABLE READ (set explicitly in `DataSources`), which shapes every step (`JdbcDocumentNumbers`). Every "transaction of its own" below runs on `UnitOfWorkFactory.autonomous()`, a separate small pool (§21.11):
 
 1. **Series:** read without locks in the caller's transaction (the requested code, or the enabled default). If the company has no default and the type declares one, it is inserted (`INSERT IGNORE`) and read back with a current read (`FOR SHARE`) in a short transaction of its own; the caller's snapshot may predate it.
 2. **Check:** the stored pattern is parsed against the type's parameters, and a `GAPS_ALLOWED` series of a `gaplessRequired` type is refused. Either problem is an `IllegalStateException` (data written around the admin API).
@@ -1569,7 +1582,7 @@ CREATE TABLE `number_series_counters` (
   `series_id` BIGINT UNSIGNED NOT NULL,
   `scope` VARCHAR(255) NOT NULL,                  -- 'STORE_NO=012;TERMINAL_NO=03', '' without parameters
   `last_number` BIGINT UNSIGNED NOT NULL,
-  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, -- TIMESTAMP until V15
   UNIQUE KEY `uq_number_series_counters` (`series_id`, `scope`),
   FOREIGN KEY (`series_id`) REFERENCES `number_series`(`id`)
 );
@@ -1643,7 +1656,7 @@ platform/numbering/
 
 - **Store and terminal values are not checked** against any table; they're plain strings until stores and terminals exist.
 - **No offline numbering**: a terminal that can't reach the server can't number a document.
-- **A second connection while the caller holds one:** every `GAPS_ALLOWED` number, and for `GAPLESS` the first use of a counter or of a default series. If every pool connection is held by a caller waiting for a second one, they all wait up to `connectionTimeoutMs` (30 s) and fail. With the pool at 10 (`database.pool.maxSize`), keep fewer than 10 request threads taking numbers at once, or raise the pool further. The tests use 5 threads.
+- **A second connection while the caller holds one:** every `GAPS_ALLOWED` number, and for `GAPLESS` the first use of a counter or of a default series. It comes from the **autonomous pool** (`UnitOfWorkFactory.autonomous()`, `database.autonomousPool.maxSize`, 4), never from the caller's: with one pool, callers holding every connection and waiting for a second one all failed after `connectionTimeoutMs` (fixed 2026-11-26; `moreCallersThanPoolConnectionsDoNotDeadlock` runs twice as many callers as connections). An autonomous transaction never opens another one, so it always finishes. One case can still wait: a `GAPLESS` caller holding a counter's row lock while it needs an autonomous connection, with every autonomous connection busy creating that same counter (a caller whose snapshot predates the counter). The lock wait timeout (50 s) ends it; it needs a counter's very first uses to coincide.
 - **A "used" series is one with a counter**, even if its only number was rolled back (the counter row was committed on its own).
 - **Values that differ only in letter case share a counter** (`00a` and `00A`): the `scope` column uses the database's case-insensitive collation. Numbers still never repeat, since each call takes the next value.
 - **A long gapless transaction blocks its counter** (only that scope) until it commits.
@@ -1825,7 +1838,7 @@ All per company (the request's), `ADMINISTRATOR` has them all, writes audited (�
 - **Base currency only.**
 - **Dimension values aren't linked to master data** (stores, projects) until those tables exist.
 - **Reports compute from the lines** every time.
-- **Posting may need a second connection**: dimension sets (on first use) and the entry's number counter (on first use) are created in short transactions of their own, like §21.11.
+- **Posting may need a second connection**: dimension sets (resolved, and created on first use) and the entry's number counter (on first use) use short transactions of their own on the autonomous pool, like §21.11.
 - **No test yet of a close racing a posting**: the locks are designed for it (§22.4), but only sequential close-then-post is tested.
 - **No fiscal-year history route**: creating a year is audited (entity `glFiscalYear`), but only periods have a `/history` route.
 - **Fiscal years can't be deleted**, even before any posting. A wrong first year is fixed with SQL for now.

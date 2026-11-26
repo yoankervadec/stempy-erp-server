@@ -147,8 +147,8 @@ public class JournalService {
   // ---- views ----
 
   private StoredEntry visible(RequestContext rc, long id) {
-    return uowFactory.executeReadOnly(uow -> findEntry.execute(uow, new FindJournalEntryOperation.Input(id, false)))
-        .filter(e -> e.companyId() == rc.companyId())
+    return uowFactory.executeReadOnly(uow -> findEntry.execute(uow,
+        new FindJournalEntryOperation.Input(rc.companyId(), id, false)))
         .orElseThrow(() -> new ResourceNotFoundException("NOT_FOUND", "Journal entry " + id + " not found"));
   }
 

@@ -20,7 +20,8 @@ public final class AppSettings {
 
   public static Settings load() {
     Map<String, String> env = new HashMap<>();
-    for (DotenvEntry e : Dotenv.load().entries()) { // .env plus the process environment
+    // .env plus the process environment; no .env is fine (a container sets real environment variables)
+    for (DotenvEntry e : Dotenv.configure().ignoreIfMissing().load().entries()) {
       env.put(e.getKey(), e.getValue());
     }
     return Settings.fromClasspath("application.properties", "db.properties")

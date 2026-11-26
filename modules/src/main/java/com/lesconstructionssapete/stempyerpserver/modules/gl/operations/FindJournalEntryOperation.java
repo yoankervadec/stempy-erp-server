@@ -8,12 +8,12 @@ import com.lesconstructionssapete.stempyerpserver.modules.gl.StoredEntry;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWork;
 
 /**
- * One entry by id, whatever its company: the orchestrator checks visibility.
+ * One entry of a company by id; empty when it belongs to another company.
  * {@code lock}: FOR UPDATE, for a reversal.
  */
 public class FindJournalEntryOperation implements Operation<FindJournalEntryOperation.Input, Optional<StoredEntry>> {
 
-  public record Input(long id, boolean lock) {
+  public record Input(long companyId, long id, boolean lock) {
   }
 
   private final JournalRepository repository;
@@ -24,6 +24,7 @@ public class FindJournalEntryOperation implements Operation<FindJournalEntryOper
 
   @Override
   public Optional<StoredEntry> execute(UnitOfWork uow, Input in) {
-    return in.lock() ? repository.findForUpdate(uow, in.id()) : repository.find(uow, in.id());
+    return in.lock() ? repository.findForUpdate(uow, in.companyId(), in.id())
+        : repository.find(uow, in.companyId(), in.id());
   }
 }

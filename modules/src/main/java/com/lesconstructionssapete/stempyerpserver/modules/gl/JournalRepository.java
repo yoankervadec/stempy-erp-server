@@ -56,15 +56,16 @@ public class JournalRepository {
         line.dimensionSetId());
   }
 
-  public Optional<StoredEntry> find(UnitOfWork uow, long id) {
-    return Jdbc.queryFirst(uow, "SELECT " + ENTRY_COLUMNS + " FROM gl_journal_entries WHERE id = ?",
-        JournalRepository::entry, id);
+  public Optional<StoredEntry> find(UnitOfWork uow, long companyId, long id) {
+    return Jdbc.queryFirst(uow, "SELECT " + ENTRY_COLUMNS + " FROM gl_journal_entries WHERE id = ? AND company_id = ?",
+        JournalRepository::entry, id, companyId);
   }
 
   /** Locks the entry until the transaction ends: two reversals of it can't race. */
-  public Optional<StoredEntry> findForUpdate(UnitOfWork uow, long id) {
-    return Jdbc.queryFirst(uow, "SELECT " + ENTRY_COLUMNS + " FROM gl_journal_entries WHERE id = ? FOR UPDATE",
-        JournalRepository::entry, id);
+  public Optional<StoredEntry> findForUpdate(UnitOfWork uow, long companyId, long id) {
+    return Jdbc.queryFirst(uow,
+        "SELECT " + ENTRY_COLUMNS + " FROM gl_journal_entries WHERE id = ? AND company_id = ? FOR UPDATE",
+        JournalRepository::entry, id, companyId);
   }
 
   public List<StoredLine> lines(UnitOfWork uow, long entryId) {
@@ -107,8 +108,8 @@ public class JournalRepository {
   }
 
   /** Links an entry to its reversal; false if it was already reversed. */
-  public boolean setReversedBy(UnitOfWork uow, long id, long reversalId) {
-    return Jdbc.update(uow, "UPDATE gl_journal_entries SET reversed_by_id = ? WHERE id = ? AND reversed_by_id IS NULL",
-        reversalId, id) == 1;
+  public boolean setReversedBy(UnitOfWork uow, long companyId, long id, long reversalId) {
+    return Jdbc.update(uow, "UPDATE gl_journal_entries SET reversed_by_id = ? "
+        + "WHERE id = ? AND company_id = ? AND reversed_by_id IS NULL", reversalId, id, companyId) == 1;
   }
 }

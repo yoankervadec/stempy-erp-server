@@ -26,7 +26,8 @@ public class ChangePeriodStatusOperation implements Operation<ChangePeriodStatus
   public static final String CLOSED = "CLOSED";
   public static final String REOPENED = "REOPENED";
 
-  public record Input(long periodId, PeriodStatus target, long userId, String requestId, Instant now) {
+  public record Input(long companyId, long periodId, PeriodStatus target, long userId, String requestId,
+      Instant now) {
   }
 
   private final PeriodRepository repository;
@@ -39,13 +40,13 @@ public class ChangePeriodStatusOperation implements Operation<ChangePeriodStatus
 
   @Override
   public Void execute(UnitOfWork uow, Input in) {
-    StoredPeriod p = repository.findPeriodForUpdate(uow, in.periodId())
+    StoredPeriod p = repository.findPeriodForUpdate(uow, in.companyId(), in.periodId())
         .orElseThrow(() -> new ResourceNotFoundException("NOT_FOUND", "Period " + in.periodId() + " not found"));
     if (p.status() == in.target()) {
       throw new ConflictException(in.target() == PeriodStatus.CLOSED ? "PERIOD_ALREADY_CLOSED"
           : "PERIOD_ALREADY_OPEN", "The period is already " + in.target().name().toLowerCase(java.util.Locale.ROOT));
     }
-    repository.setStatus(uow, p.id(), in.target(), in.userId(), in.now());
+    repository.setStatus(uow, p.companyId(), p.id(), in.target(), in.userId(), in.now());
     audit.record(uow, new AuditEntry(AUDIT_ENTITY, p.id(), p.companyId(),
         in.target() == PeriodStatus.CLOSED ? CLOSED : REOPENED, in.userId(), in.requestId(), in.now(),
         Map.of("status", new FieldChange(p.status().name(), in.target().name()))));

@@ -263,8 +263,7 @@ public class JournalPostingService implements GeneralLedgerApi {
    */
   public JournalEntryRef reverse(UnitOfWork uow, RequestContext rc, long entryId, LocalDate postingDate,
       String description) {
-    StoredEntry original = findEntry.execute(uow, new FindJournalEntryOperation.Input(entryId, true))
-        .filter(e -> e.companyId() == rc.companyId())
+    StoredEntry original = findEntry.execute(uow, new FindJournalEntryOperation.Input(rc.companyId(), entryId, true))
         .orElseThrow(() -> new ResourceNotFoundException("NOT_FOUND", "Journal entry " + entryId + " not found"));
     if (original.reversalOfId() != null) {
       throw new ConflictException("CANNOT_REVERSE_A_REVERSAL",

@@ -94,6 +94,11 @@ class SchedulerEngineMySqlTest {
         }
         ctx.setResultSummary("gate opened");
       }),
+      JobType.of("test.sql-block", "Blocks in a query", ctx -> {
+        SEEN.add(seen(ctx));
+        // Interrupting the worker (a virtual thread) closes the socket: the query fails at once.
+        SchedulerEngineMySqlTest.uow.run(u -> Jdbc.queryFirst(u, "SELECT SLEEP(30)", rs -> rs.getInt(1)));
+      }),
       JobType.of("test.params", "Needs a numeric 'days'", ctx -> SEEN.add(seen(ctx)))
           .withParameters(p -> {
             if (!p.path("days").isInt()) {
@@ -359,6 +364,16 @@ class SchedulerEngineMySqlTest {
   @Test
   void aJobPastItsTimeoutIsInterruptedAndMarkedTimedOut() {
     long id = insertDue("test.block", "Too slow", 1, "timeout_seconds = 1");
+    awaitStatuses(id, RunStatus.TIMED_OUT);
+    RunRow run = runsOf(id).getFirst();
+    assertEquals("Job ran past its timeout", run.errorMessage());
+    assertTrue(run.durationMs() >= 1000 && run.durationMs() < 5000, "duration " + run.durationMs());
+    assertNull(row(id).lockedBy());
+  }
+
+  @Test
+  void aJobBlockedInAQueryIsStoppedAtItsTimeout() {
+    long id = insertDue("test.sql-block", "Stuck in SQL", 1, "timeout_seconds = 1");
     awaitStatuses(id, RunStatus.TIMED_OUT);
     RunRow run = runsOf(id).getFirst();
     assertEquals("Job ran past its timeout", run.errorMessage());

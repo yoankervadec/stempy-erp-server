@@ -33,7 +33,7 @@ public final class OutboxRepository {
       id, subscription_key, event_type, payload, company_id, status, attempt, available_at, locked_by,
       locked_until, last_error, created_at, processed_at""";
 
-  /** The database's current UTC time, whole seconds (what a TIMESTAMP column stores). */
+  /** The database's current UTC time, whole seconds (what a DATETIME column stores). */
   public Instant now(UnitOfWork uow) {
     return Jdbc.queryFirst(uow, "SELECT UTC_TIMESTAMP() AS now",
         rs -> rs.getObject("now", LocalDateTime.class).toInstant(ZoneOffset.UTC)).orElseThrow();

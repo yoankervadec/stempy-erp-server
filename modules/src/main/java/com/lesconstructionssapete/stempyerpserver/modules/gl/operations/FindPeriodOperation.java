@@ -7,8 +7,11 @@ import com.lesconstructionssapete.stempyerpserver.modules.gl.PeriodRepository;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.StoredPeriod;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWork;
 
-/** One period by id, whatever its company: the orchestrator checks visibility. */
-public class FindPeriodOperation implements Operation<Long, Optional<StoredPeriod>> {
+/** One period of a company by id; empty when it belongs to another company. */
+public class FindPeriodOperation implements Operation<FindPeriodOperation.Input, Optional<StoredPeriod>> {
+
+  public record Input(long companyId, long id) {
+  }
 
   private final PeriodRepository repository;
 
@@ -17,7 +20,7 @@ public class FindPeriodOperation implements Operation<Long, Optional<StoredPerio
   }
 
   @Override
-  public Optional<StoredPeriod> execute(UnitOfWork uow, Long id) {
-    return repository.findPeriod(uow, id);
+  public Optional<StoredPeriod> execute(UnitOfWork uow, Input in) {
+    return repository.findPeriod(uow, in.companyId(), in.id());
   }
 }

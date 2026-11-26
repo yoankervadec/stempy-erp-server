@@ -145,7 +145,7 @@ public final class ModuleHost {
     var checker = new PermissionChecker(permissions);
     registry.register(PermissionRegistry.class, permissions);
     registry.register(PermissionChecker.class, checker);
-    // Whole seconds, like a MySQL TIMESTAMP, so a time written equals the time read back.
+    // Whole seconds, like a MySQL DATETIME, so a time written equals the time read back.
     Clock clock = Clock.tick(Clock.systemUTC(), Duration.ofSeconds(1));
     var auditLog = new AuditLog(JsonMapperFactory.newObjectMapper());
     registry.register(AuditLog.class, auditLog);

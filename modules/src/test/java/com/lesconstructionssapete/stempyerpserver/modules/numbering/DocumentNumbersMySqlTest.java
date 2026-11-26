@@ -371,6 +371,25 @@ class DocumentNumbersMySqlTest {
     assertEquals(40, unique.size());
   }
 
+  /**
+   * Every connection of the main pool held by a caller that needs a number:
+   * the counter's own transactions use the autonomous pool, so nobody waits
+   * on a connection that only another waiting caller could give back.
+   */
+  @Test
+  void moreCallersThanPoolConnectionsDoNotDeadlock() throws Exception {
+    int callers = stack.dataSource().getMaximumPoolSize() * 2;
+    long started = System.nanoTime();
+    List<String> taken = runConcurrently(callers, callers * 3, () -> uow.execute(u -> {
+      String number = numbers.next(u, order(ACME, "12", "3"));
+      java.util.concurrent.locks.LockSupport.parkNanos(50_000_000); // hold the connection, so all callers do at once
+      return number;
+    }));
+    long seconds = java.time.Duration.ofNanos(System.nanoTime() - started).toSeconds();
+    assertEquals(callers * 3, new TreeSet<>(taken).size());
+    assertTrue(seconds < 20, "took " + seconds + " s: callers waited on the pool they were holding");
+  }
+
   @Test
   void openGaplessTransactionsOnDifferentTerminalsDoNotWait() {
     next(receipt("1", "1"));
@@ -407,8 +426,8 @@ class DocumentNumbersMySqlTest {
 
   /**
    * Runs {@code tasks} calls on {@code threads} threads, all started at once.
-   * Fewer threads than pool connections: a GAPLESS first use needs a second
-   * connection for the counter.
+   * The calls' own UnitOfWorks come from the main pool; the second connection
+   * a number may need comes from the autonomous one.
    */
   private static <T> List<T> runConcurrently(int threads, int tasks, Callable<T> task) throws Exception {
     ExecutorService pool = Executors.newFixedThreadPool(threads);

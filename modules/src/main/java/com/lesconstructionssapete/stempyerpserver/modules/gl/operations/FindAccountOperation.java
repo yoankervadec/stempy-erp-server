@@ -7,8 +7,11 @@ import com.lesconstructionssapete.stempyerpserver.modules.gl.AccountRepository;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.StoredAccount;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWork;
 
-/** One account by id, whatever its company: the orchestrator checks visibility. */
-public class FindAccountOperation implements Operation<Long, Optional<StoredAccount>> {
+/** One account of a company by id; empty when it belongs to another company. */
+public class FindAccountOperation implements Operation<FindAccountOperation.Input, Optional<StoredAccount>> {
+
+  public record Input(long companyId, long id) {
+  }
 
   private final AccountRepository repository;
 
@@ -17,7 +20,7 @@ public class FindAccountOperation implements Operation<Long, Optional<StoredAcco
   }
 
   @Override
-  public Optional<StoredAccount> execute(UnitOfWork uow, Long id) {
-    return repository.find(uow, id);
+  public Optional<StoredAccount> execute(UnitOfWork uow, Input in) {
+    return repository.find(uow, in.companyId(), in.id());
   }
 }

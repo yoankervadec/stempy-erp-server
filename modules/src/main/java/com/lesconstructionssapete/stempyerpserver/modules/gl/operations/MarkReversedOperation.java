@@ -35,7 +35,7 @@ public class MarkReversedOperation implements Operation<MarkReversedOperation.In
 
   @Override
   public Void execute(UnitOfWork uow, Input in) {
-    if (!repository.setReversedBy(uow, in.entryId(), in.reversalId())) {
+    if (!repository.setReversedBy(uow, in.companyId(), in.entryId(), in.reversalId())) {
       throw new ConflictException("ALREADY_REVERSED", "The entry has already been reversed");
     }
     audit.record(uow, new AuditEntry(StoredEntry.AUDIT_ENTITY, in.entryId(), in.companyId(),

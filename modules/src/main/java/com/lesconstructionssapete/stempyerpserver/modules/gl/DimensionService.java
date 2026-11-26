@@ -87,7 +87,7 @@ public class DimensionService {
     visibleAccount(rc, accountId);
     RulesForm form = rulesForm(body);
     Instant now = clock.instant();
-    uowFactory.run(uow -> replaceRules.execute(uow, new ReplaceDimensionRulesOperation.Input(accountId,
+    uowFactory.run(uow -> replaceRules.execute(uow, new ReplaceDimensionRulesOperation.Input(rc.companyId(), accountId,
         form.version(), form.rules(), rc.userId(), rc.requestId(), now)));
     return rules(rc, accountId);
   }
@@ -105,9 +105,11 @@ public class DimensionService {
     if (codes.isEmpty()) {
       return Optional.empty();
     }
-    SortedMap<Long, Long> pairs = uowFactory.executeReadOnly(uow -> resolveDimensions.execute(uow,
+    // Autonomous: the caller (journal posting) holds a UnitOfWork of its own.
+    UnitOfWorkFactory own = uowFactory.autonomous();
+    SortedMap<Long, Long> pairs = own.executeReadOnly(uow -> resolveDimensions.execute(uow,
         new ResolveDimensionsOperation.Input(companyId, codes, fieldPrefix)));
-    return Optional.of(uowFactory.execute(uow -> findOrCreateSet.execute(uow,
+    return Optional.of(own.execute(uow -> findOrCreateSet.execute(uow,
         new FindOrCreateDimensionSetOperation.Input(companyId, pairs))));
   }
 
@@ -123,8 +125,8 @@ public class DimensionService {
   // ---- rules ----
 
   private void visibleAccount(RequestContext rc, long accountId) {
-    uowFactory.executeReadOnly(uow -> findAccount.execute(uow, accountId))
-        .filter(a -> a.companyId() == rc.companyId())
+    uowFactory.executeReadOnly(uow -> findAccount.execute(uow, new FindAccountOperation.Input(rc.companyId(),
+        accountId)))
         .orElseThrow(() -> new ResourceNotFoundException("NOT_FOUND", "Account " + accountId + " not found"));
   }
 

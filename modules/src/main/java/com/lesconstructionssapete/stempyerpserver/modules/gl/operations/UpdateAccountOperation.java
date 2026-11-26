@@ -37,7 +37,8 @@ import com.lesconstructionssapete.stempyerpserver.platform.write.EntityChanged.F
  */
 public class UpdateAccountOperation implements Operation<UpdateAccountOperation.Input, Void> {
 
-  public record Input(long id, int version, AccountFields fields, long userId, String requestId, Instant now) {
+  public record Input(long companyId, long id, int version, AccountFields fields, long userId, String requestId,
+      Instant now) {
   }
 
   /** Parent chains longer than this are treated as broken data rather than walked forever. */
@@ -53,7 +54,7 @@ public class UpdateAccountOperation implements Operation<UpdateAccountOperation.
 
   @Override
   public Void execute(UnitOfWork uow, Input in) {
-    StoredAccount current = repository.findForUpdate(uow, in.id())
+    StoredAccount current = repository.findForUpdate(uow, in.companyId(), in.id())
         .orElseThrow(() -> new ResourceNotFoundException("NOT_FOUND", "Account " + in.id() + " not found"));
     if (current.version() != in.version()) {
       throw new ConflictException("VERSION_CONFLICT", "The account was changed by someone else; reload and retry");
@@ -84,7 +85,7 @@ public class UpdateAccountOperation implements Operation<UpdateAccountOperation.
     }
     v.throwIfInvalid();
 
-    if (repository.update(uow, current.id(), in.version(), after, in.userId(), in.now()) == 0) {
+    if (repository.update(uow, current.companyId(), current.id(), in.version(), after, in.userId(), in.now()) == 0) {
       throw new IllegalStateException("account " + current.id() + " changed while locked");
     }
     Map<String, FieldChange> changes = AccountFields.changes(before, after);
@@ -97,8 +98,7 @@ public class UpdateAccountOperation implements Operation<UpdateAccountOperation.
 
   /** Same company, a heading, and the account is not among its ancestors. */
   private void checkParent(UnitOfWork uow, Validation v, StoredAccount account, long parentId) {
-    Optional<StoredAccount> parent = repository.findForShare(uow, parentId)
-        .filter(p -> p.companyId() == account.companyId());
+    Optional<StoredAccount> parent = repository.findForShare(uow, account.companyId(), parentId);
     if (parent.isEmpty()) {
       v.add("parentId", "INVALID_REFERENCE", "no account " + parentId + " in this company");
       return;
@@ -118,7 +118,7 @@ public class UpdateAccountOperation implements Operation<UpdateAccountOperation.
       if (!seen.add(a.id()) || a.fields().parentId() == null) {
         return;
       }
-      cursor = repository.findForShare(uow, a.fields().parentId());
+      cursor = repository.findForShare(uow, account.companyId(), a.fields().parentId());
     }
   }
 }

@@ -51,11 +51,12 @@ public class Main {
     DatabaseConfig db = DatabaseConfig.from(settings);
     DatabaseMigrator.migrate(db);
     HikariDataSource dataSource = DataSources.create(db);
-    host.start(new UnitOfWorkFactory(dataSource));
+    HikariDataSource autonomousDataSource = DataSources.createAutonomous(db);
+    host.start(new UnitOfWorkFactory(dataSource, autonomousDataSource));
 
     if (command != null) {
       int exitCode;
-      try (dataSource) {
+      try (autonomousDataSource; dataSource) {
         exitCode = command.applyAsInt(host.services());
       }
       System.exit(exitCode);
@@ -69,7 +70,7 @@ public class Main {
     // Stop taking requests, starting jobs and delivering messages first, then release the pool they were using.
     // Requests and jobs may still enqueue messages while they finish, so the outbox stops last.
     Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-      try (dataSource) {
+      try (autonomousDataSource; dataSource) {
         try {
           webServer.stop();
         } finally {

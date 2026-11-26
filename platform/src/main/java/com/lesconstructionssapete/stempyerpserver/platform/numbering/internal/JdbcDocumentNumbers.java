@@ -30,6 +30,9 @@ import com.lesconstructionssapete.stempyerpserver.platform.numbering.internal.Se
  * <li>The counter is incremented with a plain UPDATE, then read back: in the
  * caller's transaction for GAPLESS, in one of its own for GAPS_ALLOWED.</li>
  * </ol>
+ *
+ * Every "transaction of its own" runs on UnitOfWorkFactory.autonomous(), a
+ * separate pool, so callers holding a connection never wait on their own pool.
  */
 public final class JdbcDocumentNumbers implements DocumentNumbers {
 
@@ -70,7 +73,7 @@ public final class JdbcDocumentNumbers implements DocumentNumbers {
     }
     return series.findDefault(uow, companyId, type.key(), false)
         .or(() -> type.defaultSeries() == null ? Optional.empty()
-            : uowFactory.execute(u -> {
+            : uowFactory.autonomous().execute(u -> {
               if (!series.existsDefault(u, companyId, type.key())) {
                 series.insertDefaultIgnoringDuplicates(u, companyId, type);
               }
@@ -118,12 +121,12 @@ public final class JdbcDocumentNumbers implements DocumentNumbers {
 
   /** Increments in a transaction of its own; null when the counter doesn't exist yet. */
   private Long incrementAlone(SeriesRow row, String scope) {
-    return uowFactory.execute(u -> counters.increment(u, row.id(), scope) == 1
+    return uowFactory.autonomous().execute(u -> counters.increment(u, row.id(), scope) == 1
         ? counters.lastNumber(u, row.id(), scope)
         : null);
   }
 
   private void createCounter(SeriesRow row, String scope) {
-    uowFactory.run(u -> counters.insertIgnoringDuplicate(u, row.id(), scope, row.startValue() - 1));
+    uowFactory.autonomous().run(u -> counters.insertIgnoringDuplicate(u, row.id(), scope, row.startValue() - 1));
   }
 }

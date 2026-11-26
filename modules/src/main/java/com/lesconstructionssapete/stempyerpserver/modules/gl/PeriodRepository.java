@@ -75,24 +75,25 @@ public class PeriodRepository {
         PeriodRepository::period, companyId);
   }
 
-  public Optional<StoredPeriod> findPeriod(UnitOfWork uow, long id) {
-    return Jdbc.queryFirst(uow, "SELECT " + PERIOD_COLUMNS + " FROM gl_periods WHERE id = ?",
-        PeriodRepository::period, id);
+  public Optional<StoredPeriod> findPeriod(UnitOfWork uow, long companyId, long id) {
+    return Jdbc.queryFirst(uow, "SELECT " + PERIOD_COLUMNS + " FROM gl_periods WHERE id = ? AND company_id = ?",
+        PeriodRepository::period, id, companyId);
   }
 
   /**
    * Locks the period until the transaction ends. Posting reads it FOR SHARE,
    * so a close waits for entries being posted into it, and the reverse.
    */
-  public Optional<StoredPeriod> findPeriodForUpdate(UnitOfWork uow, long id) {
-    return Jdbc.queryFirst(uow, "SELECT " + PERIOD_COLUMNS + " FROM gl_periods WHERE id = ? FOR UPDATE",
-        PeriodRepository::period, id);
+  public Optional<StoredPeriod> findPeriodForUpdate(UnitOfWork uow, long companyId, long id) {
+    return Jdbc.queryFirst(uow,
+        "SELECT " + PERIOD_COLUMNS + " FROM gl_periods WHERE id = ? AND company_id = ? FOR UPDATE",
+        PeriodRepository::period, id, companyId);
   }
 
-  public void setStatus(UnitOfWork uow, long id, PeriodStatus status, long userId, Instant now) {
+  public void setStatus(UnitOfWork uow, long companyId, long id, PeriodStatus status, long userId, Instant now) {
     Jdbc.update(uow, """
         UPDATE gl_periods SET status = ?, version = version + 1, status_changed_at = ?, status_changed_by = ?
-         WHERE id = ?""", status, now, userId, id);
+         WHERE id = ? AND company_id = ?""", status, now, userId, id, companyId);
   }
 
   /**

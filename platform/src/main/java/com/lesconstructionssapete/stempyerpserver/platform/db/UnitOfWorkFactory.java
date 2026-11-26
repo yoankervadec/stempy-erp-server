@@ -13,13 +13,40 @@ import javax.sql.DataSource;
  * pool.
  * Use begin() directly only when you need manual control (e.g. a scheduler
  * job).
+ *
+ * <p>Autonomous transactions: code that holds a UnitOfWork and needs a short
+ * transaction of its own (a GAPS_ALLOWED number, a new counter, a new GL
+ * dimension set) uses {@link #autonomous()}, never this factory. Taking a
+ * second connection from the same pool while holding one deadlocks once every
+ * connection is held by a caller waiting for a second one; the autonomous
+ * pool is separate, and its transactions never need a further connection.
  */
 public class UnitOfWorkFactory {
 
   private final DataSource dataSource;
+  private final UnitOfWorkFactory autonomous;
 
+  /** One pool for everything: autonomous() is this factory (tests, CLI tools). */
   public UnitOfWorkFactory(DataSource dataSource) {
     this.dataSource = dataSource;
+    this.autonomous = this;
+  }
+
+  /**
+   * @param autonomousDataSource a separate pool for {@link #autonomous()}
+   *                             transactions (DataSources.createAutonomous)
+   */
+  public UnitOfWorkFactory(DataSource dataSource, DataSource autonomousDataSource) {
+    this.dataSource = dataSource;
+    this.autonomous = new UnitOfWorkFactory(autonomousDataSource);
+  }
+
+  /**
+   * For short transactions opened while the caller holds a UnitOfWork. Work run
+   * here must not open another transaction itself.
+   */
+  public UnitOfWorkFactory autonomous() {
+    return autonomous;
   }
 
   /** Manual control: caller must close() it, ideally with try-with-resources. */
