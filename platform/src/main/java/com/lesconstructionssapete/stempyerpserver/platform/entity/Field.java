@@ -47,6 +47,7 @@ public final class Field<E, V> {
   private Format format;
   private Field<E, Long> currencyField;
   private Supplier<? extends EntityDefinition<?>> references;
+  private V defaultValue;
 
   Field(
       String name,
@@ -201,6 +202,21 @@ public final class Field<E, V> {
     requireType(FieldType.LONG, "references");
     this.references = Objects.requireNonNull(target, "target");
     return this;
+  }
+
+  /**
+   * The value a new record starts with (GET {path}/new), e.g. isEnabled true.
+   * Only a starting value for forms: a create that leaves the field out still
+   * gets the database's default.
+   */
+  public Field<E, V> defaultValue(V value) {
+    this.defaultValue = Objects.requireNonNull(value, "value");
+    return this;
+  }
+
+  /** Null when none is declared. */
+  public V defaultValue() {
+    return defaultValue;
   }
 
   private void requireType(FieldType<?> expected, String hint) {

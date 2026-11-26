@@ -57,6 +57,7 @@ public class Product extends StandardEntity {
   /** UI hints (docs/ARCHITECTURE.md §23.4). unit_amount is DECIMAL(19, 4). */
   static {
     UNIT_AMOUNT.scale(4).money(CURRENCY_ID);
+    IS_ENABLED.defaultValue(true); // a new product's currency: the company's (ProductService)
     DEF.subtitleField(NAME)
         .listColumns(PRODUCT_NO, NAME, PRODUCT_CATEGORY_ID, UNIT_AMOUNT, IS_ENABLED)
         .defaultSort(SortKey.asc(PRODUCT_NO));

@@ -36,6 +36,7 @@ public abstract class ErpException extends RuntimeException {
 
   private final String code;
   private final Map<String, Object> params = new LinkedHashMap<>();
+  private Object current;
 
   protected ErpException(String code, String message) {
     super(message);
@@ -66,6 +67,21 @@ public abstract class ErpException extends RuntimeException {
 
   public Map<String, Object> params() {
     return Collections.unmodifiableMap(params);
+  }
+
+  /**
+   * The record as it is now, sent with the error ("current") so the client can
+   * show what changed: for a 409 VERSION_CONFLICT (docs/ARCHITECTURE.md §23.9).
+   * Shown only to a caller allowed to read it: pass what they may see.
+   */
+  public ErpException withCurrent(Object record) {
+    this.current = record;
+    return this;
+  }
+
+  /** Null when none was attached. */
+  public Object current() {
+    return current;
   }
 
   public abstract ErrorCategory category();

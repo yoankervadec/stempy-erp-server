@@ -151,12 +151,13 @@ Choose the language the server answers you in, in every company: `{"language": "
 
 ## 5. Entity routes (products, product categories)
 
-Every entity exposed generically gets the same six routes. `{base}` is `/masterdata/products` or `/masterdata/product-categories`.
+Every entity exposed generically gets the same seven routes. `{base}` is `/masterdata/products` or `/masterdata/product-categories`.
 
 | Method | Path | Body | Permission | Success |
 | --- | --- | --- | --- | --- |
 | `QUERY` | `{base}` | search spec (§6), may be empty | `.read` | `200 { "data": [rows], "page": {limit, offset, hasMore} }` |
-| `GET` | `{base}/{id}` | – | `.read` | `200 row` |
+| `GET` | `{base}/new` | – | `.create` | `200` a blank row for a create form: every field at its default (or `null`), `"_meta": {"new": true}` |
+| `GET` | `{base}/{id}` | – | `.read` | `200 row` (with `_meta`) |
 | `POST` | `{base}` | the new row's fields | `.create` | `201 row`, `Location: {base}/{id}` |
 | `PATCH` | `{base}/{id}` | `version` + only the fields to change | `.update` | `200 row` |
 | `DELETE` | `{base}/{id}?version=N` | – | `.delete` | `204` |
@@ -165,6 +166,17 @@ Every entity exposed generically gets the same six routes. `{base}` is `/masterd
 Permissions are `masterdata.product.read|create|update|delete` and `masterdata.productCategory.read|create|update|delete`.
 
 `QUERY` is a real HTTP method (a GET with a body). In Postman, click the method dropdown and **type** `QUERY`.
+
+**What you may do with one record.** `GET {base}/{id}` and the answers of `POST` / `PATCH` carry `_meta` (lists don't):
+
+```json
+"_meta": { "can": { "update": true, "delete": false }, "locked": ["accountType", "isHeading"],
+           "actions": [{ "name": "reverse", "confirm": "Contrepasser l'écriture JE00000012 ?" }] }
+```
+
+`can`: your permission **and** the record's state (an account is never deleted). `locked`: fields this record's state freezes (`"*"`: all): an account with postings keeps its type, a heading with sub-accounts stays one. `actions`: the actions of the resource (listed in `/meta`, §10) you may run on this record now, each with its confirmation question already worded for it (`null`: none). The server still checks everything when you write.
+
+**New records.** `GET {base}/new` gives the starting values of a create form: `isEnabled: true`, a new product's `currencyId` in the company's currency, a new account's `manualPosting: true`... It saves nothing; `POST` does.
 
 ### Fields
 
@@ -208,7 +220,7 @@ PATCH /masterdata/products/7
 { "version": 0, "name": "Hex bolt M8 zinc" }
 ```
 
-Returns the updated row with `version: 1`. Send that `1` next time. If someone (or you, in another tab) saved in between, you get `409 VERSION_CONFLICT`: reload with `GET`, reapply, retry. `version` missing: `422` with `version: REQUIRED`. Only send the fields you change; `productNo` and `code` may be changed (still unique).
+Returns the updated row with `version: 1`. Send that `1` next time. If someone (or you, in another tab) saved in between, you get `409 VERSION_CONFLICT` with `current`, the row as it is now (`_refs` and `_meta` included): show what changed, reapply on top of `current.version`, retry. A stale `DELETE` answers the same way. `version` missing: `422` with `version: REQUIRED`. Only send the fields you change; `productNo` and `code` may be changed (still unique).
 
 ### Delete (soft)
 
@@ -632,6 +644,7 @@ If-None-Match: "<etag>"    (optional: 304 when nothing changed)
 - **`writable`**: whether a form may send the field when creating / updating: you can do the action, the field isn't server-managed (`id`, `version`, `createdAt`...) or immutable (on update), and you hold its write permission, if it has one. The server checks again on every write.
 - **`type`**: `string`, `integer`, `decimal`, `boolean`, `date`, `timestamp`, `enum` (with `values`), or `reference` (with `ref`, the target resource's `key`) for a foreign key whose target you can read. A foreign key to something you can't read is a plain `integer`.
 - **`searchable`**: `QUERY`'s `"search"` works for this resource (§6).
+- **`actions`**: what the resource does besides create / update / delete, among those you hold the permission for: `name`, `label`, `scope` (`record`: on one record, see its `_meta.actions`; `resource`: on the list), `method`, `path` (`{id}` to fill in), `confirm` (ask first), `params` (described like fields: the action's dialog).
 - **Display hints:** `title` / `subtitle` name a row (pickers, modal titles); `listColumns` are the columns to show first; `defaultSort` is the first order (send it as the `QUERY` `sort`); `presentation` says whether a record opens in a `modal` or on a `page`. Decimals have a `scale` (decimals to show and accept: sending more is `422 TOO_MANY_DECIMALS` when the server declares it); `format` is `money` (in the row's `currencyField`, else the company's currency), `percent` (5.25 means 5.25 %) or `multiline` (a text area).
 - `maxLength`, `min`, `max` appear only when the field has them (decimals as strings, like every amount). `operators` (for `QUERY` filters, §6) appear only on filterable fields.
 - **`ETag`**: send it back in `If-None-Match` and the answer is `304` with no body until your permissions, the company or the server's resources change.

@@ -814,6 +814,36 @@
           }
         },
         {
+          "name": "New product form (defaults, saves nothing)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": true
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/products/new",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "products",
+                "new"
+              ]
+            }
+          }
+        },
+        {
           "name": "Get product",
           "request": {
             "method": "GET",

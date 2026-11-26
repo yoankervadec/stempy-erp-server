@@ -41,6 +41,6 @@ public final class ErrorLocalizer {
       }
     }
     return new ApiError(error.type(), title, error.status(), detail, error.instance(), error.code(),
-        error.requestId(), errors);
+        error.requestId(), errors, error.current());
   }
 }

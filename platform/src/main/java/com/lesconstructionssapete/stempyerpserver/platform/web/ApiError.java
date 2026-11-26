@@ -39,7 +39,8 @@ public record ApiError(
     String instance,
     String code,
     String requestId,
-    List<FieldError> errors) {
+    List<FieldError> errors,
+    Object current) {
 
   public static final String CONTENT_TYPE = "application/problem+json";
 
@@ -57,6 +58,12 @@ public record ApiError(
         instance,
         code,
         requestId,
-        (errors == null || errors.isEmpty()) ? null : List.copyOf(errors));
+        (errors == null || errors.isEmpty()) ? null : List.copyOf(errors),
+        null);
+  }
+
+  /** The same error with the record as it is now (a version conflict). */
+  public ApiError withCurrent(Object current) {
+    return new ApiError(type, title, status, detail, instance, code, requestId, errors, current);
   }
 }

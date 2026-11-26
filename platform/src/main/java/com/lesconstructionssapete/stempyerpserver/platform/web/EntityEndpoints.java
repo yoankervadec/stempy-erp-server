@@ -1,9 +1,13 @@
 package com.lesconstructionssapete.stempyerpserver.platform.web;
 
+import com.lesconstructionssapete.stempyerpserver.platform.entity.Field;
+import com.lesconstructionssapete.stempyerpserver.platform.error.ErpException;
+import com.lesconstructionssapete.stempyerpserver.platform.web.ResourceCatalog.Resource;
 import java.net.URI;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -125,6 +129,7 @@ public final class EntityEndpoints {
   private final ResourceCatalog catalog;
   private final Messages messages;
   private final ReferenceTitles references;
+  private final RecordMeta recordMeta;
 
   /**
    * @param clock         should tick in whole seconds, like a MySQL TIMESTAMP
@@ -148,6 +153,7 @@ public final class EntityEndpoints {
     this.catalog = Objects.requireNonNull(catalog, "catalog");
     this.messages = Objects.requireNonNull(messages, "messages");
     this.references = new ReferenceTitles(catalog, permissions);
+    this.recordMeta = new RecordMeta(permissions, messages);
     this.parser = new QuerySpecParser(limits);
     this.translator = new QueryTranslator(limits);
   }
@@ -164,6 +170,7 @@ public final class EntityEndpoints {
     String one = path + "/{id}";
     if (allowed.contains(Action.READ)) {
       routes.query(path, query(entity, Action.READ.permission(permissionPrefix)));
+      routes.get(path + "/new", newRecord(entity)); // before {id}, so "new" is never taken for an id
       routes.get(one, get(entity, Action.READ.permission(permissionPrefix)));
       routes.get(one + "/history", history(entity, Action.READ.permission(permissionPrefix)));
     }
@@ -191,6 +198,25 @@ public final class EntityEndpoints {
   public void declareWrite(EntityDefinition<?> entity, Action action, String permission) {
     permissions.requireDeclared(permission);
     catalog.declareWrite(entity, action, permission);
+  }
+
+  /**
+   * What a record's state allows (locked fields, no update / delete) and the
+   * defaults of a new one, for an entity registered here: shown in "_meta" and
+   * GET {path}/new (docs/ARCHITECTURE.md §23.9).
+   */
+  public void rules(EntityDefinition<?> entity, RecordRules rules) {
+    catalog.rules(entity, rules);
+  }
+
+  /**
+   * Describes an action of an entity registered here, for GET /meta and the
+   * records' "_meta". The module registers its route itself.
+   */
+  public void action(EntityDefinition<?> entity, ResourceAction action) {
+    action.check();
+    permissions.requireDeclared(action.permission());
+    catalog.action(entity, action);
   }
 
   // ---- handlers (public for routes that need a custom path) ----
@@ -225,6 +251,38 @@ public final class EntityEndpoints {
     };
   }
 
+  /**
+   * GET {path}/new: a blank record for a create form (docs/ARCHITECTURE.md
+   * §23.9), shaped like GET: every readable field, at its declared default
+   * (Field.defaultValue) or the RecordRules' defaults, else null; _refs for the
+   * defaulted references; "_meta": {"new": true}. Needs the resource's create
+   * permission (a generic or a declared write); 404 if it has none.
+   */
+  public <E> Handler newRecord(EntityDefinition<E> entity) {
+    return ctx -> {
+      RequestContext rc = RequestContexts.require(ctx);
+      Resource r = catalog.forEntity(entity).orElseThrow(() -> notFound(entity));
+      permissions.require(rc, r.permission(Action.CREATE).orElseThrow(() -> notFound(entity)));
+      Map<String, Object> row = new LinkedHashMap<>();
+      for (Field<E, ?> f : entity.readableFields(access(rc))) {
+        row.put(f.name(), f.defaultValue());
+      }
+      uowFactory.executeReadOnly(uow -> {
+        if (r.rules() != null) {
+          r.rules().defaults(uow, rc).forEach((field, value) -> {
+            if (row.containsKey(field)) {
+              row.put(field, value);
+            }
+          });
+        }
+        references.attach(uow, entity, List.of(row), rc);
+        return null;
+      });
+      row.put("_meta", Map.of("new", true));
+      ctx.json(row);
+    };
+  }
+
   public <E> Handler create(EntityDefinition<E> entity, String permission) {
     permissions.requireDeclared(permission);
     return ctx -> {
@@ -254,12 +312,16 @@ public final class EntityEndpoints {
       SQLWrite<E> update = writes.update(entity, id, version, patch, wc, access(rc));
       Set<String> changed = update.values().keySet().stream().map(f -> f.name())
           .collect(java.util.stream.Collectors.toSet());
-      ctx.json(uowFactory.execute(uow -> {
-        var before = writer.update(uow, update, id, rc.companyId());
-        eventBus.publish(uow, new EntityChanged.Updated(entity.name(), id, rc.companyId(), rc.userId(),
-            rc.requestId(), wc.now(), changed, FieldChanges.updated(before, update.values())));
-        return row(uow, entity, id, rc).orElseThrow(() -> notFound(entity));
-      }));
+      try {
+        ctx.json(uowFactory.execute(uow -> {
+          var before = writer.update(uow, update, id, rc.companyId());
+          eventBus.publish(uow, new EntityChanged.Updated(entity.name(), id, rc.companyId(), rc.userId(),
+              rc.requestId(), wc.now(), changed, FieldChanges.updated(before, update.values())));
+          return row(uow, entity, id, rc).orElseThrow(() -> notFound(entity));
+        }));
+      } catch (ErpException e) {
+        throw withCurrent(e, rc, entity, id);
+      }
     };
   }
 
@@ -271,11 +333,15 @@ public final class EntityEndpoints {
       Long version = entity.versionField() == null ? null : version(ctx.queryParam("version"));
       WriteContext wc = writeContext(rc);
       SQLWrite<E> delete = writes.softDelete(entity, id, version, wc);
-      uowFactory.run(uow -> {
-        writer.update(uow, delete, id, rc.companyId());
-        eventBus.publish(uow, new EntityChanged.Deleted(entity.name(), id, rc.companyId(), rc.userId(),
-            rc.requestId(), wc.now()));
-      });
+      try {
+        uowFactory.run(uow -> {
+          writer.update(uow, delete, id, rc.companyId());
+          eventBus.publish(uow, new EntityChanged.Deleted(entity.name(), id, rc.companyId(), rc.userId(),
+              rc.requestId(), wc.now()));
+        });
+      } catch (ErpException e) {
+        throw withCurrent(e, rc, entity, id);
+      }
       ctx.status(204);
     };
   }
@@ -319,6 +385,21 @@ public final class EntityEndpoints {
     return uowFactory.executeReadOnly(uow -> row(uow, entity, id, rc));
   }
 
+  /**
+   * For a 409 VERSION_CONFLICT: attaches the record as the caller now sees it
+   * ("current" in the response), read in a transaction of its own after the
+   * failed one; any other error is returned as is. For hand-written writes too:
+   * {@code catch (ErpException e) { throw entities.withCurrent(e, rc, Account.DEF, id); }}.
+   */
+  public ErpException withCurrent(ErpException e, RequestContext rc, EntityDefinition<?> entity, long id) {
+    if (VERSION_CONFLICT.equals(e.code()) && e.current() == null) {
+      read(rc, entity, id).ifPresent(e::withCurrent);
+    }
+    return e;
+  }
+
+  private static final String VERSION_CONFLICT = "VERSION_CONFLICT";
+
   // ---- internals ----
 
   private RequestContext authorize(Context ctx, String permission) {
@@ -352,7 +433,8 @@ public final class EntityEndpoints {
 
   /**
    * The row as this caller sees it (same company, live, readable fields only),
-   * with its references' titles (_refs).
+   * with its references' titles (_refs) and what the caller may do with it
+   * (_meta, when the entity is a resource).
    */
   private <E> Optional<Map<String, Object>> row(UnitOfWork uow, EntityDefinition<E> entity, long id,
       RequestContext rc) {
@@ -361,7 +443,18 @@ public final class EntityEndpoints {
     SQLQuery<E> query = translator.translate(entity, byId, rc.companyId(), access(rc));
     List<Map<String, Object>> rows = queries.listAsMaps(uow, query);
     references.attach(uow, entity, rows, rc);
+    Optional<Resource> resource = catalog.forEntity(entity);
+    for (Map<String, Object> row : rows) {
+      resource.ifPresent(r -> row.put("_meta", recordMeta.describe(uow, r, fieldsOnly(row), rc)));
+    }
     return rows.stream().findFirst();
+  }
+
+  /** The row without _refs / _meta: what rules and confirmation texts see. */
+  private static Map<String, Object> fieldsOnly(Map<String, Object> row) {
+    Map<String, Object> out = new LinkedHashMap<>(row);
+    out.keySet().removeIf(k -> k.startsWith("_"));
+    return out;
   }
 
   private static int intParam(Context ctx, String name, int fallback, int min, int max) {

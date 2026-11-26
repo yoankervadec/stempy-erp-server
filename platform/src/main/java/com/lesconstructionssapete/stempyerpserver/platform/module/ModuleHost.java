@@ -241,6 +241,10 @@ public final class ModuleHost {
         m.registerRoutes(routes, s);
       });
       catalog.freeze();
+      List<String> missing = catalog.missingActionLabels(messages);
+      if (!missing.isEmpty()) {
+        throw new IllegalStateException("Action texts missing from the i18n files:\n" + String.join("\n", missing));
+      }
       new MetaRoutes(catalog, s.get(PermissionChecker.class), messages).register(routes);
     });
     return server;

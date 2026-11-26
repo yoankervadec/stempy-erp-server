@@ -47,6 +47,7 @@ public class DimensionValue extends StandardEntity {
    * dimension only, so it is declared as the title.
    */
   static {
+    IS_ENABLED.defaultValue(true);
     DEF.titleField(CODE).subtitleField(NAME)
         .listColumns(DIMENSION_ID, CODE, NAME, IS_ENABLED)
         .defaultSort(SortKey.asc(DIMENSION_ID), SortKey.asc(CODE));

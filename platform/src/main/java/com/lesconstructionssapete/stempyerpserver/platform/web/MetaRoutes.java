@@ -42,6 +42,8 @@ import io.javalin.http.Context;
  *     "can": { "read", "create", "update", "delete", "history" }, "idField": "id", "versionField": "version",
  *     "title": "productNo", "subtitle": "name", "listColumns": [...], "defaultSort": [{ "field", "dir" }],
  *     "presentation": "modal", "searchable": true (QUERY's "search" works),
+ *     "actions": [{ "name", "label", "scope": "record" | "resource", "method", "path", "confirm",
+ *                   "params": [like fields] }],
  *     "fields": [{ "name", "label", "type", "ref"?, "values"? [{ "value", "label" }], "required", "unique", "maxLength"?, "min"?, "max"?,
  *                  "scale"? (decimals), "format"?, "currencyField"?,
  *                  "filterable", "sortable", "operators"?, "writable": { "create", "update" } }] }] }
@@ -164,6 +166,66 @@ public final class MetaRoutes {
     out.put("presentation", entity.presentation().name().toLowerCase(Locale.ROOT));
     out.put("searchable", !QueryTranslator.searchFields(entity, access).isEmpty());
     out.put("fields", fields);
+    out.put("actions", actions(rc, r));
+    return out;
+  }
+
+  /**
+   * The actions the caller holds the permission for: what a button and its
+   * dialog need. Whether a record action applies to one record is in that
+   * record's _meta.
+   */
+  private List<Map<String, Object>> actions(RequestContext rc, Resource r) {
+    Language language = rc.language();
+    List<Map<String, Object>> out = new ArrayList<>();
+    for (ResourceAction a : r.actions()) {
+      if (!permissions.has(rc, a.permission())) {
+        continue;
+      }
+      Map<String, Object> action = new LinkedHashMap<>();
+      action.put("name", a.name());
+      action.put("label", messages.label(language, a.name(), LabelKeys.action(r.key(), a.name())));
+      action.put("scope", a.scope().name().toLowerCase(Locale.ROOT));
+      action.put("method", a.method());
+      action.put("path", r.path() + (a.scope() == ResourceAction.Scope.RECORD ? "/{id}" : "") + a.suffix());
+      action.put("confirm", a.needsConfirmation());
+      List<Map<String, Object>> params = new ArrayList<>();
+      for (ActionParam p : a.params()) {
+        params.add(param(rc, r, a, p));
+      }
+      action.put("params", params);
+      out.add(action);
+    }
+    return out;
+  }
+
+  /** Like a field (§23.6): name, label, type (ref, values), required, bounds. */
+  private Map<String, Object> param(RequestContext rc, Resource r, ResourceAction a, ActionParam p) {
+    Language language = rc.language();
+    Map<String, Object> out = new LinkedHashMap<>();
+    out.put("name", p.name());
+    out.put("label", messages.label(language, p.name(), LabelKeys.actionParam(r.key(), a.name(), p.name())));
+    Optional<Resource> ref = p.referencedEntity().flatMap(catalog::forEntity)
+        .filter(target -> can(rc, target, Action.READ));
+    out.put("type", ref.isPresent() ? "reference" : p.type().name());
+    ref.ifPresent(target -> out.put("ref", target.key()));
+    Object[] constants = p.type().javaType().getEnumConstants();
+    if (constants != null) {
+      List<Map<String, Object>> values = new ArrayList<>();
+      for (Object c : constants) {
+        Enum<?> value = (Enum<?>) c;
+        values.add(pair("value", value.name(), "label", messages.label(language, value.name(),
+            LabelKeys.enumValue(value))));
+      }
+      out.put("values", values);
+    }
+    out.put("required", p.isRequired());
+    putIfSet(out, "maxLength", p.maxLength());
+    putIfSet(out, "min", p.min());
+    putIfSet(out, "max", p.max());
+    if (p.type() == FieldType.DECIMAL) {
+      out.put("scale", DEFAULT_SCALE);
+    }
     return out;
   }
 

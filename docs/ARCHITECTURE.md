@@ -1834,7 +1834,7 @@ All per company (the request's), `ADMINISTRATOR` has them all, writes audited (�
 
 ## 23. Server-driven UI
 
-_Status: planned 2026-11-25; steps 2 to 5 built 2026-11-25/26 (catalog, `GET /meta`, UI hints, translation, list reads; migration V14). How to call it: docs/API_GUIDE.md §10. Steps in §23.12._
+_Status: planned 2026-11-25; steps 2 to 6 built 2026-11-25/26 (catalog, `GET /meta`, UI hints, translation, list and record reads; migration V14). How to call it: docs/API_GUIDE.md §10. Steps in §23.12._
 
 The desktop client (Electron + React, in its own repository, built later) should be almost entirely generic: one list page, one record modal, one record page and one action dialog serve every resource. The server already describes its entities (`EntityDefinition`, §5) and their routes (`EntityEndpoints`). This section makes it publish everything a screen needs, **per caller, per company and in the caller's language**, so the client only renders what it is told. Hand-written React is kept for screens the layouts below can't express.
 
@@ -2071,6 +2071,13 @@ A module with a hand-written orchestrator (`JournalPostingService`) keeps its ow
 - **Actions**: `ResourceAction(name, method, pathSuffix, permission, params, confirm, scope)` in `/meta`, where `scope` is `record`, `list` (no row, e.g. "Create fiscal year") or `bulk` (§23.10). `params` uses the field format of §23.6, so the client builds the action dialog itself. Examples: `reverse` (`postingDate`, `description`) on journal entries, `close` and `reopen` on periods.
 - **Version conflicts**: the `409 VERSION_CONFLICT` body includes the current row, so the client can show what changed and offer "reload" or "apply my changes again".
 
+**As built (step 6):**
+- `platform/web/RecordRules` (`locked`, `canUpdate`, `canDelete`, `defaults`, each given the read's `UnitOfWork`, the caller and the row) registered with `EntityEndpoints.rules(entity, rules)`; implemented by a module's `*Service`, which reads through operations (ArchUnit: only operations touch repositories). Accounts: `AccountService` (`DescribeAccountLocksOperation`: postings lock `accountType` and `isHeading`, sub-accounts lock `isHeading`). Products: `ProductService` (a new product's `currencyId` is the company's base currency).
+- `_meta` (`RecordMeta`) on every single-record answer of `EntityEndpoints` (`GET`, `POST`, `PATCH`, and `EntityEndpoints.read` for hand-written controllers), not on lists. Rules and confirmation texts see the row without `_refs` / `_meta`.
+- `ResourceAction` (scope `RECORD` or `RESOURCE`, route, permission, `ActionParam`s, `confirm()`, `when(row -> ...)` for record actions) registered with `EntityEndpoints.action(entity, action)`; described in `/meta` (`actions`, only those the caller holds the permission for) and listed per record in `_meta.actions` when `when` holds. The route is the module's own. `ModuleHost` refuses to start when an action's label, confirmation or parameter label is missing in a language (`ResourceCatalog.missingActionLabels`): actions are declared with the routes, out of `UiLabelsTest`'s reach. No action is declared yet: the GL pilot (step 9) adds reverse, close and reopen.
+- `GET {path}/new`: every readable field at `Field.defaultValue(...)` (declared: `isEnabled` on every entity, an account's `isHeading` / `manualPosting`), then `RecordRules.defaults`, else null; `_refs`; `"_meta": {"new": true}`. Registered with the `READ` routes, before `{id}`; needs the create permission the catalog knows (generic or declared write), 404 without one. A declared default is only a form's starting value: a create that leaves the field out still gets the database's default.
+- Version conflicts: `ErpException.withCurrent(record)`, sent as `current` (`ApiError`). `EntityEndpoints` attaches it on its own update / delete; hand-written writes call `EntityEndpoints.withCurrent(e, rc, entity, id)` (accounts do).
+
 ### 23.10 Lists
 
 - **Reference titles**: `QUERY` and `GET` rows add `_refs: { "productCategoryId": { "id": 3, "title": "QUI", "subtitle": "Quincaillerie" } }`. They are loaded with one `IN` query per referenced entity per page, scoped to the company and to what the caller can read. Lists show names without extra calls.
@@ -2105,7 +2112,7 @@ The client gets one generic report page with export. The trial balance and accou
 3. **UI hints** (§23.4) and their defaults; products and accounts declare theirs. Done 2026-11-25.
 4. **Translation**: V14 (`users.language`, `companies.default_language`), language on `RequestContext`, `Messages`, label bundles for every module, translated errors with `params`, history labels, `PATCH /auth/me`, the completeness test. Done 2026-11-25.
 5. **Lists**: `_refs`, `hasMore`, `search`, CORS. Done 2026-11-26.
-6. **Records**: `_meta`, `GET /new`, actions with parameters, `409` with the current row.
+6. **Records**: `_meta`, `GET /new`, actions with parameters, `409` with the current row. Done 2026-11-26.
 7. **Layouts**: `RecordLayouts`, declared and derived, in `/meta`.
 8. **Documents**: `DocumentEndpoints`, `DocumentRules`, `/calculate`, tested on a test-only header-and-lines entity.
 9. **GL pilot**: accounts (declared writes), journal entries (page with a `lines` collection, `reverse`), periods (`close`, `reopen`), trial balance and account ledger as reports.

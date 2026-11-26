@@ -1,9 +1,12 @@
 package com.lesconstructionssapete.stempyerpserver.platform.web;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -12,6 +15,9 @@ import java.util.Set;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityDefinition;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Field;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Relation;
+import com.lesconstructionssapete.stempyerpserver.platform.i18n.LabelKeys;
+import com.lesconstructionssapete.stempyerpserver.platform.i18n.Language;
+import com.lesconstructionssapete.stempyerpserver.platform.i18n.Messages;
 import com.lesconstructionssapete.stempyerpserver.platform.web.EntityEndpoints.Action;
 
 /**
@@ -35,9 +41,12 @@ public final class ResourceCatalog {
    *                    use it
    * @param permissions the permission each available action needs; READ also
    *                    serves GET {id}/history
+   * @param rules       what a record's state allows; null: nothing beyond
+   *                    permissions
+   * @param actions     what it does besides create / update / delete
    */
   public record Resource(String key, String module, String path, EntityDefinition<?> entity,
-      Map<Action, String> permissions) {
+      Map<Action, String> permissions, RecordRules rules, List<ResourceAction> actions) {
 
     public Resource {
       Objects.requireNonNull(key, "key");
@@ -45,6 +54,11 @@ public final class ResourceCatalog {
       Objects.requireNonNull(path, "path");
       Objects.requireNonNull(entity, "entity");
       permissions = Collections.unmodifiableMap(new EnumMap<>(permissions));
+      actions = List.copyOf(actions);
+    }
+
+    Resource with(Map<Action, String> permissions, RecordRules rules, List<ResourceAction> actions) {
+      return new Resource(key, module, path, entity, permissions, rules, actions);
     }
 
     public Optional<String> permission(Action action) {
@@ -74,7 +88,7 @@ public final class ResourceCatalog {
     }
     Map<Action, String> permissions = new EnumMap<>(Action.class);
     actions.forEach(a -> permissions.put(a, a.permission(permissionPrefix)));
-    byKey.put(entity.name(), new Resource(entity.name(), module, path, entity, permissions));
+    byKey.put(entity.name(), new Resource(entity.name(), module, path, entity, permissions, null, List.of()));
   }
 
   /** From EntityEndpoints.declareWrite(). */
@@ -93,7 +107,66 @@ public final class ResourceCatalog {
     }
     Map<Action, String> permissions = new EnumMap<>(r.permissions());
     permissions.put(action, Objects.requireNonNull(permission, "permission"));
-    byKey.put(r.key(), new Resource(r.key(), r.module(), r.path(), r.entity(), permissions));
+    byKey.put(r.key(), r.with(permissions, r.rules(), r.actions()));
+  }
+
+  /** From EntityEndpoints.rules(). */
+  synchronized void rules(EntityDefinition<?> entity, RecordRules rules) {
+    Resource r = existing(entity);
+    if (r.rules() != null) {
+      throw new IllegalStateException(entity.name() + " already has rules");
+    }
+    byKey.put(r.key(), r.with(r.permissions(), Objects.requireNonNull(rules, "rules"), r.actions()));
+  }
+
+  /** From EntityEndpoints.action(). */
+  synchronized void action(EntityDefinition<?> entity, ResourceAction action) {
+    Resource r = existing(entity);
+    if (r.actions().stream().anyMatch(a -> a.name().equals(action.name()))) {
+      throw new IllegalStateException(entity.name() + " already has an action " + action.name());
+    }
+    List<ResourceAction> actions = new ArrayList<>(r.actions());
+    actions.add(action);
+    byKey.put(r.key(), r.with(r.permissions(), r.rules(), actions));
+  }
+
+  /**
+   * The texts every declared action needs and some language lacks: its label,
+   * its confirmation (when it asks one), each parameter's label
+   * (docs/ARCHITECTURE.md §23.5). Actions are declared with the routes, so
+   * ModuleHost checks this at startup rather than a test of the bundles.
+   */
+  public List<String> missingActionLabels(Messages messages) {
+    List<String> missing = new ArrayList<>();
+    for (Language language : Language.values()) {
+      Map<String, String> texts = messages.all(language);
+      for (Resource r : byKey.values()) {
+        for (ResourceAction a : r.actions()) {
+          List<String[]> keys = new ArrayList<>();
+          keys.add(new String[] { LabelKeys.action(r.key(), a.name()) });
+          if (a.needsConfirmation()) {
+            keys.add(new String[] { LabelKeys.actionConfirm(r.key(), a.name()) });
+          }
+          a.params().forEach(p -> keys.add(LabelKeys.actionParam(r.key(), a.name(), p.name())));
+          for (String[] alternatives : keys) {
+            if (Arrays.stream(alternatives).noneMatch(texts::containsKey)) {
+              missing.add(language.code() + ": " + String.join(" or ", alternatives));
+            }
+          }
+        }
+      }
+    }
+    return missing;
+  }
+
+  private Resource existing(EntityDefinition<?> entity) {
+    requireOpen();
+    Resource r = byKey.get(entity.name());
+    if (r == null) {
+      throw new IllegalStateException("Entity " + entity.name()
+          + " has no resource yet; register its READ routes first");
+    }
+    return r;
   }
 
   public void freeze() {

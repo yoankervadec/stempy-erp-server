@@ -7,6 +7,7 @@ import java.util.Objects;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.ChangePeriodStatusOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.CreateAccountOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.CreateFiscalYearOperation;
+import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.DescribeAccountLocksOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.DescribeDimensionSetOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.FindAccountOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.operations.FindJournalEntryOperation;
@@ -106,7 +107,8 @@ public class GlModule implements ERPModule {
     var periodRepository = new PeriodRepository();
     var dimensionRepository = new DimensionRepository();
     accounts = new AccountService(uowFactory, permissions, clock, new FindAccountOperation(accountRepository),
-        new CreateAccountOperation(accountRepository, audit), new UpdateAccountOperation(accountRepository, audit));
+        new CreateAccountOperation(accountRepository, audit), new UpdateAccountOperation(accountRepository, audit),
+        new DescribeAccountLocksOperation(accountRepository));
     periods = new PeriodService(uowFactory, permissions, clock, new ListPeriodsOperation(periodRepository),
         new FindPeriodOperation(periodRepository), new CreateFiscalYearOperation(periodRepository, audit),
         new ChangePeriodStatusOperation(periodRepository, audit), audit,

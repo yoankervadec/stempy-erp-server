@@ -1,5 +1,6 @@
 package com.lesconstructionssapete.stempyerpserver.modules.masterdata.items;
 
+import com.lesconstructionssapete.stempyerpserver.modules.masterdata.items.operations.FindBaseCurrencyOperation;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityRegistry;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ERPModule;
 import com.lesconstructionssapete.stempyerpserver.platform.module.ServiceRegistry;
@@ -43,6 +44,7 @@ public class ItemsModule implements ERPModule {
   public void registerRoutes(Routes routes, ServiceRegistry serviceRegistry) {
     EntityEndpoints crud = serviceRegistry.get(EntityEndpoints.class);
     crud.register(routes, "/masterdata/products", Product.DEF, "masterdata.product");
+    crud.rules(Product.DEF, new ProductService(new FindBaseCurrencyOperation(new ItemRepository())));
     crud.register(routes, "/masterdata/product-categories", ProductCategory.DEF, "masterdata.productCategory");
   }
 }

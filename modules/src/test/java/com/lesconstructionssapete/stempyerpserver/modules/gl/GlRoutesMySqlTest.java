@@ -20,6 +20,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.lesconstructionssapete.stempyerpserver.modules.testsupport.MySqlTestStack;
 import com.lesconstructionssapete.stempyerpserver.modules.users.AuthSettings;
 import com.lesconstructionssapete.stempyerpserver.platform.db.Jdbc;
@@ -166,8 +167,11 @@ class GlRoutesMySqlTest {
     assertTrue(a.get("isEnabled").asBoolean());
     assertEquals(0, a.get("version").asInt());
     assertEquals(2, a.get("createdBy").asLong());
-    // The generic GET returns the same row.
-    assertEquals(a, getAccount(id));
+    // The generic GET returns the same row; _meta is per caller (the reader can't update it).
+    JsonNode read = getAccount(id);
+    ((ObjectNode) a).remove("_meta");
+    ((ObjectNode) read).remove("_meta");
+    assertEquals(a, read);
   }
 
   @Test
@@ -446,5 +450,49 @@ class GlRoutesMySqlTest {
         assertEquals("glAccount", f.get("ref").asText());
       }
     }
+  }
+
+  // ---- one account's _meta, a version conflict (docs/ARCHITECTURE.md §23.9) ----
+
+  @Test
+  void anAccountShowsWhatItsHistoryLocks() throws Exception {
+    long assets = heading("1000", "ASSET");
+    long bank = posting("1010", "ASSET", assets);
+
+    JsonNode headingMeta = ok(200, call("GET", "/gl/accounts/" + assets, null, accountant)).get("_meta");
+    JsonNode bankMeta = ok(200, call("GET", "/gl/accounts/" + bank, null, accountant)).get("_meta");
+
+    // a heading with sub-accounts stays a heading (HAS_CHILDREN)
+    assertEquals("[\"isHeading\"]", headingMeta.get("locked").toString());
+    assertEquals("[]", bankMeta.get("locked").toString());
+    assertTrue(bankMeta.get("can").get("update").asBoolean());
+    // accounts are never deleted; the reader can't change them
+    assertFalse(bankMeta.get("can").get("delete").asBoolean());
+    assertFalse(getAccount(bank).get("_meta").get("can").get("update").asBoolean());
+  }
+
+  @Test
+  void aStaleAccountChangeShowsTheAccountAsItIsNow() throws Exception {
+    long bank = posting("1010", "ASSET", null);
+    ok(200, call("PATCH", "/gl/accounts/" + bank, "{\"version\":0,\"name\":\"Main bank\"}", accountant));
+
+    HttpResponse<String> stale = call("PATCH", "/gl/accounts/" + bank, "{\"version\":0,\"name\":\"Other\"}",
+        accountant);
+
+    rejected(409, "VERSION_CONFLICT", stale);
+    JsonNode current = MySqlTestStack.json(stale).get("current");
+    assertEquals("Main bank", current.get("name").asText());
+    assertEquals(1, current.get("version").asInt());
+  }
+
+  @Test
+  void aNewAccountStartsLikeTheFormDefaultsIt() throws Exception {
+    JsonNode blank = ok(200, call("GET", "/gl/accounts/new", null, accountant));
+
+    assertTrue(blank.get("accountNo").isNull());
+    assertFalse(blank.get("isHeading").asBoolean());
+    assertTrue(blank.get("manualPosting").asBoolean());
+    assertTrue(blank.get("isEnabled").asBoolean());
+    rejected(403, "PERMISSION_DENIED", call("GET", "/gl/accounts/new", null, reader));
   }
 }

@@ -56,6 +56,9 @@ public final class ExceptionMapper {
 
     Map<String, Object> params = e instanceof ErpException erp ? erp.params() : Map.of();
     ApiError body = localizer.localize(t.body(), language(ctx), params);
+    if (e instanceof ErpException erp && erp.current() != null) {
+      body = body.withCurrent(erp.current());
+    }
 
     ctx.status(t.status());
     ctx.json(body);

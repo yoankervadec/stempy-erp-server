@@ -34,6 +34,7 @@ public class Dimension extends StandardEntity {
 
   /** UI hints (docs/ARCHITECTURE.md §23.4). */
   static {
+    IS_ENABLED.defaultValue(true);
     DEF.subtitleField(NAME).listColumns(CODE, NAME, IS_ENABLED).defaultSort(SortKey.asc(CODE));
   }
 

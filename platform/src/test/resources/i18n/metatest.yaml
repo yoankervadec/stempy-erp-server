@@ -19,3 +19,20 @@ enum.Status.AVAILABLE:
 
 error.TOO_LONG:
   fr: doit compter au plus {max} caractères
+
+# RecordRoutesTest: the parts' actions
+part.action.archive:
+  en: Archive
+  fr: Archiver
+part.action.archive.confirm:
+  en: "Archive part {code}?"
+  fr: "Archiver la pièce {code} ?"
+part.action.archive.param.until:
+  en: Archived until
+  fr: Archivée jusqu'au
+part.action.archive.param.reason:
+  en: Reason
+  fr: Raison
+part.action.import:
+  en: Import
+  fr: Importer

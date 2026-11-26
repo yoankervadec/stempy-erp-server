@@ -35,6 +35,22 @@ public final class LabelKeys {
     return "enum." + value.getDeclaringClass().getSimpleName() + "." + value.name();
   }
 
+  /** A resource action's button ("Reverse"). */
+  public static String action(String resourceKey, String action) {
+    return resourceKey + ".action." + action;
+  }
+
+  /** Its confirmation question; {placeholders} are the record's fields. */
+  public static String actionConfirm(String resourceKey, String action) {
+    return action(resourceKey, action) + ".confirm";
+  }
+
+  /** One of its parameters: its own label, else the field label of the same name. */
+  public static String[] actionParam(String resourceKey, String action, String param) {
+    String[] field = field(resourceKey, param);
+    return new String[] { action(resourceKey, action) + ".param." + param, field[0], field[1] };
+  }
+
   /** An audit action ("CREATED", "POSTED"). */
   public static String auditAction(String action) {
     return "audit.action." + action;

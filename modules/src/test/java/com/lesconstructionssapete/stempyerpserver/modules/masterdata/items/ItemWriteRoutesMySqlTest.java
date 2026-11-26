@@ -469,4 +469,48 @@ class ItemWriteRoutesMySqlTest {
     assertEquals(1, last.get("data").size());
     assertFalse(last.get("page").get("hasMore").asBoolean());
   }
+
+  // ---- one record: _meta, GET /new, a version conflict (docs/ARCHITECTURE.md §23.9) ----
+
+  @Test
+  void aNewProductStartsInTheCompanysCurrency() throws Exception {
+    HttpResponse<String> r = send("GET", PRODUCTS + "/new", null, editor);
+    assertEquals(200, r.statusCode(), r.body());
+    JsonNode blank = MySqlTestStack.json(r);
+
+    // ACME's base currency is CAD, currencies row 1
+    assertEquals(1, blank.get("currencyId").asLong());
+    assertTrue(blank.get("isEnabled").asBoolean());
+    assertTrue(blank.get("productNo").isNull());
+    assertTrue(blank.get("_meta").get("new").asBoolean());
+    assertRejected(403, "PERMISSION_DENIED", send("GET", PRODUCTS + "/new", null, reader));
+  }
+
+  @Test
+  void aProductSaysWhatTheCallerMayDoWithIt() throws Exception {
+    JsonNode editorMeta = MySqlTestStack.json(send("GET", PRODUCTS + "/1", null, editor)).get("_meta");
+    JsonNode readerMeta = MySqlTestStack.json(send("GET", PRODUCTS + "/1", null, reader)).get("_meta");
+
+    assertEquals("{\"update\":true,\"delete\":true}", editorMeta.get("can").toString());
+    assertEquals("{\"update\":false,\"delete\":false}", readerMeta.get("can").toString());
+    assertEquals("[]", editorMeta.get("locked").toString());
+    assertEquals("[]", editorMeta.get("actions").toString());
+  }
+
+  @Test
+  void aStaleChangeShowsTheProductAsItIsNow() throws Exception {
+    long id = MySqlTestStack.json(send("POST", PRODUCTS, product("P-CONFLICT"), editor)).get("id").asLong();
+    assertEquals(200, send("PATCH", PRODUCTS + "/" + id, Map.of("version", 0, "name", "Renamed"), editor)
+        .statusCode());
+
+    HttpResponse<String> stale = send("PATCH", PRODUCTS + "/" + id, Map.of("version", 0, "name", "Mine"), editor);
+    HttpResponse<String> staleDelete = send("DELETE", PRODUCTS + "/" + id + "?version=0", null, editor);
+
+    assertRejected(409, "VERSION_CONFLICT", stale);
+    JsonNode current = MySqlTestStack.json(stale).get("current");
+    assertEquals("Renamed", current.get("name").asText());
+    assertEquals(1, current.get("version").asInt());
+    assertEquals("HW", current.get("_refs").get("productCategoryId").get("title").asText());
+    assertEquals("Renamed", MySqlTestStack.json(staleDelete).get("current").get("name").asText());
+  }
 }

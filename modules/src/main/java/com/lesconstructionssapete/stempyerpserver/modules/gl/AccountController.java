@@ -1,6 +1,7 @@
 package com.lesconstructionssapete.stempyerpserver.modules.gl;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.lesconstructionssapete.stempyerpserver.platform.error.ErpException;
 import com.lesconstructionssapete.stempyerpserver.platform.error.ResourceNotFoundException;
 import com.lesconstructionssapete.stempyerpserver.platform.web.EntityEndpoints;
 import com.lesconstructionssapete.stempyerpserver.platform.web.JsonBodies;
@@ -41,6 +42,7 @@ public class AccountController {
     // Same path and body shape as the generic writes, so the generic UI form serves them (§23.3).
     entities.declareWrite(Account.DEF, EntityEndpoints.Action.CREATE, "gl.account.manage");
     entities.declareWrite(Account.DEF, EntityEndpoints.Action.UPDATE, "gl.account.manage");
+    entities.rules(Account.DEF, service);
     routes.post(PATH, ctx -> {
       RequestContext rc = RequestContexts.require(ctx);
       long id = service.createAccount(rc, JsonBodies.read(ctx, JsonNode.class));
@@ -49,7 +51,11 @@ public class AccountController {
     routes.patch(PATH + "/{id}", ctx -> {
       RequestContext rc = RequestContexts.require(ctx);
       long id = id(ctx);
-      service.updateAccount(rc, id, JsonBodies.read(ctx, JsonNode.class));
+      try {
+        service.updateAccount(rc, id, JsonBodies.read(ctx, JsonNode.class));
+      } catch (ErpException e) {
+        throw entities.withCurrent(e, rc, Account.DEF, id); // a 409 shows the account as it is now
+      }
       ctx.json(row(rc, id));
     });
   }

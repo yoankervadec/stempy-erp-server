@@ -29,6 +29,7 @@ public class ProductCategory extends StandardEntity {
 
   /** UI hints (docs/ARCHITECTURE.md §23.4). */
   static {
+    IS_ENABLED.defaultValue(true);
     DEF.subtitleField(DESCRIPTION).listColumns(CODE, DESCRIPTION, IS_ENABLED).defaultSort(SortKey.asc(CODE));
   }
 

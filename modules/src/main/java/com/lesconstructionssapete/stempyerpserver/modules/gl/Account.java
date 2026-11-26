@@ -53,9 +53,12 @@ public class Account extends StandardEntity {
       "isEnabled", "is_enabled", Account::isEnabled, Account::setEnabled)
       .filterable();
 
-  /** UI hints (docs/ARCHITECTURE.md §23.4): the chart in number order. */
+  /** UI hints (docs/ARCHITECTURE.md §23.4): the chart in number order; a new account's values (AccountForm's). */
   static {
     DESCRIPTION.multiline();
+    IS_HEADING.defaultValue(false);
+    MANUAL_POSTING.defaultValue(true);
+    IS_ENABLED.defaultValue(true);
     DEF.subtitleField(NAME)
         .listColumns(ACCOUNT_NO, NAME, ACCOUNT_TYPE, PARENT_ID, IS_HEADING, MANUAL_POSTING, IS_ENABLED)
         .defaultSort(SortKey.asc(ACCOUNT_NO));
