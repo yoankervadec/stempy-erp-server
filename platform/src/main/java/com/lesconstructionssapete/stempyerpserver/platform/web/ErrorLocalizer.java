@@ -26,6 +26,18 @@ public final class ErrorLocalizer {
     this.messages = Objects.requireNonNull(messages, "messages");
   }
 
+  /** Field errors (or warnings) with their messages in the language. */
+  public List<FieldError> localize(List<FieldError> errors, Language language) {
+    if (language == Language.EN) {
+      return errors;
+    }
+    List<FieldError> out = new ArrayList<>(errors.size());
+    for (FieldError fe : errors) {
+      out.add(messages.error(language, fe.code(), fe.params()).map(fe::withMessage).orElse(fe));
+    }
+    return out;
+  }
+
   public ApiError localize(ApiError error, Language language, Map<String, ?> params) {
     if (language == Language.EN) {
       return error;

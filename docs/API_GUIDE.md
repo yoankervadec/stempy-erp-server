@@ -83,8 +83,8 @@ Every error has the same shape (RFC 7807, `Content-Type: application/problem+jso
 | 401 | `UNAUTHENTICATED`, `SESSION_INVALID`, `AUTH_HEADER_INVALID`, `INVALID_CREDENTIALS` | No / bad / expired token, wrong login |
 | 403 | `PERMISSION_DENIED`, `COMPANY_ACCESS_DENIED` | Missing permission (named in `detail`), not a member of that company |
 | 404 | `NOT_FOUND` | No such row **in your company** (another company's row is also 404) |
-| 409 | `VERSION_CONFLICT`, `DUPLICATE_VALUE`, `RUN_ALREADY_QUEUED` | Someone changed the row since you read it; concurrent duplicate; a manual run of that schedule is already waiting |
-| 422 | `VALIDATION_FAILED` (see `errors`: `REQUIRED`, `ALREADY_EXISTS`, `INVALID_REFERENCE`, ...), `INVALID_REFERENCE` | Field problems; a reference the pre-checks couldn't see (e.g. an unknown `currencyId`) |
+| 409 | `VERSION_CONFLICT`, `RECORD_LOCKED`, `DUPLICATE_VALUE`, `RUN_ALREADY_QUEUED` | Someone changed the row since you read it (`current` has it as it is now); the record can't change in its state (a posted document); concurrent duplicate; a manual run of that schedule is already waiting |
+| 422 | `VALIDATION_FAILED` (see `errors`: `REQUIRED`, `ALREADY_EXISTS`, `INVALID_REFERENCE`, `LOCKED`, `UNKNOWN_LINE`, ...), `INVALID_REFERENCE` | Field problems (`LOCKED`: a field the record's state freezes, see its `_meta.locked`); a reference the pre-checks couldn't see (e.g. an unknown `currencyId`) |
 | 429 | `LOGIN_RATE_LIMITED` | 5 failed logins for one user from one IP: locked 15 minutes |
 | 503 | `DATABASE_BUSY` | Retry |
 
@@ -175,6 +175,21 @@ Permissions are `masterdata.product.read|create|update|delete` and `masterdata.p
 ```
 
 `can`: your permission **and** the record's state (an account is never deleted). `locked`: fields this record's state freezes (`"*"`: all): an account with postings keeps its type, a heading with sub-accounts stays one. `actions`: the actions of the resource (listed in `/meta`, §10) you may run on this record now, each with its confirmation question already worded for it (`null`: none). The server still checks everything when you write.
+
+**Documents** (a header and its lines, e.g. an order with lines and payments) use the same routes plus `POST {base}/calculate` and `POST {base}/{id}/calculate`, and are read and written **whole**:
+
+```json
+PATCH /sales/orders/12
+{ "version": 3, "customer": "ACME",
+  "lines": [ { "id": 31, "quantity": "4" },                         // line 31: only quantity changes
+             { "productId": 9, "quantity": "1", "unitPrice": "2.50" } ] }  // no id: a new line
+```
+
+- `GET {base}/{id}` returns the header with each collection's lines under its name (`"lines": [...]`, each line with its `id` and `_refs`).
+- In a collection you send, a line with an `id` is updated (only the fields sent), one without is added, a stored line you leave out is **removed**. A collection you don't send keeps its lines. Amounts and totals the server computes (`lineAmount`, `total`...) are never sent: they come back computed (`READ_ONLY` if sent).
+- One `version` for the whole document: changing only a line still bumps it. Errors point at the line: `lines[1].quantity`; an `id` that isn't a line of this document is `lines[0].id: UNKNOWN_LINE`.
+- `POST .../calculate` takes the same body (on `/{id}/calculate`: the changes to the stored document, possibly none) and answers `{ "document": {...recalculated}, "warnings": [...], "errors": [...] }` without saving anything: call it while the user edits, for live totals.
+- A document's history has one entry per save; line changes are under the collection's name (`added`, `changed` by line id, `removed`).
 
 **New records.** `GET {base}/new` gives the starting values of a create form: `isEnabled: true`, a new product's `currencyId` in the company's currency, a new account's `manualPosting: true`... It saves nothing; `POST` does.
 

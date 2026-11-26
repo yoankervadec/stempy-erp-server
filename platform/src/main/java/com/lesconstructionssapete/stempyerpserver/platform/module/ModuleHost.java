@@ -39,6 +39,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionRe
 import com.lesconstructionssapete.stempyerpserver.platform.security.SessionAuthenticator;
 import com.lesconstructionssapete.stempyerpserver.platform.security.SystemActor;
 import com.lesconstructionssapete.stempyerpserver.platform.security.UserDirectory;
+import com.lesconstructionssapete.stempyerpserver.platform.web.DocumentEndpoints;
 import com.lesconstructionssapete.stempyerpserver.platform.web.EntityEndpoints;
 import com.lesconstructionssapete.stempyerpserver.platform.web.ErrorTranslator;
 import com.lesconstructionssapete.stempyerpserver.platform.web.ExceptionMapper;
@@ -123,7 +124,7 @@ public final class ModuleHost {
   /**
    * Publishes the platform services every module may use (UnitOfWorkFactory,
    * EventBus, EntityRegistry, PermissionRegistry, PermissionChecker,
-   * Messages, EntityEndpoints, ResourceCatalog, Scheduler, Outbox, AuditLog, DocumentTypes, DocumentNumbers, Idempotency), then each module's
+   * Messages, EntityEndpoints, DocumentEndpoints, ResourceCatalog, Scheduler, Outbox, AuditLog, DocumentTypes, DocumentNumbers, Idempotency), then each module's
    * own, then
    * wires event handlers (synchronous and async), then job types. The
    * registries are frozen afterwards. Nothing runs yet: see startScheduler()
@@ -151,8 +152,11 @@ public final class ModuleHost {
     var catalog = new ResourceCatalog();
     registry.register(ResourceCatalog.class, catalog);
     registry.register(Messages.class, messages);
-    registry.register(EntityEndpoints.class, new EntityEndpoints(uowFactory, QueryLimits.defaults(), checker,
-        eventBus, clock, auditLog, () -> registry.find(UserDirectory.class), catalog, messages));
+    var entityEndpoints = new EntityEndpoints(uowFactory, QueryLimits.defaults(), checker,
+        eventBus, clock, auditLog, () -> registry.find(UserDirectory.class), catalog, messages);
+    registry.register(EntityEndpoints.class, entityEndpoints);
+    registry.register(DocumentEndpoints.class, new DocumentEndpoints(uowFactory, QueryLimits.defaults(), checker,
+        eventBus, clock, catalog, messages, entityEndpoints));
     registry.register(Scheduler.class, scheduler);
     registry.register(Outbox.class, outbox);
     registry.register(DocumentTypes.class, documentTypes);

@@ -1834,7 +1834,7 @@ All per company (the request's), `ADMINISTRATOR` has them all, writes audited (�
 
 ## 23. Server-driven UI
 
-_Status: planned 2026-11-25; steps 2 to 7 built 2026-11-25/26 (catalog, `GET /meta`, UI hints, translation, list and record reads, layouts; migration V14). How to call it: docs/API_GUIDE.md §10. Steps in §23.12._
+_Status: planned 2026-11-25; steps 2 to 8 built 2026-11-25/26 (catalog, `GET /meta`, UI hints, translation, list and record reads, layouts, documents; migration V14). How to call it: docs/API_GUIDE.md §10. Steps in §23.12._
 
 The desktop client (Electron + React, in its own repository, built later) should be almost entirely generic: one list page, one record modal, one record page and one action dialog serve every resource. The server already describes its entities (`EntityDefinition`, §5) and their routes (`EntityEndpoints`). This section makes it publish everything a screen needs, **per caller, per company and in the caller's language**, so the client only renders what it is told. Hand-written React is kept for screens the layouts below can't express.
 
@@ -2072,6 +2072,15 @@ layouts.define(SalesOrder.DEF)
 
 A module with a hand-written orchestrator (`JournalPostingService`) keeps its own routes. It publishes its layout, its rules for `locked` / `actions`, and its `/new` and `/calculate` if it has them.
 
+**As built (step 8):**
+- `platform/web/Document` (`of(HeaderDEF).collection(oneToManyRelation)...rules(documentRules)`) registered with `DocumentEndpoints.register(routes, path, document, permissionPrefix)` (in the ServiceRegistry): `QUERY`, `GET /new`, `GET /{id}`, `POST`, `PATCH /{id}`, `POST /calculate`, `POST /{id}/calculate`, `DELETE /{id}` (header soft delete), `GET /{id}/history`, and the resource in the catalog. A collection's child needs soft delete and a filterable field for the foreign key (the server fills it).
+- `DocumentRules extends RecordRules` with `calculate(uow, rc, Draft)` and `validate(uow, rc, Draft, Validation)`. `Draft` is the whole document as it would be saved: the stored header and lines with the request laid over them, values typed; `get` / `decimal` / `size`, `set(...)` for computed values (written whatever the field's access: declare them `readOnly()`), `warn(...)` for non-blocking warnings (translated like errors).
+- The save pipeline, in the write transaction: load the stored document, merge the request, `calculate`, the field checks (`WriteBuilder`, now with server values and `touch`) and `validate`, every problem on its path; then the header first (guarded by its version; a save of lines only is a `touch`), then the lines (removed: soft delete; changed: only what differs, their own version read in the same transaction; added). One `EntityChanged` on the header, the lines' changes under the collection's name (`{"added": [...], "changed": {"lineId": {field: {old, new}}}, "removed": [ids]}`), so the audit trail and the history show a save as one entry.
+- Reads embed the lines (each with `_refs`), at most `MAX_LINES` (1,000) per collection, the same limit writes enforce. A `409 VERSION_CONFLICT` carries the whole document as `current`.
+- `RecordRules` are now **enforced** on writes, generic records and documents alike: `canUpdate` / `canDelete` false is `409 RECORD_LOCKED`, a changed field in `locked` (or `"*"`) is `422 LOCKED`. The rules shown in `_meta` and the rules applied are the same.
+- Tested on a test-only order (header, lines, payments; tables created by the test) in `DocumentRoutesMySqlTest`. No real module uses it yet: the first transactional module will (§14 step 6).
+- Known limits: the stored lines are read before the header row is locked, so a concurrent save is caught by the header's version (409), not prevented; a database check failing on a line (unique, reference) stops at the first such line.
+
 ### 23.9 Server behaviour the record screens use
 
 - **`GET {path}/new`**: a blank record with the defaults filled in, shaped like `GET` (with `_refs` and `_meta`), for the create form. A document with a number series shows a preview of the next number, marked as a preview (§21).
@@ -2123,7 +2132,7 @@ The client gets one generic report page with export. The trial balance and accou
 5. **Lists**: `_refs`, `hasMore`, `search`, CORS. Done 2026-11-26.
 6. **Records**: `_meta`, `GET /new`, actions with parameters, `409` with the current row. Done 2026-11-26.
 7. **Layouts**: `RecordLayout`, declared and derived, in `/meta`. Done 2026-11-26.
-8. **Documents**: `DocumentEndpoints`, `DocumentRules`, `/calculate`, tested on a test-only header-and-lines entity.
+8. **Documents**: `DocumentEndpoints`, `DocumentRules`, `/calculate`, tested on a test-only header-and-lines entity. Done 2026-11-26.
 9. **GL pilot**: accounts (declared writes), journal entries (page with a `lines` collection, `reverse`), periods (`close`, `reopen`), trial balance and account ledger as reports.
 10. **Later**: export, saved views, bulk actions, change feed, printing, attachments and notes, each in its own commit.
 

@@ -1,7 +1,9 @@
 package com.lesconstructionssapete.stempyerpserver.platform.web;
 
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Field;
+import com.lesconstructionssapete.stempyerpserver.platform.error.ConflictException;
 import com.lesconstructionssapete.stempyerpserver.platform.error.ErpException;
+import com.lesconstructionssapete.stempyerpserver.platform.error.FieldError;
 import com.lesconstructionssapete.stempyerpserver.platform.web.ResourceCatalog.Resource;
 import java.net.URI;
 import java.time.Clock;
@@ -323,6 +325,7 @@ public final class EntityEndpoints {
           .collect(java.util.stream.Collectors.toSet());
       try {
         ctx.json(uowFactory.execute(uow -> {
+          enforceRules(uow, entity, id, patch.keySet(), rc, false);
           var before = writer.update(uow, update, id, rc.companyId());
           eventBus.publish(uow, new EntityChanged.Updated(entity.name(), id, rc.companyId(), rc.userId(),
               rc.requestId(), wc.now(), changed, FieldChanges.updated(before, update.values())));
@@ -344,6 +347,7 @@ public final class EntityEndpoints {
       SQLWrite<E> delete = writes.softDelete(entity, id, version, wc);
       try {
         uowFactory.run(uow -> {
+          enforceRules(uow, entity, id, Set.of(), rc, true);
           writer.update(uow, delete, id, rc.companyId());
           eventBus.publish(uow, new EntityChanged.Deleted(entity.name(), id, rc.companyId(), rc.userId(),
               rc.requestId(), wc.now()));
@@ -392,6 +396,57 @@ public final class EntityEndpoints {
    */
   public <E> Optional<Map<String, Object>> read(RequestContext rc, EntityDefinition<E> entity, long id) {
     return uowFactory.executeReadOnly(uow -> row(uow, entity, id, rc));
+  }
+
+  /**
+   * What the resource's RecordRules say, enforced before a write (the same
+   * rules _meta shows): 409 RECORD_LOCKED when the record can't be changed
+   * (deleted) in its state, 422 LOCKED on each changed field its state
+   * freezes. Nothing without rules, or when the record doesn't exist (the
+   * write answers 404 itself).
+   */
+  void enforceRules(UnitOfWork uow, EntityDefinition<?> entity, long id, Set<String> changedFields,
+      RequestContext rc, boolean deleting) {
+    RecordRules rules = catalog.forEntity(entity).map(Resource::rules).orElse(null);
+    if (rules == null) {
+      return;
+    }
+    Optional<Map<String, Object>> current = plainRow(uow, entity, id, rc);
+    if (current.isEmpty()) {
+      return;
+    }
+    Map<String, Object> row = current.get();
+    if (deleting ? !rules.canDelete(uow, rc, row) : !rules.canUpdate(uow, rc, row)) {
+      throw new ConflictException("RECORD_LOCKED", entity.name() + " " + id + " can't be "
+          + (deleting ? "deleted" : "changed") + " in its current state");
+    }
+    if (!deleting) {
+      Set<String> locked = rules.locked(uow, rc, row);
+      List<FieldError> errors = new ArrayList<>();
+      for (String field : changedFields) {
+        if (locked.contains(RecordRules.ALL) || locked.contains(field)) {
+          errors.add(new FieldError(field, "LOCKED", "can't be changed in the record's current state"));
+        }
+      }
+      if (!errors.isEmpty()) {
+        throw new ValidationFailedException("Validation failed", errors);
+      }
+    }
+  }
+
+  /** The row as this caller sees it, without _refs and _meta. */
+  <E> Optional<Map<String, Object>> plainRow(UnitOfWork uow, EntityDefinition<E> entity, long id,
+      RequestContext rc) {
+    QuerySpec byId = new QuerySpec(new FilterNode.Condition(entity.id().name(), Operator.EQUALS, id),
+        List.of(), 1, 0);
+    return queries.listAsMaps(uow, translator.translate(entity, byId, rc.companyId(), access(rc))).stream()
+        .findFirst();
+  }
+
+  /** Adds _refs to rows (for DocumentEndpoints' lines). */
+  void attachReferences(UnitOfWork uow, EntityDefinition<?> entity, List<Map<String, Object>> rows,
+      RequestContext rc) {
+    references.attach(uow, entity, rows, rc);
   }
 
   /**
@@ -445,7 +500,7 @@ public final class EntityEndpoints {
    * with its references' titles (_refs) and what the caller may do with it
    * (_meta, when the entity is a resource).
    */
-  private <E> Optional<Map<String, Object>> row(UnitOfWork uow, EntityDefinition<E> entity, long id,
+  <E> Optional<Map<String, Object>> row(UnitOfWork uow, EntityDefinition<E> entity, long id,
       RequestContext rc) {
     QuerySpec byId = new QuerySpec(new FilterNode.Condition(entity.id().name(), Operator.EQUALS, id),
         List.of(), 1, 0);

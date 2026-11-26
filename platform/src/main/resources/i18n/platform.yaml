@@ -149,6 +149,12 @@ error.PATH_NOT_SUPPORTED:
   fr: Ce chemin de relation n'est pas pris en charge
 
 # Records and concurrency
+error.LOCKED:
+  fr: ne peut pas être modifié dans l'état actuel de l'enregistrement
+error.RECORD_LOCKED:
+  fr: L'enregistrement ne peut pas être modifié dans son état actuel.
+error.UNKNOWN_LINE:
+  fr: n'est pas une ligne de ce document (ou est donnée deux fois)
 error.NOT_FOUND:
   fr: Enregistrement introuvable
 error.RESOURCE_NOT_FOUND:
