@@ -1834,7 +1834,7 @@ All per company (the request's), `ADMINISTRATOR` has them all, writes audited (�
 
 ## 23. Server-driven UI
 
-_Status: planned 2026-11-25; steps 2 to 4 built 2026-11-25 (catalog, `GET /meta`, UI hints, translation; migration V14). How to call it: docs/API_GUIDE.md §10. Steps in §23.12._
+_Status: planned 2026-11-25; steps 2 to 5 built 2026-11-25/26 (catalog, `GET /meta`, UI hints, translation, list reads; migration V14). How to call it: docs/API_GUIDE.md §10. Steps in §23.12._
 
 The desktop client (Electron + React, in its own repository, built later) should be almost entirely generic: one list page, one record modal, one record page and one action dialog serve every resource. The server already describes its entities (`EntityDefinition`, §5) and their routes (`EntityEndpoints`). This section makes it publish everything a screen needs, **per caller, per company and in the caller's language**, so the client only renders what it is told. Hand-written React is kept for screens the layouts below can't express.
 
@@ -2076,7 +2076,12 @@ A module with a hand-written orchestrator (`JournalPostingService`) keeps its ow
 - **Reference titles**: `QUERY` and `GET` rows add `_refs: { "productCategoryId": { "id": 3, "title": "QUI", "subtitle": "Quincaillerie" } }`. They are loaded with one `IN` query per referenced entity per page, scoped to the company and to what the caller can read. Lists show names without extra calls.
 - **Paging**: `page.hasMore`, by reading `limit + 1` rows. No total count (`COUNT(*)` on big filtered tables is the slowest part of a page).
 - **Quick search**: `QUERY` accepts `"search": "text"`, meaning `startsWith` on the title field or `contains` on the subtitle, so every list has one search box without the client building a filter.
-- **CORS** for the client's origin (`web.cors.origins` in `application.properties`), allowing the `QUERY` method and the `X-Company-Id`, `Idempotency-Key`, `Accept-Language` and `If-None-Match` headers, and exposing `ETag`, `Location` and `Idempotent-Replayed`.
+- **CORS** for the client's origin (`server.cors.origins` in `application.properties`), allowing the `QUERY` method and the `X-Company-Id`, `Idempotency-Key`, `Accept-Language` and `If-None-Match` headers, and exposing `ETag`, `Location` and `Idempotent-Replayed`.
+- **As built (step 5):**
+  - `_refs` by `platform/web/ReferenceTitles`, for `QUERY`, `GET` and the generic writes' answers (`EntityEndpoints.row`, so hand-written controllers answering through `EntityEndpoints.read` get it too). A reference is what `/meta` calls one (`ResourceCatalog.referenceOf`: `Field.references(...)` or a many-to-one foreign key) and only when the caller can read the target resource. One `SELECT id, title[, subtitle] ... WHERE company = ? AND id IN (...)` per target entity per page (500 ids per statement), soft-deleted targets included and marked `"deleted": true`. The target's title and subtitle follow its hints and the caller's field permissions (an unreadable title is the id). Rows with no nameable reference have no `_refs` key.
+  - `hasMore` through `QueryTranslator.translate(..., lookAhead = true)`: `LIMIT n + 1`, the extra row dropped. The generic history pages the same way. Hand-written list routes (scheduler, numbering, journal entries) don't have it yet.
+  - `search`: in `QuerySpec`, applied by `QueryTranslator` as `(title LIKE 'text%' OR subtitle LIKE '%text%')` after `where`, on the fields `QueryTranslator.searchFields` allows: a string title / subtitle the caller can read and that is `filterable()`. None: `422 NOT_SEARCHABLE`. `/meta` says `searchable` per resource with the same rule.
+  - CORS by `platform/web/CorsFilter` (before authentication), origins from `server.cors.origins` (`WebServerConfig.corsOrigins`; `*` and trailing slashes refused at startup). No `Allow-Credentials`: the token travels in `Authorization`. The recommended desktop setup needs none of it: serve the renderer from a custom protocol (`app://stempy`) and list that origin, or call from the main process.
 - Later (step 10):
   - **Export**: `QUERY {path}/export?format=csv` (xlsx later) with the list's own body, translated headers and values, streamed, capped by `QueryLimits`.
   - **Saved views**: table `ui_saved_views` (user, company, resource, name, query JSON, columns, shared), served by `EntityEndpoints` as resource `ui.savedView`.
@@ -2099,7 +2104,7 @@ The client gets one generic report page with export. The trial balance and accou
 2. **Catalog and `GET /meta`**: `ResourceCatalog` filled by `EntityEndpoints`, `MetaRoutes` with fields, permissions (`can`, `writable`), enum values, references from relations, the menu, the ETag. Tests: two users with different roles see different resources and fields. Done 2026-11-25.
 3. **UI hints** (§23.4) and their defaults; products and accounts declare theirs. Done 2026-11-25.
 4. **Translation**: V14 (`users.language`, `companies.default_language`), language on `RequestContext`, `Messages`, label bundles for every module, translated errors with `params`, history labels, `PATCH /auth/me`, the completeness test. Done 2026-11-25.
-5. **Lists**: `_refs`, `hasMore`, `search`, CORS.
+5. **Lists**: `_refs`, `hasMore`, `search`, CORS. Done 2026-11-26.
 6. **Records**: `_meta`, `GET /new`, actions with parameters, `409` with the current row.
 7. **Layouts**: `RecordLayouts`, declared and derived, in `/meta`.
 8. **Documents**: `DocumentEndpoints`, `DocumentRules`, `/calculate`, tested on a test-only header-and-lines entity.

@@ -18,9 +18,10 @@ import io.javalin.json.JavalinJackson;
  *
  * 1. JSON mapper (JsonMapperFactory)
  * 2. RequestIdFilter (before every request, MDC cleanup after)
- * 3. the authentication filter, if one was given (builds the RequestContext)
- * 4. ExceptionMapper as the catch-all exception handler
- * 5. the routes, supplied by the caller through a Consumer<Routes>
+ * 3. CorsFilter, if origins are configured (answers preflights itself)
+ * 4. the authentication filter, if one was given (builds the RequestContext)
+ * 5. ExceptionMapper as the catch-all exception handler
+ * 6. the routes, supplied by the caller through a Consumer<Routes>
  *
  */
 public final class WebServer {
@@ -64,6 +65,9 @@ public final class WebServer {
 
       config.routes.before(requestIdFilter::before);
       config.routes.after(requestIdFilter::after);
+      if (!settings.corsOrigins().isEmpty()) {
+        config.routes.before(new CorsFilter(settings.corsOrigins())::handle);
+      }
       if (authFilter != null) {
         config.routes.before(authFilter);
       }

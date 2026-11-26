@@ -2,6 +2,7 @@ package com.lesconstructionssapete.stempyerpserver.platform.web;
 
 import java.net.URI;
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
@@ -55,7 +56,7 @@ import io.javalin.http.Handler;
  * <pre>
  * crud.register(routes, "/masterdata/products", Product.DEF, "masterdata.product");
  *
- * QUERY  /masterdata/products        search (QuerySpecParser body)    masterdata.product.read    200 page
+ * QUERY  /masterdata/products        search (QuerySpecParser body)    masterdata.product.read    200 page, hasMore
  * GET    /masterdata/products/{id}   one row                          masterdata.product.read    200 row
  * POST   /masterdata/products        create { field: value }          masterdata.product.create  201 row
  * PATCH  /masterdata/products/{id}   update { version, field: value } masterdata.product.update  200 row
@@ -96,7 +97,14 @@ public final class EntityEndpoints {
   public record Page(List<Map<String, Object>> data, PageInfo page) {
   }
 
-  public record PageInfo(int limit, int offset) {
+  /** @param hasMore another page follows (one row more than the limit was there) */
+  public record PageInfo(int limit, int offset, boolean hasMore) {
+  }
+
+  /** The first {@code limit} of {@code rows} read with one row of look-ahead, and whether there were more. */
+  private static Page page(List<Map<String, Object>> rows, int limit, int offset) {
+    boolean more = rows.size() > limit;
+    return new Page(more ? new ArrayList<>(rows.subList(0, limit)) : rows, new PageInfo(limit, offset, more));
   }
 
   private static final TypeReference<Map<String, Object>> BODY_TYPE = new TypeReference<>() {
@@ -116,6 +124,7 @@ public final class EntityEndpoints {
   private final Supplier<Optional<UserDirectory>> userDirectory;
   private final ResourceCatalog catalog;
   private final Messages messages;
+  private final ReferenceTitles references;
 
   /**
    * @param clock         should tick in whole seconds, like a MySQL TIMESTAMP
@@ -138,6 +147,7 @@ public final class EntityEndpoints {
     this.userDirectory = Objects.requireNonNull(userDirectory, "userDirectory");
     this.catalog = Objects.requireNonNull(catalog, "catalog");
     this.messages = Objects.requireNonNull(messages, "messages");
+    this.references = new ReferenceTitles(catalog, permissions);
     this.parser = new QuerySpecParser(limits);
     this.translator = new QueryTranslator(limits);
   }
@@ -185,15 +195,23 @@ public final class EntityEndpoints {
 
   // ---- handlers (public for routes that need a custom path) ----
 
-  /** QUERY: search, filter, sort, page. An empty body means "first page, default order". */
+  /**
+   * QUERY: search, filter, sort, page. An empty body means "first page,
+   * default order". Each row has its references' titles (_refs); the page says
+   * whether another follows (hasMore).
+   */
   public <E> Handler query(EntityDefinition<E> entity, String permission) {
     permissions.requireDeclared(permission);
     return ctx -> {
       RequestContext rc = authorize(ctx, permission);
       QuerySpec spec = parser.parse(ctx.body().isBlank() ? Map.of() : JsonBodies.read(ctx, BODY_TYPE.getType()));
-      SQLQuery<E> query = translator.translate(entity, spec, rc.companyId(), access(rc));
-      List<Map<String, Object>> rows = uowFactory.executeReadOnly(uow -> queries.listAsMaps(uow, query));
-      ctx.json(new Page(rows, new PageInfo(spec.limit(), spec.offset())));
+      SQLQuery<E> query = translator.translate(entity, spec, rc.companyId(), access(rc), true);
+      Page page = uowFactory.executeReadOnly(uow -> {
+        Page p = page(queries.listAsMaps(uow, query), spec.limit(), spec.offset());
+        references.attach(uow, entity, p.data(), rc);
+        return p;
+      });
+      ctx.json(page);
     };
   }
 
@@ -280,14 +298,14 @@ public final class EntityEndpoints {
       int offset = intParam(ctx, "offset", 0, 0, Integer.MAX_VALUE);
       Long company = entity.companyColumn() == null ? null : rc.companyId();
       List<Map<String, Object>> items = uowFactory.executeReadOnly(uow -> {
-        List<AuditRecord> records = audit.history(uow, entity.name(), id, company, limit, offset);
+        List<AuditRecord> records = audit.history(uow, entity.name(), id, company, limit + 1, offset);
         Set<Long> userIds = records.stream().map(AuditRecord::userId).filter(Objects::nonNull)
             .collect(Collectors.toSet());
         Map<Long, UserDirectory.UserSummary> users = userIds.isEmpty() ? Map.of()
             : userDirectory.get().map(d -> d.find(uow, userIds)).orElse(Map.of());
         return AuditHistory.view(records, entity, access(rc), users, labels(entity, rc.language()));
       });
-      ctx.json(new Page(items, new PageInfo(limit, offset)));
+      ctx.json(page(items, limit, offset));
     };
   }
 
@@ -332,13 +350,18 @@ public final class EntityEndpoints {
     return new WriteContext(rc.companyId(), rc.userId(), clock.instant());
   }
 
-  /** The row as this caller sees it (same company, live, readable fields only). */
+  /**
+   * The row as this caller sees it (same company, live, readable fields only),
+   * with its references' titles (_refs).
+   */
   private <E> Optional<Map<String, Object>> row(UnitOfWork uow, EntityDefinition<E> entity, long id,
       RequestContext rc) {
     QuerySpec byId = new QuerySpec(new FilterNode.Condition(entity.id().name(), Operator.EQUALS, id),
         List.of(), 1, 0);
     SQLQuery<E> query = translator.translate(entity, byId, rc.companyId(), access(rc));
-    return queries.listAsMaps(uow, query).stream().findFirst();
+    List<Map<String, Object>> rows = queries.listAsMaps(uow, query);
+    references.attach(uow, entity, rows, rc);
+    return rows.stream().findFirst();
   }
 
   private static int intParam(Context ctx, String name, int fallback, int min, int max) {

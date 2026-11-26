@@ -28,7 +28,8 @@ import com.lesconstructionssapete.stempyerpserver.platform.error.ValidationFaile
  *  "sort": [
  *    { "field": "sku", "dir": "asc" }
  *  ],
- *  "page": { "limit": 50, "offset": 0 }
+ *  "page": { "limit": 50, "offset": 0 },
+ *  "search": "bolt"
  * }
  * </code>
  * </pre>
@@ -52,11 +53,33 @@ public class QuerySpecParser {
     }
     List<QuerySpec.Sort> sort = sorts(body.get("sort"), st);
     int[] page = page(body.get("page"), st);
+    String search = search(body.get("search"), st);
 
     if (!st.errors.isEmpty()) {
       throw new ValidationFailedException("Validation failed", st.errors);
     }
-    return new QuerySpec(where, sort, page[0], page[1]);
+    return new QuerySpec(where, sort, page[0], page[1], search);
+  }
+
+  /** Longest quick search accepted. */
+  public static final int MAX_SEARCH_LENGTH = 100;
+
+  /** A string; blank means no search. */
+  private static String search(Object raw, State st) {
+    if (raw == null) {
+      return null;
+    }
+    if (!(raw instanceof String s)) {
+      st.err("search", "INVALID_TYPE", "must be a string");
+      return null;
+    }
+    String text = s.strip();
+    if (text.length() > MAX_SEARCH_LENGTH) {
+      st.errors.add(new FieldError("search", "TOO_LONG", "must be at most " + MAX_SEARCH_LENGTH + " characters",
+          Map.of("max", MAX_SEARCH_LENGTH)));
+      return null;
+    }
+    return text.isEmpty() ? null : text;
   }
 
   private static final class State {

@@ -10,6 +10,8 @@ import java.util.Optional;
 import java.util.Set;
 
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityDefinition;
+import com.lesconstructionssapete.stempyerpserver.platform.entity.Field;
+import com.lesconstructionssapete.stempyerpserver.platform.entity.Relation;
 import com.lesconstructionssapete.stempyerpserver.platform.web.EntityEndpoints.Action;
 
 /**
@@ -111,6 +113,25 @@ public final class ResourceCatalog {
   public Optional<Resource> forEntity(EntityDefinition<?> entity) {
     Resource r = byKey.get(entity.name());
     return r != null && r.entity() == entity ? Optional.of(r) : Optional.empty();
+  }
+
+  /**
+   * The resource a field's value points at: the entity it declares with
+   * Field.references(), else the target of a many-to-one relation whose
+   * foreign key is the field's column; empty when that entity isn't a
+   * resource. Used by GET /meta (type "reference") and the rows' _refs.
+   */
+  public Optional<Resource> referenceOf(EntityDefinition<?> entity, Field<?, ?> field) {
+    Optional<EntityDefinition<?>> declared = field.referencedEntity();
+    if (declared.isPresent()) {
+      return forEntity(declared.get());
+    }
+    for (Relation<?, ?> rel : entity.relations()) {
+      if (rel.kind() == Relation.Kind.MANY_TO_ONE && rel.foreignKey().equals(field.column())) {
+        return forEntity(rel.target());
+      }
+    }
+    return Optional.empty();
   }
 
   private void requireOpen() {

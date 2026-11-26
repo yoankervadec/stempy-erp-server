@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 
 import com.lesconstructionssapete.stempyerpserver.platform.entity.FieldAccess;
 import com.lesconstructionssapete.stempyerpserver.platform.error.ValidationFailedException;
+import com.lesconstructionssapete.stempyerpserver.platform.testsupport.TestPart;
 import com.lesconstructionssapete.stempyerpserver.platform.testsupport.TestWidget;
 
 class QueryTranslatorTest {
@@ -110,5 +111,57 @@ class QueryTranslatorTest {
 
     assertTrue(q.sql().contains("NOT (t0.name <=> ?)"), q.sql());
     assertFalse(q.sql().contains("DISTINCT"));
+  }
+
+  // ---- quick search and look-ahead (docs/ARCHITECTURE.md §23.10) ----
+
+  @Test
+  void searchLooksAtTheTitleStartAndAnywhereInTheSubtitle() {
+    QuerySpec spec = parser.parse(Map.of("search", "  bo%  "));
+
+    SQLQuery<TestPart> q = translator.translate(TestPart.DEF, spec, 42L, FieldAccess.ALLOW_ALL);
+
+    assertTrue(q.sql().contains("AND (t0.code LIKE ? ESCAPE '!' OR t0.name LIKE ? ESCAPE '!')"), q.sql());
+    // trimmed, wildcards escaped
+    assertEquals(List.of(42L, "bo!%%", "%bo!%%", 50L, 0L), q.binds().stream().map(Bind::value).toList());
+  }
+
+  @Test
+  void searchIsCombinedWithTheFilter() {
+    QuerySpec spec = parser.parse(Map.of("search", "bo",
+        "where", Map.of("field", "name", "op", "equals", "value", "Bolt")));
+
+    SQLQuery<TestPart> q = translator.translate(TestPart.DEF, spec, 42L, FieldAccess.ALLOW_ALL);
+
+    assertTrue(q.sql().contains("AND t0.name = ? AND (t0.code LIKE"), q.sql());
+  }
+
+  @Test
+  void searchSkipsUnreadableFieldsAndFailsWithoutATextTitle() {
+    // TestWidget is named by its id: nothing to search in
+    assertEquals(List.of(), QueryTranslator.searchFields(TestWidget.DEF, FieldAccess.ALLOW_ALL));
+    var e = assertThrows(ValidationFailedException.class, () -> translator.translate(TestWidget.DEF,
+        parser.parse(Map.of("search", "x")), 42L, FieldAccess.ALLOW_ALL));
+    assertEquals("NOT_SEARCHABLE", e.fieldErrors().get(0).code());
+    assertEquals(2, QueryTranslator.searchFields(TestPart.DEF, FieldAccess.ALLOW_ALL).size());
+  }
+
+  @Test
+  void aBlankSearchIsNoSearchAndALongOneIsRefused() {
+    assertEquals(null, parser.parse(Map.of("search", "   ")).search());
+    var e = assertThrows(ValidationFailedException.class,
+        () -> parser.parse(Map.of("search", "x".repeat(QuerySpecParser.MAX_SEARCH_LENGTH + 1))));
+    assertEquals("TOO_LONG", e.fieldErrors().get(0).code());
+    assertEquals("INVALID_TYPE", assertThrows(ValidationFailedException.class,
+        () -> parser.parse(Map.of("search", 5))).fieldErrors().get(0).code());
+  }
+
+  @Test
+  void lookAheadReadsOneRowMore() {
+    QuerySpec spec = parser.parse(Map.of("page", Map.of("limit", 10)));
+
+    SQLQuery<TestWidget> q = translator.translate(TestWidget.DEF, spec, 42L, FieldAccess.ALLOW_ALL, true);
+
+    assertEquals(List.of(42L, 11L, 0L), q.binds().stream().map(Bind::value).toList());
   }
 }

@@ -19,11 +19,11 @@ import com.lesconstructionssapete.stempyerpserver.platform.entity.Field;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.FieldAccess;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.FieldType;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Operator;
-import com.lesconstructionssapete.stempyerpserver.platform.entity.Relation;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.SortKey;
 import com.lesconstructionssapete.stempyerpserver.platform.i18n.LabelKeys;
 import com.lesconstructionssapete.stempyerpserver.platform.i18n.Language;
 import com.lesconstructionssapete.stempyerpserver.platform.i18n.Messages;
+import com.lesconstructionssapete.stempyerpserver.platform.query.QueryTranslator;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionChecker;
 import com.lesconstructionssapete.stempyerpserver.platform.web.EntityEndpoints.Action;
 import com.lesconstructionssapete.stempyerpserver.platform.web.ResourceCatalog.Resource;
@@ -41,7 +41,7 @@ import io.javalin.http.Context;
  *   "resources": [{ "key": "product", "label", "labelOne", "module": "masterdata.items", "path": "/masterdata/products",
  *     "can": { "read", "create", "update", "delete", "history" }, "idField": "id", "versionField": "version",
  *     "title": "productNo", "subtitle": "name", "listColumns": [...], "defaultSort": [{ "field", "dir" }],
- *     "presentation": "modal",
+ *     "presentation": "modal", "searchable": true (QUERY's "search" works),
  *     "fields": [{ "name", "label", "type", "ref"?, "values"? [{ "value", "label" }], "required", "unique", "maxLength"?, "min"?, "max"?,
  *                  "scale"? (decimals), "format"?, "currencyField"?,
  *                  "filterable", "sortable", "operators"?, "writable": { "create", "update" } }] }] }
@@ -162,6 +162,7 @@ public final class MetaRoutes {
     out.put("listColumns", listColumns(entity, readable));
     out.put("defaultSort", defaultSort(entity, readable));
     out.put("presentation", entity.presentation().name().toLowerCase(Locale.ROOT));
+    out.put("searchable", !QueryTranslator.searchFields(entity, access).isEmpty());
     out.put("fields", fields);
     return out;
   }
@@ -172,7 +173,7 @@ public final class MetaRoutes {
     Map<String, Object> out = new LinkedHashMap<>();
     out.put("name", f.name());
     out.put("label", messages.label(language, f.name(), LabelKeys.field(resource.key(), f.name())));
-    Optional<Resource> ref = reference(resource.entity(), f).filter(target -> can(rc, target, Action.READ));
+    Optional<Resource> ref = catalog.referenceOf(resource.entity(), f).filter(target -> can(rc, target, Action.READ));
     out.put("type", ref.isPresent() ? "reference" : f.type().name());
     ref.ifPresent(target -> out.put("ref", target.key()));
     Object[] constants = f.type().javaType().getEnumConstants();
@@ -232,24 +233,6 @@ public final class MetaRoutes {
       out.add(pair("field", entity.id().name(), "dir", "desc"));
     }
     return out;
-  }
-
-  /**
-   * The resource a field points at: the entity it declares with references(),
-   * else the target of a many-to-one relation whose foreign key is this
-   * field's column.
-   */
-  private Optional<Resource> reference(EntityDefinition<?> entity, Field<?, ?> f) {
-    Optional<EntityDefinition<?>> declared = f.referencedEntity();
-    if (declared.isPresent()) {
-      return catalog.forEntity(declared.get());
-    }
-    for (Relation<?, ?> rel : entity.relations()) {
-      if (rel.kind() == Relation.Kind.MANY_TO_ONE && rel.foreignKey().equals(f.column())) {
-        return catalog.forEntity(rel.target());
-      }
-    }
-    return Optional.empty();
   }
 
   private boolean can(RequestContext rc, Resource r, Action action) {

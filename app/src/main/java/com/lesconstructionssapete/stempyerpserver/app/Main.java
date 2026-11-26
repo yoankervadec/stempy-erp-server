@@ -61,7 +61,8 @@ public class Main {
       System.exit(exitCode);
     }
 
-    WebServer webServer = host.startWebServer(WebServerConfig.ofPort(settings.getInt("server.port")));
+    WebServer webServer = host.startWebServer(WebServerConfig.ofPort(settings.getInt("server.port"))
+        .withCorsOrigins(settings.get("server.cors.origins", "")));
     host.configureAudit(AuditSettings.from(settings));
     Scheduler scheduler = host.startScheduler(SchedulerSettings.from(settings));
     Outbox outbox = host.startOutbox(OutboxSettings.from(settings));

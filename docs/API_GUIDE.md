@@ -73,6 +73,8 @@ Every error has the same shape (RFC 7807, `Content-Type: application/problem+jso
 
 `code` is the stable thing to test against; `errors` only appears on validation failures and lists **every** field problem at once (at most one per field).
 
+**Calling from a browser page (CORS).** The server answers cross-origin requests only from the origins in `server.cors.origins` (comma-separated full origins, e.g. `app://stempy,http://localhost:5173`; never `*`). Preflights for `QUERY` and the headers above are answered; `ETag`, `Location`, `X-Request-Id` and `Idempotent-Replayed` are readable by the page. A client calling from Electron's main process (or Postman) needs none of this.
+
 **Language.** `title`, `detail` and each `message` are in your language (docs/ARCHITECTURE.md §23.5): your own choice (`PATCH /auth/me`), else the company's; before you sign in, the first of `fr` / `en` in `Accept-Language`, else French. English texts are the server's own; French ones are translated by `code`, so `code`, `field` and `params` never change with the language. A field error whose message names values has them in `params`, as data (`"params": {"max": 50}` for `TOO_LONG`, `{"accountNo": "4010"}` for `UNKNOWN_ACCOUNT`, dates as `2027-04-01`); the translated message writes them for your language (`le 1 avril 2027`, `1 234,50 $`).
 
 | Status | Typical `code` | Meaning |
@@ -153,12 +155,12 @@ Every entity exposed generically gets the same six routes. `{base}` is `/masterd
 
 | Method | Path | Body | Permission | Success |
 | --- | --- | --- | --- | --- |
-| `QUERY` | `{base}` | search spec (§6), may be empty | `.read` | `200 { "data": [rows], "page": {limit, offset} }` |
+| `QUERY` | `{base}` | search spec (§6), may be empty | `.read` | `200 { "data": [rows], "page": {limit, offset, hasMore} }` |
 | `GET` | `{base}/{id}` | – | `.read` | `200 row` |
 | `POST` | `{base}` | the new row's fields | `.create` | `201 row`, `Location: {base}/{id}` |
 | `PATCH` | `{base}/{id}` | `version` + only the fields to change | `.update` | `200 row` |
 | `DELETE` | `{base}/{id}?version=N` | – | `.delete` | `204` |
-| `GET` | `{base}/{id}/history?limit=&offset=` | – | `.read` + `audit.history.read` | `200 { "data": [entry], "page": {limit, offset} }`, newest first |
+| `GET` | `{base}/{id}/history?limit=&offset=` | – | `.read` + `audit.history.read` | `200 { "data": [entry], "page": {limit, offset, hasMore} }`, newest first |
 
 Permissions are `masterdata.product.read|create|update|delete` and `masterdata.productCategory.read|create|update|delete`.
 
@@ -257,9 +259,12 @@ All parts optional; an empty body means "first 50 rows, by id".
     ]
   },
   "sort": [ { "field": "category.code", "dir": "asc" }, { "field": "name", "dir": "desc" } ],
-  "page": { "limit": 20, "offset": 0 }
+  "page": { "limit": 20, "offset": 0 },
+  "search": "bolt"
 }
 ```
+
+**Quick search**: `"search": "text"` (at most 100 characters, blank means none) finds rows whose title **starts with** the text or whose subtitle **contains** it, case-insensitive, on top of `where`. For products: number starts with, or name contains; categories: code / description; accounts: number / name. A resource whose `/meta` says `"searchable": false` answers `422 NOT_SEARCHABLE`.
 
 **Filter nodes** (nest up to 4 levels, at most 20 conditions):
 `{ "and": [ ... ] }`, `{ "or": [ ... ] }`, `{ "not": { ... } }`, or a condition `{ "field", "op", "value" }`.
@@ -284,7 +289,16 @@ All parts optional; an empty body means "first 50 rows, by id".
 Through **relations** (one hop is enough today, two allowed): `category.code`, `category.description` (products), and on both entities `createdByUser.userNo`, `createdByUser.name`, `updatedByUser.userNo`, `updatedByUser.name`. Example: `{ "field": "createdByUser.userNo", "op": "equals", "value": "U1" }`.
 
 **Sort**: at most 3 keys, `dir` `asc` (default) or `desc`; ties are always broken by `id`.
-**Page**: `limit` 1–200 (default 50), `offset` ≥ 0. The response echoes them; there is no total count.
+**Page**: `limit` 1–200 (default 50), `offset` ≥ 0. The response echoes them, with `hasMore`: `true` when another page follows (the server reads one row more than asked). There is no total count.
+
+**Names of referenced records**: each row has `_refs`, the title (and subtitle) of every record it points at that you may read, so a list can show names instead of ids:
+
+```json
+{ "id": 1, "productNo": "P-001", "productCategoryId": 1, "...": "...",
+  "_refs": { "productCategoryId": { "id": 1, "title": "HW", "subtitle": "Hardware" } } }
+```
+
+A deleted record still has its name, with `"deleted": true`. A reference you can't read (no read permission on its resource) isn't named, and a row with no nameable reference has no `_refs`. `GET {base}/{id}` and the answers of `POST` / `PATCH` carry `_refs` too.
 
 Errors in the body are `422` with per-path codes, e.g. `UNKNOWN_FIELD`, `NOT_FILTERABLE`, `NOT_SORTABLE`, `UNKNOWN_OPERATOR`, `INVALID_VALUE`, `TOO_DEEP`, `TOO_MANY_CONDITIONS`.
 
@@ -617,6 +631,7 @@ If-None-Match: "<etag>"    (optional: 304 when nothing changed)
 - **`can`**: the actions you hold the permission for. `history` needs `audit.history.read`. A hand-written write counts when it accepts the generic body on the same path (accounts: `gl.account.manage`).
 - **`writable`**: whether a form may send the field when creating / updating: you can do the action, the field isn't server-managed (`id`, `version`, `createdAt`...) or immutable (on update), and you hold its write permission, if it has one. The server checks again on every write.
 - **`type`**: `string`, `integer`, `decimal`, `boolean`, `date`, `timestamp`, `enum` (with `values`), or `reference` (with `ref`, the target resource's `key`) for a foreign key whose target you can read. A foreign key to something you can't read is a plain `integer`.
+- **`searchable`**: `QUERY`'s `"search"` works for this resource (§6).
 - **Display hints:** `title` / `subtitle` name a row (pickers, modal titles); `listColumns` are the columns to show first; `defaultSort` is the first order (send it as the `QUERY` `sort`); `presentation` says whether a record opens in a `modal` or on a `page`. Decimals have a `scale` (decimals to show and accept: sending more is `422 TOO_MANY_DECIMALS` when the server declares it); `format` is `money` (in the row's `currencyField`, else the company's currency), `percent` (5.25 means 5.25 %) or `multiline` (a text area).
 - `maxLength`, `min`, `max` appear only when the field has them (decimals as strings, like every amount). `operators` (for `QUERY` filters, §6) appear only on filterable fields.
 - **`ETag`**: send it back in `If-None-Match` and the answer is `304` with no body until your permissions, the company or the server's resources change.

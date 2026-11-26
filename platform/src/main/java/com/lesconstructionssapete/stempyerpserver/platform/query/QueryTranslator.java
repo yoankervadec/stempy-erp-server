@@ -40,7 +40,40 @@ public final class QueryTranslator {
     this.limits = limits;
   }
 
+  /** One field the quick search looks in, and how. */
+  public record SearchField(Field<?, ?> field, Operator op) {
+  }
+
+  /**
+   * Where QuerySpec.search looks: the entity's title field (starts with) and
+   * subtitle field (contains), each only if it is a string the caller can read
+   * and filter on. Empty: the entity can't be searched this way.
+   */
+  public static List<SearchField> searchFields(EntityDefinition<?> entity, FieldAccess access) {
+    List<SearchField> out = new ArrayList<>();
+    Field<?, ?> title = entity.titleField();
+    if (searchable(title, access)) {
+      out.add(new SearchField(title, Operator.STARTS_WITH));
+    }
+    entity.subtitleField().filter(f -> f != title && searchable(f, access))
+        .ifPresent(f -> out.add(new SearchField(f, Operator.CONTAINS)));
+    return out;
+  }
+
+  private static boolean searchable(Field<?, ?> f, FieldAccess access) {
+    return f != null && f.type() == FieldType.STRING && f.isFilterable() && !f.isInternal() && access.canRead(f);
+  }
+
   public <E> SQLQuery<E> translate(EntityDefinition<E> root, QuerySpec spec, long companyId, FieldAccess access) {
+    return translate(root, spec, companyId, access, false);
+  }
+
+  /**
+   * @param lookAhead read one row more than the page's limit, so the caller can
+   *                  tell whether another page follows (Page.hasMore)
+   */
+  public <E> SQLQuery<E> translate(EntityDefinition<E> root, QuerySpec spec, long companyId, FieldAccess access,
+      boolean lookAhead) {
     Build<E> b = new Build<>(root, access, companyId);
 
     // 1. Server-owned predicates come first and are never client-controlled.
@@ -55,9 +88,20 @@ public final class QueryTranslator {
       where.append(" AND t0.").append(root.softDeleteColumn()).append(" IS NULL");
     }
 
-    // 2. Client filter.
+    // 2. Client filter, then the quick search (title starts with OR subtitle contains).
     if (spec.where() != null) {
       where.append(" AND ").append(b.render(spec.where()));
+    }
+    if (spec.search() != null) {
+      List<FilterNode> any = new ArrayList<>();
+      for (SearchField sf : searchFields(root, access)) {
+        any.add(new FilterNode.Condition(sf.field().name(), sf.op(), spec.search()));
+      }
+      if (any.isEmpty()) {
+        b.errors.add(new FieldError("search", "NOT_SEARCHABLE", root.name() + " has no text title to search in"));
+      } else {
+        where.append(" AND ").append(b.render(any.size() == 1 ? any.get(0) : new FilterNode.Or(any)));
+      }
     }
 
     // 3. Client sort, then the id as a deterministic tiebreaker.
@@ -97,7 +141,8 @@ public final class QueryTranslator {
 
     List<Bind> binds = new ArrayList<>(b.joinBinds);
     binds.addAll(b.whereBinds);
-    binds.add(new Bind(FieldType.LONG, (long) Math.max(1, Math.min(spec.limit(), limits.maxPageSize()))));
+    long limit = Math.max(1, Math.min(spec.limit(), limits.maxPageSize()));
+    binds.add(new Bind(FieldType.LONG, lookAhead ? limit + 1 : limit));
     binds.add(new Bind(FieldType.LONG, (long) Math.max(0, spec.offset())));
 
     return new SQLQuery<>(root, sql.toString(), binds, selected, visible);

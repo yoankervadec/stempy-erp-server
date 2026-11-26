@@ -132,6 +132,69 @@ class WebServerTest {
     assertEquals("DEV_AUTH_INVALID", json(r).get("code").asText());
   }
 
+  // ---- CORS (docs/ARCHITECTURE.md §23.10) ----
+
+  private static final String CLIENT = "app://stempy";
+
+  private void startWithCors() {
+    server = new WebServer(new WebServerConfig("127.0.0.1", 0).withCorsOrigins(" " + CLIENT + " , http://localhost:5173"),
+        new ExceptionMapper(new ErrorTranslator()), new DevAuthFilter()::handle);
+    server.start(routes -> routes.query("/things", ctx -> {
+      RequestContexts.require(ctx);
+      ctx.header("ETag", "\"x\"").json(Map.of("ok", true));
+    }));
+  }
+
+  @Test
+  void aPreflightFromAnAllowedOriginIsAnsweredForQuery() throws Exception {
+    startWithCors();
+
+    HttpResponse<String> r = send("OPTIONS", "/things", null, "Origin", CLIENT,
+        "Access-Control-Request-Method", "QUERY", "Access-Control-Request-Headers", "authorization, x-company-id");
+
+    assertEquals(204, r.statusCode(), r.body());
+    assertEquals(CLIENT, r.headers().firstValue("Access-Control-Allow-Origin").orElseThrow());
+    assertTrue(r.headers().firstValue("Access-Control-Allow-Methods").orElseThrow().contains("QUERY"));
+    assertTrue(r.headers().firstValue("Access-Control-Allow-Headers").orElseThrow().contains("X-Company-Id"));
+    assertTrue(r.headers().firstValue("Vary").orElseThrow().contains("Origin"));
+  }
+
+  @Test
+  void requestsFromAnAllowedOriginExposeTheHeadersAClientReads() throws Exception {
+    startWithCors();
+
+    HttpResponse<String> ok = send("QUERY", "/things", "", "Origin", "http://localhost:5173", DEV_USER[0],
+        DEV_USER[1], DEV_USER[2], DEV_USER[3]);
+    HttpResponse<String> denied = send("QUERY", "/things", "", "Origin", CLIENT);
+
+    assertEquals(200, ok.statusCode(), ok.body());
+    assertEquals("http://localhost:5173", ok.headers().firstValue("Access-Control-Allow-Origin").orElseThrow());
+    assertTrue(ok.headers().firstValue("Access-Control-Expose-Headers").orElseThrow().contains("ETag"));
+    // errors too, or the client couldn't read them
+    assertEquals(401, denied.statusCode());
+    assertEquals(CLIENT, denied.headers().firstValue("Access-Control-Allow-Origin").orElseThrow());
+  }
+
+  @Test
+  void otherOriginsGetNoCorsHeaders() throws Exception {
+    startWithCors();
+
+    HttpResponse<String> preflight = send("OPTIONS", "/things", null, "Origin", "https://evil.example",
+        "Access-Control-Request-Method", "QUERY");
+    HttpResponse<String> call = send("QUERY", "/things", "", "Origin", "https://evil.example");
+
+    assertFalse(preflight.headers().firstValue("Access-Control-Allow-Origin").isPresent());
+    assertFalse(call.headers().firstValue("Access-Control-Allow-Origin").isPresent());
+  }
+
+  @Test
+  void aWildcardOriginIsRefusedAtStartup() {
+    assertThrows(IllegalArgumentException.class,
+        () -> new WebServerConfig("127.0.0.1", 0).withCorsOrigins("*"));
+    assertThrows(IllegalArgumentException.class,
+        () -> new WebServerConfig("127.0.0.1", 0).withCorsOrigins("https://erp.example.com/"));
+  }
+
   // ---- translated errors (docs/ARCHITECTURE.md §23.5) ----
 
   /** The real platform bundles. */
@@ -247,7 +310,22 @@ class WebServerTest {
     assertFalse(db.lastSql().contains("unit_cost"));
     assertEquals(10, body.get("page").get("limit").asInt());
     // company from the RequestContext, never from the client
-    assertEquals(List.of(42L, "bo%", 10L, 0L), db.lastParams());
+    // one row of look-ahead: limit 10 reads 11
+    assertEquals(List.of(42L, "bo%", 11L, 0L), db.lastParams());
+    assertFalse(body.get("page").get("hasMore").asBoolean());
+  }
+
+  @Test
+  void aPageThatReadsMoreThanItsLimitSaysMoreFollow() throws Exception {
+    // the fake database returns every row: three for a limit of two
+    startWidgetQueries(List.of(Map.of("id", 1L, "name", "a"), Map.of("id", 2L, "name", "b"),
+        Map.of("id", 3L, "name", "c")));
+
+    JsonNode body = json(send("QUERY", "/widgets", "{\"page\":{\"limit\":2}}", DEV_USER));
+
+    assertEquals(2, body.get("data").size());
+    assertEquals("b", body.get("data").get(1).get("name").asText());
+    assertTrue(body.get("page").get("hasMore").asBoolean());
   }
 
   @Test

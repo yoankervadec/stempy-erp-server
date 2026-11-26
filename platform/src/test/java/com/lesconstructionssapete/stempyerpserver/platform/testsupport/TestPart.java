@@ -12,9 +12,9 @@ public final class TestPart extends StandardEntity {
   public static final EntityDefinition<TestPart> DEF = StandardEntity.define("part", "parts", TestPart::new);
 
   public static final Field<TestPart, String> CODE = DEF.string("code", "code", p -> p.code, (p, v) -> p.code = v)
-      .required().unique().immutable().maxLength(10).sortable();
+      .required().unique().immutable().maxLength(10).sortable().filterable();
   public static final Field<TestPart, String> NAME = DEF.string("name", "name", p -> p.name, (p, v) -> p.name = v)
-      .required();
+      .required().filterable();
   public static final Field<TestPart, String> NOTE = DEF.string("note", "note", p -> p.note, (p, v) -> p.note = v)
       .writePermission("part.note.write").multiline();
 

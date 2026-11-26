@@ -112,7 +112,8 @@ class ItemWriteRoutesMySqlTest {
         INSERT INTO products (id, company_id, product_no, name, unit_of_measure_id, unit_amount, currency_id,
                               product_category_id, created_by, updated_by, deleted_at) VALUES
           (1, 1, 'P-001', 'Hex Bolt M8', 1, 0.2500, 1, 1, 1, 1, NULL),
-          (2, 1, 'P-DEL', 'Deleted product', 1, 1.0000, 1, 1, 1, 1, CURRENT_TIMESTAMP)""");
+          (2, 1, 'P-DEL', 'Deleted product', 1, 1.0000, 1, 1, 1, 1, CURRENT_TIMESTAMP),
+          (3, 1, 'P-OLDCAT', 'In a deleted category', 1, 1.0000, 1, 3, 1, 1, NULL)""");
   }
 
   // ---- helpers ----
@@ -374,6 +375,7 @@ class ItemWriteRoutesMySqlTest {
     assertEquals(4, amount.get("scale").asInt());
     assertEquals("money", amount.get("format").asText());
     assertEquals("currencyId", amount.get("currencyField").asText());
+    assertTrue(products.get("searchable").asBoolean());
     // GL is installed, but the editor holds no GL permission
     assertEquals(null, metaResource(editor, "glAccount"));
   }
@@ -394,5 +396,77 @@ class ItemWriteRoutesMySqlTest {
     // unit_amount is DECIMAL(19, 4): MySQL would round 0.12345 silently
     assertEquals(Map.of("unitAmount", "TOO_MANY_DECIMALS"),
         fieldErrors(send("POST", PRODUCTS, product("P-DEC", "unitAmount", "0.12345"), editor)));
+  }
+
+  // ---- lists: _refs, search, hasMore (docs/ARCHITECTURE.md §23.10) ----
+
+  private static JsonNode query(String body, String token) throws Exception {
+    HttpResponse<String> r = stack.send("QUERY", PRODUCTS, body, token);
+    assertEquals(200, r.statusCode(), r.body());
+    return MySqlTestStack.json(r);
+  }
+
+  private static JsonNode only(String productNo, String token) throws Exception {
+    JsonNode data = query("{\"where\":{\"field\":\"productNo\",\"op\":\"equals\",\"value\":\"" + productNo
+        + "\"}}", token).get("data");
+    assertEquals(1, data.size(), data.toString());
+    return data.get(0);
+  }
+
+  @Test
+  void listsNameTheRecordsTheirRowsPointAt() throws Exception {
+    JsonNode refs = only("P-001", editor).get("_refs");
+
+    assertEquals("{\"productCategoryId\":{\"id\":1,\"title\":\"HW\",\"subtitle\":\"Hardware\"}}",
+        refs.toString());
+  }
+
+  @Test
+  void aDeletedReferenceIsStillNamedAndMarked() throws Exception {
+    JsonNode ref = only("P-OLDCAT", editor).get("_refs").get("productCategoryId");
+
+    assertEquals("OLD", ref.get("title").asText());
+    assertTrue(ref.get("deleted").asBoolean());
+  }
+
+  @Test
+  void referencesTheCallerCannotReadAreNotNamed() throws Exception {
+    // the reader may read products, not categories
+    assertFalse(only("P-001", reader).has("_refs"));
+  }
+
+  @Test
+  void oneRecordAndWriteAnswersNameTheirReferencesToo() throws Exception {
+    JsonNode one = MySqlTestStack.json(send("GET", PRODUCTS + "/1", null, editor));
+    JsonNode created = MySqlTestStack.json(send("POST", PRODUCTS, product("P-REF"), editor));
+
+    assertEquals("HW", one.get("_refs").get("productCategoryId").get("title").asText());
+    assertEquals("HW", created.get("_refs").get("productCategoryId").get("title").asText());
+  }
+
+  @Test
+  void searchLooksAtTheNumberStartAndAnywhereInTheName() throws Exception {
+    send("POST", PRODUCTS, product("P-SRCH-1", "name", "Sprocket wheel"), editor);
+    send("POST", PRODUCTS, product("P-SRCH-2", "name", "Big sprocket"), editor);
+
+    assertEquals(2, query("{\"search\":\"p-srch\"}", editor).get("data").size());
+    assertEquals(2, query("{\"search\":\"SPROCKET\"}", editor).get("data").size());
+    assertEquals("P-SRCH-1", query("{\"search\":\"wheel\"}", editor).get("data").get(0).get("productNo").asText());
+    // the number must start with it
+    assertEquals(0, query("{\"search\":\"SRCH\"}", editor).get("data").size());
+  }
+
+  @Test
+  void aPageSaysWhetherAnotherFollows() throws Exception {
+    send("POST", PRODUCTS, product("P-PAGE-1"), editor);
+    send("POST", PRODUCTS, product("P-PAGE-2"), editor);
+
+    JsonNode first = query("{\"search\":\"P-PAGE\",\"page\":{\"limit\":1}}", editor);
+    JsonNode last = query("{\"search\":\"P-PAGE\",\"page\":{\"limit\":1,\"offset\":1}}", editor);
+
+    assertEquals(1, first.get("data").size());
+    assertTrue(first.get("page").get("hasMore").asBoolean());
+    assertEquals(1, last.get("data").size());
+    assertFalse(last.get("page").get("hasMore").asBoolean());
   }
 }
