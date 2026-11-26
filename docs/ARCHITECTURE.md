@@ -189,7 +189,8 @@ platform/
 │                                   AuditHistory (masked view), AuditSettings, AuditPruneJob (audit.prune).
 ├── numbering/       Document numbers (§21): DocumentTypes, DocumentNumbers, NumberPattern; internal/ = SQL
 ├── settings/        SettingsService (company-scoped key/value with global defaults)
-├── idempotency/     IdempotencyService (Idempotency-Key on document-creating POSTs)
+├── idempotency/     Idempotency (Idempotency-Key on document-creating POSTs, in the document's transaction;
+│                    idempotency.prune job; §22.1)
 └── files/           FileStorage interface, LocalFileStorage (S3-compatible later)
 ```
 
@@ -315,8 +316,8 @@ modules/
 ├── company/          legal entities, fiscal calendars, currencies, exchange rates (tables exist in V1)
 ├── tax/              TaxApi: sales taxes for every province (rules, rates, document rounding; §19).
 │                     Tax postings to GL later
-├── gl/               general ledger (§22): chart of accounts, fiscal years and periods, dimensions (built);
-│                     journal posting, reports (planned)
+├── gl/               general ledger (§22): GeneralLedgerApi; chart of accounts, fiscal years and periods,
+│                     dimensions, journal entries and reversals (built); reports (planned)
 ├── sales/            quotes, sales orders, fulfillment, invoicing
 ├── ar/               customer invoices, receipts, aging
 ├── ap/               vendor bills, payments, aging
@@ -752,7 +753,7 @@ Decide these early; they are painful to retrofit.
 - [x] **Audit trail** in `audit_log`, in the writing transaction: generic writes through `EntityChanged` (old and new values), roles, memberships, passwords and schedules explicitly; per-record history with field masking (§20).
 - [x] **RBAC** through `PermissionChecker` only: roles + per-user GRANT/DENY overrides, per company (§16).
 - [x] **Document numbering** per company / document type, gapless or gaps allowed per series (§21; admin API still to do).
-- [ ] **Idempotency keys** on POSTs that create financial documents.
+- [x] **Idempotency keys** on POSTs that create financial documents (`platform.idempotency`, §22.1; first user: manual journal entries).
 - [x] **Optimistic locking** (`version` column) on mutable entities; enforced by `WriteBuilder` / `WriteExecutor` (version in the PATCH body, `?version=` on DELETE).
 - [x] **Error format:** RFC 7807 everywhere (`ApiError` via `ExceptionMapper`).
 - [ ] **Observability:** request id in MDC and printed on every log line (logback) ; basic metrics (Micrometer) still to do.
@@ -1178,7 +1179,7 @@ public void registerJobs(Scheduler scheduler, ServiceRegistry services) {
 
 - Long loops call `ctx.throwIfCancelled()` between batches; `ctx.setResultSummary("42 invoices sent")` shows up in the history.
 - A job that should exist on every install declares `.withDefaultSchedule(DefaultSchedule.cron(...))`. It is inserted on first start if no row (even a deleted one) uses the key, and never overwritten.
-- Built in: `scheduler.prune-runs` (platform, daily 03:30), `outbox.prune` (platform, daily 03:45, §18), `audit.prune` (platform, daily 04:00, §20) and `users.purge-expired-sessions` (hourly at :15), all SYSTEM-only.
+- Built in: `scheduler.prune-runs` (platform, daily 03:30), `outbox.prune` (platform, daily 03:45, §18), `audit.prune` (platform, daily 04:00, §20), `idempotency.prune` (platform, daily 04:15, §22.1) and `users.purge-expired-sessions` (hourly at :15), all SYSTEM-only.
 
 ### 17.8 Tests
 
@@ -1651,7 +1652,7 @@ platform/numbering/
 
 ## 22. General ledger
 
-_Status: steps 1 and 2 built 2026-11-25 (migrations V10: accounts, fiscal years, periods; V11: dimensions). How to call them: docs/API_GUIDE.md §9. Steps 3 and 4 planned. Where the code ends up differing, update this section._
+_Status: steps 1 to 3 built 2026-11-25 (migrations V10: accounts, fiscal years, periods; V11: dimensions; V12: idempotency keys; V13: journal entries). How to call them: docs/API_GUIDE.md §9. Step 4 (reports) planned. Where the code ends up differing, update this section._
 
 The books of each company: a chart of accounts, fiscal years cut into monthly periods, balanced journal entries numbered without gaps, configurable dimensions on journal lines, and a trial balance. Module `modules/gl`, publishing `GeneralLedgerApi`. Other modules post through that API; the listeners that turn their events into entries (§9) come with those modules.
 
@@ -1666,7 +1667,10 @@ The books of each company: a chart of accounts, fiscal years cut into monthly pe
 - **Debit and credit columns, not signed amounts.** Each line has exactly one of `debit` / `credit` above zero. Reports compute balances; the account's type says which side is normal.
 - **Configurable dimensions** (your choice over fixed columns): a company defines its own dimensions (`STORE`, `PROJECT`, `DEPARTMENT`...) and their values, as data. A line carries a set of (dimension, value) pairs. See §22.3.
 - **One posting path.** Manual entries over HTTP and entries from other modules (`GeneralLedgerApi.post(uow, ...)` in the caller's transaction) go through the same validation and the same tables. An entry records its source (`MANUAL`, or e.g. `sales.invoice` + the document id and number).
-- **Idempotency for manual posting.** `POST /gl/journal-entries` honours an `Idempotency-Key` header, so a client retrying after a timeout can't post twice (the §12 checklist item). Built as `platform/idempotency`, reusable by later document POSTs.
+- **Idempotency for manual posting.** `POST /gl/journal-entries` honours an `Idempotency-Key` header, so a client retrying after a timeout can't post twice (the §12 checklist item). Built as `platform/idempotency` (`Idempotency`, in the ServiceRegistry), reusable by later document POSTs:
+  - The key row (company, user, scope, key, SHA-256 of the body, result) is written **in the document's transaction** (`begin` / `complete`). Key and document commit or roll back together, so there is no "in progress" state to get stuck in. A concurrent request with the same key waits on the row's unique key, then replays the first result (after a commit) or runs (after a rollback).
+  - A replay answers with the entry the first request posted, as it is now, with `Idempotent-Replayed: true`. The same key with a different body is `409 IDEMPOTENCY_KEY_REUSED`. A refused request (422, 409) leaves no key behind.
+  - Keys are kept 7 days (`idempotency.prune`, daily 04:15).
 
 ### 22.2 Accounts
 
@@ -1729,7 +1733,16 @@ An entry: company, `entry_no`, `posting_date` (and so its period), `description`
 
 **Posting**, in one transaction: lock the period (`FOR SHARE`), validate, take the number (gapless), insert the entry and lines, audit, publish `JournalEntryPosted` (sync, for future listeners). The dimension sets are created just before, in their own short transactions.
 
-**Reversal:** `POST /gl/journal-entries/{id}/reverse {postingDate, description}` posts the mirror entry (same accounts and dimensions, debit and credit swapped) and links both. Refused if the entry is already reversed or is itself a reversal. The original may sit in a closed period; the reversal's date must be in an open one.
+**Reversal:** `POST /gl/journal-entries/{id}/reverse {postingDate, description}` posts the mirror entry (same accounts and dimensions, debit and credit swapped) and links both. Refused if the entry is already reversed (`ALREADY_REVERSED`) or is itself a reversal (`CANNOT_REVERSE_A_REVERSAL`). The original may sit in a closed period; the reversal's date must be in an open one.
+
+**As built (step 3):**
+- `JournalPostingService` implements `GeneralLedgerApi` and reversals; `JournalService` is the HTTP side (form, idempotency, views). Manual entries are source `MANUAL`; module entries carry their document type, id and number.
+- Validation codes: `REQUIRED`, `TOO_FEW_LINES`, `TOO_MANY_LINES`, `BOTH_SIDES`, `NO_AMOUNT`, `NEGATIVE`, `OUT_OF_RANGE`, `NOT_ROUNDED`, `UNBALANCED` (only when every line's amounts are valid), `UNKNOWN_ACCOUNT`, `ACCOUNT_DISABLED`, `HEADING_ACCOUNT`, `CONTROL_ACCOUNT` (manual entries only), `DIMENSION_REQUIRED`, `DIMENSION_NOT_ALLOWED`, and the dimension codes of §22.3, as `lines[i].field`. A body that doesn't parse (unknown field, non-numeric amount) is refused before these checks.
+- Refused postings take no number: the number is taken last, in the posting transaction (gapless).
+- A reversal keeps the original's source (type, id, number) and its dimension sets as they are; accounts and values disabled since are accepted, since it corrects what was posted.
+- The account rule of §22.2 is live: an account with postings keeps its type and stays a posting account (`HAS_POSTINGS`).
+- Audit (entity `glJournalEntry`): `POSTED` (number, date, source type, total, `reversalOfId`) and `REVERSED` on the original (`reversedBy`).
+- `JournalEntryPosted` (in `gl.events`) is published synchronously in the posting transaction, for the reversal too.
 
 ### 22.6 Reports
 
@@ -1741,7 +1754,7 @@ An entry: company, `entry_no`, `posting_date` (and so its period), `description`
 
 ```java
 // SalesModule (later): in the transaction that posts the invoice
-JournalEntryRef je = generalLedger.post(uow, JournalEntryRequest.of(companyId, invoiceDate, "Invoice " + invoiceNo)
+JournalEntryRef je = generalLedger.post(uow, rc, JournalEntryRequest.of(invoiceDate, "Invoice " + invoiceNo)
     .source("sales.invoice", invoiceId, invoiceNo)
     .line(LineRequest.debit("1200", total).dimension("STORE", storeNo))   // accounts receivable (control)
     .line(LineRequest.credit("4000", subtotal).dimension("STORE", storeNo))
@@ -1752,8 +1765,9 @@ JournalEntryRef je = generalLedger.post(uow, JournalEntryRequest.of(companyId, i
 - Accounts and dimension values by **code**, as people know them; the API resolves them.
 - Lines from other modules may post to control accounts (`manual_posting = false`); manual entries may not.
 - In the caller's UnitOfWork: the invoice and its journal entry commit together or not at all.
+- `rc` gives the company and who posted (`posted_by`, audit). Amounts are `BigDecimal`s in the company's base currency, rounded to its minor unit. No permission is checked: the calling module checked its own.
 
-### 22.8 Tables (V10 to V12)
+### 22.8 Tables (V10 to V13)
 
 | Table | Holds |
 | --- | --- |
@@ -1765,7 +1779,7 @@ JournalEntryRef je = generalLedger.post(uow, JournalEntryRequest.of(companyId, i
 | `gl_account_dimension_rules` | account, dimension, `rule_type` `REQUIRED` / `NOT_ALLOWED` |
 | `gl_journal_entries` | §22.5; unique (company, `entry_no`) |
 | `gl_journal_lines` | §22.5, plus `company_id` and `posting_date` copied from the entry for the report index |
-| `idempotency_keys` | `platform/idempotency`: company, user, key, request hash, response, expiry |
+| `idempotency_keys` (V12) | `platform/idempotency`: company, user, scope, key, request hash, result (the entry id), created at |
 
 Amounts are `DECIMAL(19,4)` (V1 convention), always rounded to the currency's minor unit when written.
 
@@ -1789,7 +1803,7 @@ All per company (the request's), `ADMINISTRATOR` has them all, writes audited (�
 
 1. **Accounts, fiscal years, periods** (V10): tables, account and period APIs, close / reopen, tests. Done 2026-11-25.
 2. **Dimensions** (V11): dimensions, values, sets, account rules, their APIs, tests. Done 2026-11-25.
-3. **Posting** (V12): `GeneralLedgerApi`, the posting service and its checks, numbering type `gl.journal-entry`, manual `POST` with `platform/idempotency`, reversal, `JournalEntryPosted`, tests (balance, periods, concurrency with close, rollback leaves no number used).
+3. **Posting** (V12, V13): `GeneralLedgerApi`, the posting service and its checks, numbering type `gl.journal-entry`, manual `POST` with `platform/idempotency`, reversal, `JournalEntryPosted`, tests (balance, periods, rollback leaves no number used, concurrent retries post once). Done 2026-11-25.
 4. **Reports:** trial balance, account ledger, tests.
 5. Then the first transactional module (§14 step 6) posts through it.
 
@@ -1801,5 +1815,7 @@ All per company (the request's), `ADMINISTRATOR` has them all, writes audited (�
 - **Base currency only.**
 - **Dimension values aren't linked to master data** (stores, projects) until those tables exist.
 - **Reports compute from the lines** every time.
+- **Posting may need a second connection**: dimension sets (on first use) and the entry's number counter (on first use) are created in short transactions of their own, like §21.11.
+- **No test yet of a close racing a posting**: the locks are designed for it (§22.4), but only sequential close-then-post is tested.
 - **No fiscal-year history route**: creating a year is audited (entity `glFiscalYear`), but only periods have a `/history` route.
 - **Fiscal years can't be deleted**, even before any posting. A wrong first year is fixed with SQL for now.

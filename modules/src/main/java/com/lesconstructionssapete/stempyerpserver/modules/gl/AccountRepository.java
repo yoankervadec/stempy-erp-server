@@ -3,6 +3,10 @@ package com.lesconstructionssapete.stempyerpserver.modules.gl;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 import com.lesconstructionssapete.stempyerpserver.platform.db.Jdbc;
@@ -84,5 +88,28 @@ public class AccountRepository {
   public void touch(UnitOfWork uow, long id, long userId, Instant now) {
     Jdbc.update(uow, "UPDATE gl_accounts SET version = version + 1, updated_at = ?, updated_by = ? WHERE id = ?",
         now, userId, id);
+  }
+
+  /**
+   * The company's accounts with these numbers (case-insensitive), read with a
+   * shared lock: none can become a heading or change type while an entry is
+   * being posted to it.
+   */
+  public List<StoredAccount> findByNumbersForPosting(UnitOfWork uow, long companyId, Collection<String> numbers) {
+    if (numbers.isEmpty()) {
+      return List.of();
+    }
+    List<Object> params = new ArrayList<>();
+    params.add(companyId);
+    params.addAll(numbers);
+    return Jdbc.queryList(uow, "SELECT " + COLUMNS + " FROM gl_accounts WHERE company_id = ? AND account_no IN ("
+        + String.join(", ", Collections.nCopies(numbers.size(), "?")) + ") AND deleted_at IS NULL FOR SHARE",
+        AccountRepository::map, params.toArray());
+  }
+
+  /** Whether any journal line uses the account. */
+  public boolean hasPostings(UnitOfWork uow, long id) {
+    return Jdbc.queryFirst(uow, "SELECT 1 FROM gl_journal_lines WHERE account_id = ? LIMIT 1", rs -> true, id)
+        .isPresent();
   }
 }

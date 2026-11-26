@@ -20,6 +20,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.events.outbox.Outbox;
 import com.lesconstructionssapete.stempyerpserver.platform.events.outbox.OutboxSettings;
 import com.lesconstructionssapete.stempyerpserver.platform.events.outbox.internal.JdbcOutboxWriter;
 import com.lesconstructionssapete.stempyerpserver.platform.events.outbox.internal.OutboxPruneJob;
+import com.lesconstructionssapete.stempyerpserver.platform.idempotency.Idempotency;
 import com.lesconstructionssapete.stempyerpserver.platform.numbering.DocumentNumbers;
 import com.lesconstructionssapete.stempyerpserver.platform.numbering.DocumentTypes;
 import com.lesconstructionssapete.stempyerpserver.platform.numbering.internal.CounterRepository;
@@ -105,7 +106,8 @@ public final class ModuleHost {
   /**
    * Publishes the platform services every module may use (UnitOfWorkFactory,
    * EventBus, EntityRegistry, PermissionRegistry, PermissionChecker,
-   * EntityEndpoints, Scheduler, Outbox, AuditLog, DocumentTypes, DocumentNumbers), then each module's own, then
+   * EntityEndpoints, Scheduler, Outbox, AuditLog, DocumentTypes, DocumentNumbers, Idempotency), then each module's
+   * own, then
    * wires event handlers (synchronous and async), then job types. The
    * registries are frozen afterwards. Nothing runs yet: see startScheduler()
    * and startOutbox().
@@ -134,6 +136,8 @@ public final class ModuleHost {
     registry.register(Scheduler.class, scheduler);
     registry.register(Outbox.class, outbox);
     registry.register(DocumentTypes.class, documentTypes);
+    var idempotency = new Idempotency(clock);
+    registry.register(Idempotency.class, idempotency);
     registry.register(DocumentNumbers.class, new JdbcDocumentNumbers(documentTypes, uowFactory,
         new SeriesRepository(), new CounterRepository()));
     modules.forEach(m -> m.registerServices(registry));
@@ -149,6 +153,7 @@ public final class ModuleHost {
     scheduler.register(OutboxPruneJob.type(uowFactory, outbox::settings));
     scheduler.register(AuditPruneJob.type(uowFactory, registry.get(AuditLog.class), () -> auditSettings,
         Clock.systemUTC()));
+    scheduler.register(idempotency.pruneJob(uowFactory));
     modules.forEach(m -> m.registerJobs(scheduler, registry));
     scheduler.freeze(permissions::contains);
 

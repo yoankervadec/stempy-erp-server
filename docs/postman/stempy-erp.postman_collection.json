@@ -123,6 +123,36 @@
       "key": "dimensionId",
       "value": "",
       "description": "Set by Create dimension"
+    },
+    {
+      "key": "postingDate",
+      "value": "2026-01-15",
+      "description": "Date of the journal entry to post (in an open period)"
+    },
+    {
+      "key": "debitAccountNo",
+      "value": "1010",
+      "description": "Account debited by Post journal entry"
+    },
+    {
+      "key": "creditAccountNo",
+      "value": "4000",
+      "description": "Account credited by Post journal entry"
+    },
+    {
+      "key": "idempotencyKey",
+      "value": "postman-1",
+      "description": "Idempotency-Key of Post journal entry: change it for each new entry"
+    },
+    {
+      "key": "journalEntryId",
+      "value": "",
+      "description": "Set by Post journal entry"
+    },
+    {
+      "key": "reversalEntryId",
+      "value": "",
+      "description": "Set by Reverse journal entry"
     }
   ],
   "item": [
@@ -1815,7 +1845,7 @@
     },
     {
       "name": "General ledger",
-      "description": "Chart of accounts, fiscal years and periods, dimensions. See docs/API_GUIDE.md section 9.",
+      "description": "Chart of accounts, fiscal years and periods, dimensions, journal entries. See docs/API_GUIDE.md section 9.",
       "item": [
         {
           "name": "Create heading account (stores id)",
@@ -2579,6 +2609,226 @@
               ]
             },
             "description": "Needs audit.history.read."
+          }
+        },
+        {
+          "name": "Post journal entry (stores id)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}",
+                "disabled": false,
+                "description": "A new value per new entry; the same value when retrying"
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/journal-entries",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "journal-entries"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"postingDate\": \"{{postingDate}}\",\n  \"description\": \"Created from Postman\",\n  \"lines\": [\n    { \"accountNo\": \"{{debitAccountNo}}\", \"debit\": \"100.00\", \"description\": \"Debit side\" },\n    { \"accountNo\": \"{{creditAccountNo}}\", \"credit\": \"100.00\" }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "A manual entry. Send it twice with the same Idempotency-Key: the second answer is the first entry, with Idempotent-Replayed: true. Change the key for a new entry."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"journalEntryId\", row.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List journal entries",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/journal-entries?from=2026-01-01&to=2026-12-31&limit=50&offset=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "journal-entries"
+              ],
+              "query": [
+                {
+                  "key": "from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "key": "to",
+                  "value": "2026-12-31"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "Newest posting date first, without lines."
+          }
+        },
+        {
+          "name": "Get journal entry",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/journal-entries/{{journalEntryId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "journal-entries",
+                "{{journalEntryId}}"
+              ]
+            },
+            "description": "One entry with its lines and their dimensions."
+          }
+        },
+        {
+          "name": "Reverse journal entry (stores the reversal's id)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/journal-entries/{{journalEntryId}}/reverse",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "journal-entries",
+                "{{journalEntryId}}",
+                "reverse"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"postingDate\": \"{{postingDate}}\",\n  \"description\": \"Reversal from Postman\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Posts the mirror entry on postingDate (an open period) and links both. An entry is reversed once."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"reversalEntryId\", row.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Journal entry history",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/gl/journal-entries/{{journalEntryId}}/history?limit=20&offset=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "gl",
+                "journal-entries",
+                "{{journalEntryId}}",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "POSTED and REVERSED. Needs audit.history.read."
           }
         }
       ]

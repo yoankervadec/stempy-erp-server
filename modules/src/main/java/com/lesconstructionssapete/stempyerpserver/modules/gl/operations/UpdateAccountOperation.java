@@ -27,11 +27,12 @@ import com.lesconstructionssapete.stempyerpserver.platform.write.EntityChanged.F
  * <li>the number stays unique in the company;</li>
  * <li>a new parent must be a heading of the same company, and not the account
  * itself or one of its descendants (no cycles);</li>
- * <li>a heading with child accounts stays a heading.</li>
+ * <li>a heading with child accounts stays a heading;</li>
+ * <li>an account with postings keeps its type and stays a posting account
+ * ({@code HAS_POSTINGS}).</li>
  * </ul>
  *
- * Postings will add their own rule (type and heading frozen once an account
- * has postings) with the journal tables (§22.10 step 3). Audited as UPDATED
+ * Audited as UPDATED
  * (entity "glAccount") with the fields that changed; nothing if none did.
  */
 public class UpdateAccountOperation implements Operation<UpdateAccountOperation.Input, Void> {
@@ -69,6 +70,17 @@ public class UpdateAccountOperation implements Operation<UpdateAccountOperation.
     }
     if (before.isHeading() && !after.isHeading() && repository.hasChildren(uow, current.id())) {
       v.add("isHeading", "HAS_CHILDREN", "accounts are grouped under this heading; move them first");
+    }
+    boolean typeChanged = before.accountType() != after.accountType();
+    boolean headingChanged = before.isHeading() != after.isHeading();
+    if ((typeChanged || headingChanged) && repository.hasPostings(uow, current.id())) {
+      String message = "the account has postings: changing it would change what they mean";
+      if (typeChanged) {
+        v.add("accountType", "HAS_POSTINGS", message);
+      }
+      if (headingChanged) {
+        v.add("isHeading", "HAS_POSTINGS", message);
+      }
     }
     v.throwIfInvalid();
 

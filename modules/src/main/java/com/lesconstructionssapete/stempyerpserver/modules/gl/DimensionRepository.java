@@ -1,5 +1,7 @@
 package com.lesconstructionssapete.stempyerpserver.modules.gl;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -108,5 +110,22 @@ public class DimensionRepository {
           JOIN gl_dimensions d ON d.id = e.dimension_id
           JOIN gl_dimension_values v ON v.id = e.value_id
          WHERE e.set_id = ? ORDER BY d.code""", rs -> new SetEntry(rs.getString(1), rs.getString(2)), setId);
+  }
+
+  /** One rule of one of several accounts. */
+  public record AccountRuleRow(long accountId, String dimensionCode, DimensionRule rule) {
+  }
+
+  /** The rules of these accounts. */
+  public List<AccountRuleRow> rulesOf(UnitOfWork uow, Collection<Long> accountIds) {
+    if (accountIds.isEmpty()) {
+      return List.of();
+    }
+    return Jdbc.queryList(uow, """
+        SELECT r.account_id, d.code, r.rule_type
+          FROM gl_account_dimension_rules r JOIN gl_dimensions d ON d.id = r.dimension_id
+         WHERE r.account_id IN (""" + String.join(", ", Collections.nCopies(accountIds.size(), "?")) + ")",
+        rs -> new AccountRuleRow(rs.getLong(1), rs.getString(2), DimensionRule.valueOf(rs.getString(3))),
+        accountIds.toArray());
   }
 }

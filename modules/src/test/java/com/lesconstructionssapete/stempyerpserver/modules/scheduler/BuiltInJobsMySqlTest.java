@@ -111,6 +111,7 @@ class BuiltInJobsMySqlTest {
             rs.getLong(5))));
     assertEquals(List.of(
         List.of("audit.prune", "0 4 * * *", "America/Toronto", "null", system),
+        List.of("idempotency.prune", "15 4 * * *", "America/Toronto", "null", system),
         List.of("outbox.prune", "45 3 * * *", "America/Toronto", "null", system),
         List.of("scheduler.prune-runs", "30 3 * * *", "America/Toronto", "null", system),
         List.of("users.purge-expired-sessions", "15 * * * *", "America/Toronto", "null", system)), rows);

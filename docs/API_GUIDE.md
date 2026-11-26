@@ -450,7 +450,7 @@ A counter only moves up (`409 COUNTER_CANNOT_DECREASE`): lowering it would issue
 
 ## 9. General ledger
 
-The books of the request's company. Built so far: the **chart of accounts**, **fiscal years** with their periods, and **dimensions**. Journal entries and reports come next (docs/ARCHITECTURE.md §22).
+The books of the request's company: the **chart of accounts**, **fiscal years** with their periods, **dimensions** and **journal entries**. Reports come next (docs/ARCHITECTURE.md §22).
 
 ### Accounts
 
@@ -516,6 +516,38 @@ Extra tags on journal lines beyond the account, defined by each company: `STORE`
 - Nothing is deleted: disable a dimension or a value (`isEnabled: false`) and it takes no new postings.
 - Values can be searched by their dimension: `{"where": {"field": "dimension.code", "op": "equals", "value": "STORE"}}`.
 - **Account rules** say which dimensions an account's lines must carry (`REQUIRED`) or may not carry (`NOT_ALLOWED`); any other dimension is optional. `PUT` replaces all of them (`{}` removes them all). Rules are part of the account: send the **account's** `version`, which goes up by one, and the change shows in the account's history as `dimensionRules`. Codes: `UNKNOWN_DIMENSION`, `INVALID_VALUE`.
+
+### Journal entries
+
+| Method | Path | Body | Permission | Returns |
+| --- | --- | --- | --- | --- |
+| `POST` | `/gl/journal-entries` | the entry (below); optional `Idempotency-Key` header | `gl.journal.post` | `201 entry`, `Location` |
+| `GET` | `/gl/journal-entries?from=&to=&sourceType=&limit=&offset=` | – | `gl.journal.read` | `200 { "data": [entry without lines], "page": {...} }`, newest posting date first |
+| `GET` | `/gl/journal-entries/{id}` | – | `gl.journal.read` | `200 entry` with its lines |
+| `POST` | `/gl/journal-entries/{id}/reverse` | `{ "postingDate": "2026-02-01", "description": "optional" }` | `gl.journal.reverse` | `201 entry` (the reversal), `Location` |
+| `GET` | `/gl/journal-entries/{id}/history?limit=&offset=` | – | `gl.journal.read` + `audit.history.read` | `200 { "data": [entry], "page": {...} }`: `POSTED`, `REVERSED` |
+
+```http
+POST /gl/journal-entries
+Idempotency-Key: 2f1c6a52-6d0e-4b8e-9a3c-0c5f0b7f4a11
+{
+  "postingDate": "2026-01-15",
+  "description": "Office supplies",
+  "lines": [
+    { "accountNo": "5000", "debit": "123.45", "description": "Paper", "dimensions": { "PROJECT": "P1" } },
+    { "accountNo": "1010", "credit": "123.45" }
+  ]
+}
+```
+
+- **Lines:** at least two, at most 1,000. Each has an `accountNo` and exactly one of `debit` / `credit` above zero, as a string (`"123.45"`) or a number, rounded to the company's currency (2 decimals in CAD). Debits must equal credits (`UNBALANCED`). `description` and `dimensions` (`{dimension code: value code}`) are optional.
+- **Accounts:** of this company, enabled, not a heading (`UNKNOWN_ACCOUNT`, `ACCOUNT_DISABLED`, `HEADING_ACCOUNT`). Control accounts (`manualPosting: false`) take no manual entries (`CONTROL_ACCOUNT`). Each account's dimension rules apply (`DIMENSION_REQUIRED`, `DIMENSION_NOT_ALLOWED`).
+- **Period:** the posting date must fall in an `OPEN` period: `409 PERIOD_NOT_FOUND` (no fiscal year covers it) or `PERIOD_CLOSED`.
+- **Numbers** are `JE00000001`, `JE00000002`... per company, with no gaps: a refused entry takes no number. The format can be changed with a number series for `gl.journal-entry` (§8).
+- **Posted entries never change.** To correct one, reverse it: the reversal has the same lines with debit and credit swapped, on a date in an open period (the original may be in a closed one), and both entries point at each other (`reversalOfId`, `reversedById`). An entry is reversed once (`ALREADY_REVERSED`); a reversal can't be reversed (`CANNOT_REVERSE_A_REVERSAL`): post a new entry instead.
+- **The entry returned:** `id`, `entryNo`, `postingDate`, `periodId`, `description`, `sourceType` (`MANUAL`, or e.g. `sales.invoice` for entries other modules post), `sourceId`, `sourceNo`, `reversalOfId`, `reversedById`, `currency`, `total`, `postedAt`, `postedBy`, and `lines`: `lineNo`, `accountId`, `accountNo`, `accountName`, `debit`, `credit` (one is `"0.00"`), `description`, `dimensions`.
+
+**Idempotency-Key** (optional, recommended for any client that retries): send a new unique value, such as a UUID, with each new entry. If the response is lost and you send the same request again with the same key, the entry is not posted twice: you get the first one back, with the header `Idempotent-Replayed: true`. The same key with a different body is `409 IDEMPOTENCY_KEY_REUSED`. A request that was refused (422, 409) keeps nothing, so you can fix it and resend with the same key. Keys are remembered for 7 days, per user.
 
 ## 10. Optional: a second user and company, to test permissions
 

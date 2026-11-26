@@ -94,4 +94,16 @@ public class PeriodRepository {
         UPDATE gl_periods SET status = ?, version = version + 1, status_changed_at = ?, status_changed_by = ?
          WHERE id = ?""", status, now, userId, id);
   }
+
+  /**
+   * The company's period containing {@code date}, read with a shared lock
+   * (FOR SHARE) until the transaction ends: a close (FOR UPDATE) waits for the
+   * entries being posted into it, and a posting never lands in a period that
+   * closed under it.
+   */
+  public Optional<StoredPeriod> findPeriodForPosting(UnitOfWork uow, long companyId, LocalDate date) {
+    return Jdbc.queryFirst(uow, "SELECT " + PERIOD_COLUMNS
+        + " FROM gl_periods WHERE company_id = ? AND start_date <= ? AND end_date >= ? FOR SHARE",
+        PeriodRepository::period, companyId, date, date);
+  }
 }
