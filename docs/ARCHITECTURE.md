@@ -784,6 +784,7 @@ Decide these early; they are painful to retrofit.
 7.  `platform/scheduler` (done 2026-11-23, §17) + outbox dispatcher (done 2026-11-24, its own loop, §18).
 8.  Remaining modules (inventory, purchasing, bank, fixed assets, approvals).
 9.  ArchUnit rules (§11).
+10. Server-driven UI: catalog, `/meta`, translation, record layouts and documents for the desktop client (planned 2026-11-25, §23).
 
 ---
 
@@ -1828,3 +1829,240 @@ All per company (the request's), `ADMINISTRATOR` has them all, writes audited (�
 - **No test yet of a close racing a posting**: the locks are designed for it (§22.4), but only sequential close-then-post is tested.
 - **No fiscal-year history route**: creating a year is audited (entity `glFiscalYear`), but only periods have a `/history` route.
 - **Fiscal years can't be deleted**, even before any posting. A wrong first year is fixed with SQL for now.
+
+---
+
+## 23. Server-driven UI
+
+_Status: planned 2026-11-25, not built. Steps in §23.12._
+
+The desktop client (Electron + React, in its own repository, built later) should be almost entirely generic: one list page, one record modal, one record page and one action dialog serve every resource. The server already describes its entities (`EntityDefinition`, §5) and their routes (`EntityEndpoints`). This section makes it publish everything a screen needs, **per caller, per company and in the caller's language**, so the client only renders what it is told. Hand-written React is kept for screens the layouts below can't express.
+
+### 23.1 Decisions this design rests on
+
+- **The server decides, the client renders.** The server resolves permissions, record state (posted, locked), defaults, calculations (line amounts, taxes, totals) and every user-facing text. The client never re-implements a business rule or a permission check. It hides what the metadata leaves out and disables what it marks read-only. The server still enforces everything on every request, so the metadata is a convenience, never a security boundary.
+- **Derived by default, declared when the default is wrong.** An entity registered with `EntityEndpoints` and no UI declarations still gets a working menu entry, list, filters and record modal. Hints (§23.4), layouts (§23.7) and actions (§23.9) are added only where the derived screen isn't good enough.
+- **Stable codes everywhere, translated at the edge.** Resource keys, field names, enum constants, error codes and action names never change with the language. Labels and messages are resolved from them, per request.
+- **Translation is server-side** (French and English to start). One set of bundles serves the menus, field labels, enum values, error messages, audit histories, report headers and (later) printed documents, so they always agree.
+- **Documents are written whole.** A header with its lines and payments is one `POST` / `PATCH` body and one transaction with one `version`. The client never saves lines one by one. Errors point at `lines[2].quantity`, the convention §22.5 already uses.
+- **One metadata call, cached.** `GET /meta` returns everything, with an `ETag`. The client fetches it at login, on a company switch and when the server says it changed. There is no per-screen metadata call.
+
+### 23.2 What the client is (for reference)
+
+Out of scope for this repository, but the contract is designed for it:
+- Electron + Vite + React + TypeScript; Mantine (forms, modals, comboboxes, dates), mantine-react-table (TanStack Table, server-side sort / filter / paging), TanStack Query (cache, invalidation), TanStack Router, react-hook-form.
+- Generic screens: **shell** (menu from `/meta`, company switcher, login), **list** (`QUERY`), **record** (modal or page, from the layout), **action dialog** (from an action's parameters), **report** (§23.11).
+- An **override registry** keyed by resource key (`list`, `record`, per-field renderers) for screens the layouts can't express. The aim is that it stays nearly empty.
+- Numbers and dates are formatted on the client with `Intl`, using the locale, `scale`, `format` and currency the metadata gives. Texts are never translated on the client.
+- Global behaviour: a `401` goes back to login. A company switch refetches `/meta` and clears the query cache. An `apiVersion` the client doesn't support asks the user to update the app.
+
+### 23.3 Resource catalog
+
+`platform/web/ResourceCatalog`, a platform service in the ServiceRegistry, lists every resource the UI can show:
+
+| Item | Meaning |
+| --- | --- |
+| `key` | The permission prefix: `masterdata.product`, `gl.account` |
+| `module` | The `ERPModule.name()` that registered it, for grouping in the menu |
+| `path` | The routes' base path: `/masterdata/products` |
+| `entity` | Its `EntityDefinition` |
+| `actions` | Which of `READ`, `CREATE`, `UPDATE`, `DELETE` it serves, plus history |
+| `ui` | `generic` (default) or `custom` (the client uses an override) |
+
+- `EntityEndpoints.register(...)` records its resource itself, so the generic entities need nothing new.
+- A hand-written write that keeps the entity's body shape on the same path (`AccountController` + `AccountForm`: same `PATH`, same field names) declares it: `catalog.declareWrites("gl.account", CREATE, UPDATE)`. The generic form then works, and the hand-written rules come back as field errors like any other `422`.
+- A resource without generic reads (journal entries) is declared in full with `catalog.declare(...)`, naming its routes. That resource's list uses its own `GET` with query parameters, described like a report's (§23.11), until it moves to `QUERY`.
+- `ModuleHost` tells the catalog which module is registering, so modules don't repeat their name.
+
+### 23.4 UI hints on entities and fields
+
+All optional, all with a default:
+
+| Hint | Default | Used for |
+| --- | --- | --- |
+| `DEF.titleField(f)`, `subtitleField(f)` | first `unique()` string field, else `id`; no subtitle | Pickers, reference cells, modal titles, breadcrumbs |
+| `DEF.listColumns(...)` | readable fields that are filterable or sortable | Columns shown by default |
+| `DEF.defaultSort(...)` | `id` descending | First load of a list |
+| `DEF.presentation(MODAL / PAGE)` | `MODAL`, `PAGE` when the layout has collections | Where a record opens |
+| `Field.references(() -> T.DEF)` | the target of a `manyToOne` whose foreign key is the field's column | Reference pickers, `_refs` (§23.10) |
+| `Field.scale(n)` | 2 for decimals | Input step and display |
+| `Field.format(MONEY, currencyField)`, `PERCENT`, `MULTILINE` | from the type | Editors and display |
+
+- Enum values come from the enum class itself (`FieldType.javaType().getEnumConstants()`); nothing is declared.
+- A reference is only shown as a picker if the caller can read the target resource; otherwise it is a read-only id.
+- Gaps found while planning: `Product.unitOfMeasureId` and `currencyId` are plain integers with no relation. They get `references(...)` once units and currencies are resources.
+
+### 23.5 Translation
+
+**The request's locale**, put on `RequestContext`, is the first of:
+1. a supported language in `Accept-Language` (`fr`, `en`; `fr-CA` counts as `fr`);
+2. the user's own `users.locale`;
+3. the company's `companies.default_locale`;
+4. `fr`.
+
+Migration V14 adds both columns (nullable on users, `NOT NULL DEFAULT 'fr'` on companies). `/auth/login` and `/auth/me` return the effective locale, and a user can change theirs (`PATCH /auth/me {locale}`).
+
+**Bundles.** Each module ships `ui-labels.properties` (English) and `ui-labels_fr.properties` (French) in its resources. The platform ships its own for shared texts (history tab, standard actions). Keys:
+
+```properties
+# menu group (the module name)
+masterdata.items=Items
+# resource: plural, then singular
+masterdata.product=Products
+masterdata.product.one=Product
+masterdata.product.field.productNo=Product no.
+# layout section (§23.7)
+masterdata.product.section.general=General
+# enum value: enum.<module>.<Enum>.<CONSTANT>
+enum.gl.AccountType.ASSET=Asset
+# action and its confirmation (§23.9)
+gl.journalEntry.action.reverse=Reverse
+gl.journalEntry.action.reverse.confirm=Post the reversing entry?
+# report (§23.11)
+report.gl.trialBalance=Trial balance
+```
+
+- `platform/i18n/Messages` loads every module's bundles at startup (one merged view per locale) and resolves a key for a locale. A missing key falls back to the English bundle, then to a humanized API name (`unitAmount` becomes "Unit amount"). The fallback is a safety net only: the completeness test below catches missing keys.
+- **Errors.** `FieldError` and `ErpException` gain optional `params` (`{"max": 50}`). `ExceptionMapper` translates the `message` / `detail` from `errors.properties` / `errors_fr.properties` by `code`, interpolating the params (`MAX_LENGTH=Au plus {max} caracteres`). A code with no bundle entry keeps today's English text. `code` and `field` never change, so the client can still branch on them.
+- **Also translated** with the same bundles: permission descriptions (`PermissionRegistry`, for a future role screen), document types (§21), field names in audit histories (`AuditHistory.view` adds a `label` per field) and report headers.
+- **Completeness test** (in `modules`, over `AllModules`): every resource, field, enum value, section, collection, action and report key has a French and an English entry, and the two bundles have the same keys. A missing translation fails the build instead of surprising a user.
+
+### 23.6 `GET /meta`
+
+Authenticated, no extra permission. It answers for the caller, the request's company and the locale. The ETag is a hash of the body, so a client sending `If-None-Match` gets `304` until the caller's permissions, the company, the locale or the deployment change.
+
+```json
+{
+  "apiVersion": 1,
+  "locale": "fr",
+  "menu": [
+    { "module": "masterdata.items", "label": "Articles", "resources": ["masterdata.product", "masterdata.productCategory"] }
+  ],
+  "resources": [{
+    "key": "masterdata.product", "path": "/masterdata/products", "ui": "generic",
+    "label": "Produits", "labelOne": "Produit", "presentation": "modal",
+    "can": { "read": true, "create": true, "update": false, "delete": false, "history": true },
+    "title": "productNo", "subtitle": "name",
+    "listColumns": ["productNo", "name", "unitAmount", "isEnabled"],
+    "defaultSort": [{ "field": "productNo", "dir": "asc" }],
+    "fields": [
+      { "name": "productNo", "label": "No de produit", "type": "string", "required": true, "unique": true,
+        "maxLength": 50, "filterable": true, "sortable": true,
+        "operators": ["equals", "notEquals", "in", "isNull", "contains", "startsWith"],
+        "writable": { "create": true, "update": true } },
+      { "name": "productCategoryId", "label": "Categorie", "type": "reference", "ref": "masterdata.productCategory",
+        "required": true, "filterable": true, "writable": { "create": true, "update": true } },
+      { "name": "unitAmount", "label": "Prix unitaire", "type": "decimal", "scale": 2,
+        "format": "money", "currencyField": "currencyId", "min": "0" }
+    ],
+    "layout": { "see": "23.7" },
+    "actions": [ { "see": "23.9" } ]
+  }],
+  "reports": [ { "see": "23.11" } ]
+}
+```
+
+- A resource the caller can't read is left out, and so is its menu entry. A field the caller can't read (its `readPermission`, or `internal`) is left out.
+- `writable.create` is `isCreatable()` and `FieldAccess.canWrite`; `writable.update` is `isUpdatable()` and `canWrite`. The id, version and audit fields are read-only.
+- Field types on the wire: `string`, `integer`, `decimal`, `boolean`, `date`, `timestamp`, `enum` (with `values: [{value, label}]`), `reference` (with `ref`).
+- Built by `MetaRoutes` from the catalog, the layouts, the actions, the reports and `Messages`. The per-caller part (the permission filtering) is cheap, but the result is still cached per (permission set, company, locale), since many users share a role.
+
+### 23.7 Record layouts
+
+How a record is laid out: sections of header fields, then tables of child rows, then read-only totals, then tabs. Declared next to the module's routes:
+
+```java
+layouts.define(SalesOrder.DEF)
+    .presentation(PAGE)
+    .section("general", 2, NUMBER, CUSTOMER_ID, ORDER_DATE, STATUS)        // 2 columns
+    .section("delivery", 2, SHIP_TO, DELIVERY_DATE)
+    .collection("lines", SalesOrderLine.DEF, c -> c
+        .columns(PRODUCT_ID, DESCRIPTION, QUANTITY, UNIT_PRICE, LINE_AMOUNT)
+        .footerSum(LINE_AMOUNT))
+    .collection("payments", Payment.DEF, c -> c
+        .columns(PAYMENT_DATE, METHOD, AMOUNT)
+        .footerSum(AMOUNT))
+    .summary(SUBTOTAL, TAX_TOTAL, TOTAL)                                    // read-only, server-computed
+    .tab(HISTORY);                                                          // built in; later ATTACHMENTS, NOTES
+```
+
+- A **collection** is a child entity reached through a `oneToMany` relation, and its name is the key its rows have in the document body (§23.8). Its columns carry the same field metadata as header fields (types, labels, `writable`, references), so a grid cell uses the same editor as a form input.
+- A collection is editable when its document is written whole (§23.8) and the caller may update. Rows can be added and removed unless the collection says `.fixedRows()`.
+- **Derived layout** for a resource with none declared: one section with every readable field in declaration order, then one read-only table per `oneToMany` relation whose target the caller can read, then the history tab when allowed.
+- Labels: `<resource>.section.<name>`, `<resource>.collection.<name>`.
+- `layouts` is `platform/ui/RecordLayouts`, in the ServiceRegistry. Layouts are checked at startup: every field must belong to its entity, and a collection's entity must be the target of a relation of the parent.
+
+### 23.8 Documents: a header and its lines, written whole
+
+**Contract.**
+- `POST {path}` and `PATCH {path}/{id}` take the header's fields plus one array per collection: `{ "customerId": 4, "version": 7, "lines": [ { "id": 31, "quantity": 2 }, { "productId": 9, "quantity": 1 } ], "payments": [] }`.
+- Replace semantics per collection: a row with an `id` is updated, a row without one is inserted, and a stored row missing from the array is deleted. A collection left out of a `PATCH` is left as it is.
+- Responses are the whole document as `GET` returns it (header, collections, `_refs`, `_meta`).
+- One `version`, on the header, bumped by any change to the header or any row. A stale version is `409 VERSION_CONFLICT` for the whole document.
+- Errors at `lines[2].quantity`. A row's index is its position in the array sent, so the client can put the message on the cell.
+- Documents that are posted as they are created honour `Idempotency-Key` (§22.1).
+
+**Platform.** `platform/web/DocumentEndpoints` does this for parent and child entities with no business rules, using `WriteBuilder` / `WriteExecutor` per row in one transaction: an `EntityChanged` event per changed row, and child rows audited under the parent (`entity`, `id`) so the document's history shows its lines. Business documents plug in `DocumentRules<H>`:
+
+| Hook | When | For |
+| --- | --- | --- |
+| `defaults(rc, uow)` | `GET {path}/new` | Today's date, company currency, default terms |
+| `calculate(draft, uow)` | `POST {path}/calculate` and before every write | Line amounts, taxes (§19), totals |
+| `validate(draft, uow, errors)` | before every write | Rules the field declarations can't express |
+| `locked(row)` | reads, before writes | Fields and collections that can't change in this state |
+| `actions(row)` | reads | Which actions (§23.9) apply in this state |
+
+A module with a hand-written orchestrator (`JournalPostingService`) keeps its own routes. It publishes its layout, its rules for `locked` / `actions`, and its `/new` and `/calculate` if it has them.
+
+### 23.9 Server behaviour the record screens use
+
+- **`GET {path}/new`**: a blank record with the defaults filled in, shaped like `GET` (with `_refs` and `_meta`), for the create form. A document with a number series shows a preview of the next number, marked as a preview (§21).
+- **`POST {path}/calculate`**: takes a draft (any part may be incomplete or invalid), returns it recalculated plus `warnings` (non-blocking, translated) and the `errors` a save would report, without saving anything. The client calls it after edits, debounced. It is the same idea as the scheduler's `/preview` (§17.5).
+- **Per-record capabilities**: `GET` adds `_meta: { "can": { "update": false, "delete": false }, "locked": ["*"], "actions": ["reverse"] }`. Permissions and `DocumentRules` combined: a posted journal entry is entirely locked, and offers `reverse` only to a caller holding `gl.journal.reverse` and only while it isn't reversed.
+- **Actions**: `ResourceAction(name, method, pathSuffix, permission, params, confirm, scope)` in `/meta`, where `scope` is `record`, `list` (no row, e.g. "Create fiscal year") or `bulk` (§23.10). `params` uses the field format of §23.6, so the client builds the action dialog itself. Examples: `reverse` (`postingDate`, `description`) on journal entries, `close` and `reopen` on periods.
+- **Version conflicts**: the `409 VERSION_CONFLICT` body includes the current row, so the client can show what changed and offer "reload" or "apply my changes again".
+
+### 23.10 Lists
+
+- **Reference titles**: `QUERY` and `GET` rows add `_refs: { "productCategoryId": { "id": 3, "title": "QUI", "subtitle": "Quincaillerie" } }`. They are loaded with one `IN` query per referenced entity per page, scoped to the company and to what the caller can read. Lists show names without extra calls.
+- **Paging**: `page.hasMore`, by reading `limit + 1` rows. No total count (`COUNT(*)` on big filtered tables is the slowest part of a page).
+- **Quick search**: `QUERY` accepts `"search": "text"`, meaning `startsWith` on the title field or `contains` on the subtitle, so every list has one search box without the client building a filter.
+- **CORS** for the client's origin (`web.cors.origins` in `application.properties`), allowing the `QUERY` method and the `X-Company-Id`, `Idempotency-Key`, `Accept-Language` and `If-None-Match` headers, and exposing `ETag`, `Location` and `Idempotent-Replayed`.
+- Later (step 10):
+  - **Export**: `QUERY {path}/export?format=csv` (xlsx later) with the list's own body, translated headers and values, streamed, capped by `QueryLimits`.
+  - **Saved views**: table `ui_saved_views` (user, company, resource, name, query JSON, columns, shared), served by `EntityEndpoints` as resource `ui.savedView`.
+  - **Bulk actions**: actions with scope `bulk` take `{ "ids": [...] }` and answer one result per id.
+  - **Change feed**: `GET /events/stream` (Server-Sent Events). After commit, it relays `EntityChanged` (resource, id, kind) to connected clients of the same company that can read the resource. The client invalidates the matching queries, so open lists and records refresh by themselves.
+
+### 23.11 Reports
+
+`ReportDescriptor(key, path, permission, params, columns, rowStyle, totals)` in `/meta`:
+- `params` use the field format of §23.6, so the client builds the report's form (date range, account picker, dimension filter).
+- `columns` are typed and labelled (`report.<key>.column.<name>`).
+- `rowStyle` names a field that marks heading and indented rows (the trial balance's `level`, heading flag).
+- `totals` names the totals object.
+
+The client gets one generic report page with export. The trial balance and account ledger (§22.6) are described first. Printing documents (`GET {path}/{id}/pdf`, server-rendered, translated) comes later.
+
+### 23.12 Implementation order
+
+1. This plan. Done 2026-11-25.
+2. **Catalog and `GET /meta`**: `ResourceCatalog` filled by `EntityEndpoints`, `MetaRoutes` with fields, permissions (`can`, `writable`), enum values, references from relations, the menu, the ETag. Tests: two users with different roles see different resources and fields.
+3. **UI hints** (§23.4) and their defaults; products and accounts declare theirs.
+4. **Translation**: V14 (`users.locale`, `companies.default_locale`), locale on `RequestContext`, `Messages`, label bundles for every module, translated errors with `params`, history labels, the completeness test.
+5. **Lists**: `_refs`, `hasMore`, `search`, CORS.
+6. **Records**: `_meta`, `GET /new`, actions with parameters, `409` with the current row.
+7. **Layouts**: `RecordLayouts`, declared and derived, in `/meta`.
+8. **Documents**: `DocumentEndpoints`, `DocumentRules`, `/calculate`, tested on a test-only header-and-lines entity.
+9. **GL pilot**: accounts (declared writes), journal entries (page with a `lines` collection, `reverse`), periods (`close`, `reopen`), trial balance and account ledger as reports.
+10. **Later**: export, saved views, bulk actions, change feed, printing, attachments and notes, each in its own commit.
+
+The client starts once step 6 is done: products and accounts are then fully usable through the generic screens.
+
+### 23.13 Known gaps and limits (planned)
+
+- **Two languages only** (`fr`, `en`), and only for the texts the server owns. Data the users type (product names, account names) isn't translated.
+- **Labels are deployed with the code.** A company can't rename a field or hide one without a release. Per-company label and layout overrides would come later, as data.
+- **No conditional fields inside a form** beyond `locked` per state (e.g. "show the bank account only when the method is transfer"). Add a `visibleWhen` rule to layouts if a screen needs it.
+- **Journal entries list through their own `GET`**, not `QUERY`, so their list has the report-style filters only until it is moved.
+- **The metadata is a description, not an enforcement layer.** Every route keeps checking permissions, state and validation itself.
