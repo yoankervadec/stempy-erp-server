@@ -217,7 +217,8 @@ public final class NumberPattern {
         errors.add(new FieldError(field, "INVALID_CHARACTERS",
             name + " may contain only letters, digits and '-'"));
       } else if (value.length() > width) {
-        errors.add(new FieldError(field, "TOO_LONG", name + " is longer than " + width + " characters"));
+        errors.add(new FieldError(field, "TOO_LONG", name + " is longer than " + width + " characters",
+            Map.of("max", width)));
       } else {
         padded.put(name, "0".repeat(width - value.length()) + value);
       }

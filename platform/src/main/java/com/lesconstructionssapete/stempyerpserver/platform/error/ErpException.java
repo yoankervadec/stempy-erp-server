@@ -54,9 +54,13 @@ public abstract class ErpException extends RuntimeException {
   /**
    * Names a value the message contains, so a translation can show it too
    * (docs/ARCHITECTURE.md §23.5): {@code throw new XException(...).param("date", date)}.
+   * A null value is left out.
    */
   public ErpException param(String name, Object value) {
-    params.put(Objects.requireNonNull(name, "name"), value);
+    Objects.requireNonNull(name, "name");
+    if (value != null) {
+      params.put(name, value);
+    }
     return this;
   }
 

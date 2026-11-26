@@ -1,0 +1,198 @@
+# Platform texts (docs/ARCHITECTURE.md §23.5). UTF-8.
+# Each key lists its texts by language. error.* and status.* are French only: English is the code's own message.
+
+# Labels shared by every resource; a resource's own <key>.field.<name> wins over field.<name>.
+
+field.id:
+  en: Id
+  fr: Id
+field.version:
+  en: Version
+  fr: Version
+field.createdAt:
+  en: Created at
+  fr: Créé le
+field.createdBy:
+  en: Created by
+  fr: Créé par
+field.updatedAt:
+  en: Updated at
+  fr: Modifié le
+field.updatedBy:
+  en: Updated by
+  fr: Modifié par
+field.deletedAt:
+  en: Deleted at
+  fr: Supprimé le
+field.code:
+  en: Code
+  fr: Code
+field.name:
+  en: Name
+  fr: Nom
+field.description:
+  en: Description
+  fr: Description
+field.isEnabled:
+  en: Enabled
+  fr: Actif
+
+audit.action.CREATED:
+  en: Created
+  fr: Création
+audit.action.UPDATED:
+  en: Updated
+  fr: Modification
+audit.action.DELETED:
+  en: Deleted
+  fr: Suppression
+
+# The title of an error response, by HTTP status
+status.400:
+  fr: Requête invalide
+status.401:
+  fr: Non authentifié
+status.403:
+  fr: Accès refusé
+status.404:
+  fr: Introuvable
+status.405:
+  fr: Méthode non permise
+status.409:
+  fr: Conflit
+status.413:
+  fr: Contenu trop volumineux
+status.415:
+  fr: Type de contenu non pris en charge
+status.422:
+  fr: Données invalides
+status.429:
+  fr: Trop de requêtes
+status.500:
+  fr: Erreur interne
+status.503:
+  fr: Service indisponible
+
+# Validation of fields (Validation, WriteBuilder, QuerySpecParser, QueryTranslator)
+error.VALIDATION_FAILED:
+  fr: Les données envoyées contiennent des erreurs
+error.REQUIRED:
+  fr: est obligatoire
+error.TOO_LONG:
+  fr: doit compter au plus {max} caractères
+error.INVALID_LENGTH:
+  fr: doit compter de {min} à {max} caractères
+error.INVALID_FORMAT:
+  fr: a un format invalide
+error.INVALID_CHARACTERS:
+  fr: contient des caractères non permis
+error.TOO_SMALL:
+  fr: doit être au moins {min}
+error.TOO_LARGE:
+  fr: doit être au plus {max}
+error.TOO_MANY_DECIMALS:
+  fr: doit avoir au plus {scale} décimales
+error.MUST_BE_POSITIVE:
+  fr: doit être plus grand que zéro
+error.OUT_OF_RANGE:
+  fr: est hors des limites permises
+error.INVALID_VALUE:
+  fr: n'est pas une valeur permise
+error.INVALID_TYPE:
+  fr: n'est pas du bon type
+error.UNKNOWN_FIELD:
+  fr: n'est pas un champ connu
+error.READ_ONLY:
+  fr: ne peut pas être modifié
+error.NOT_ALLOWED:
+  fr: n'est pas permis ici
+error.ALREADY_EXISTS:
+  fr: est déjà utilisé
+error.INVALID_REFERENCE:
+  fr: désigne un enregistrement qui n'existe pas
+error.EMPTY_PATCH:
+  fr: Aucun champ à modifier
+error.INVALID_PARAMETER:
+  fr: Un paramètre de la requête est invalide
+
+# Searching (QUERY)
+error.INVALID_FILTER:
+  fr: Filtre invalide
+error.INVALID_SORT:
+  fr: Tri invalide
+error.INVALID_PAGE:
+  fr: Pagination invalide
+error.TOO_DEEP:
+  fr: Filtre trop imbriqué
+error.TOO_MANY_CONDITIONS:
+  fr: Trop de conditions dans le filtre
+error.UNKNOWN_OPERATOR:
+  fr: Opérateur inconnu
+error.NOT_FILTERABLE:
+  fr: Ce champ ne peut pas servir de filtre
+error.NOT_SORTABLE:
+  fr: Ce champ ne peut pas servir au tri
+error.PATH_TOO_DEEP:
+  fr: Chemin de relation trop long
+error.PATH_NOT_SUPPORTED:
+  fr: Ce chemin de relation n'est pas pris en charge
+
+# Records and concurrency
+error.NOT_FOUND:
+  fr: Enregistrement introuvable
+error.RESOURCE_NOT_FOUND:
+  fr: Ressource introuvable
+error.VERSION_CONFLICT:
+  fr: L'enregistrement a été modifié par quelqu'un d'autre depuis que vous l'avez lu. Rechargez-le et recommencez.
+error.DUPLICATE_VALUE:
+  fr: Une valeur qui doit être unique est déjà utilisée.
+error.IDEMPOTENCY_KEY_REUSED:
+  fr: Cette clé d'idempotence a déjà servi pour une autre requête.
+
+# Sign-in, companies and permissions
+error.UNAUTHENTICATED:
+  fr: Vous devez être connecté.
+error.SESSION_INVALID:
+  fr: La session est invalide ou a expiré. Reconnectez-vous.
+error.AUTH_HEADER_INVALID:
+  fr: L'en-tête d'authentification est invalide.
+error.LOGIN_RATE_LIMITED:
+  fr: Trop de tentatives de connexion. Réessayez plus tard.
+error.PERMISSION_DENIED:
+  fr: Vous n'avez pas la permission de faire cette action.
+error.COMPANY_ACCESS_DENIED:
+  fr: Vous n'avez pas accès à cette entreprise.
+error.COMPANY_REQUIRED:
+  fr: "Plusieurs entreprises sont disponibles : choisissez-en une."
+error.INVALID_COMPANY_ID:
+  fr: L'identifiant d'entreprise est invalide.
+
+# Scheduler and numbering (platform side)
+error.INVALID_CRON:
+  fr: L'expression cron est invalide
+error.INVALID_TIME_ZONE:
+  fr: Fuseau horaire inconnu
+error.NUMBER_SERIES_NOT_FOUND:
+  fr: Aucune série de numérotation ne s'applique
+
+# Server and framework
+error.INTERNAL_ERROR:
+  fr: Une erreur inattendue est survenue.
+error.DATABASE_BUSY:
+  fr: Le système est occupé. Réessayez.
+error.BAD_REQUEST:
+  fr: La requête est invalide.
+error.METHOD_NOT_ALLOWED:
+  fr: Cette méthode n'est pas permise pour cette adresse.
+error.PAYLOAD_TOO_LARGE:
+  fr: Le contenu envoyé est trop volumineux.
+error.UNSUPPORTED_MEDIA_TYPE:
+  fr: Ce type de contenu n'est pas pris en charge.
+error.TOO_MANY_REQUESTS:
+  fr: Trop de requêtes. Réessayez plus tard.
+
+# Used by several modules
+error.NOT_ROUNDED:
+  fr: au plus {decimals} décimales en {currency}
+error.FORBIDDEN:
+  fr: Vous n'avez pas la permission de modifier ce champ

@@ -41,18 +41,23 @@ public class ResolveDimensionsOperation implements Operation<ResolveDimensionsOp
       String field = in.fieldPrefix() + "." + dimensionCode;
       var pair = repository.findPair(uow, in.companyId(), dimensionCode, valueCode);
       if (pair.isEmpty()) {
-        v.add(field, "UNKNOWN_DIMENSION", "no dimension " + dimensionCode + " in this company");
+        v.add(field, "UNKNOWN_DIMENSION", "no dimension " + dimensionCode + " in this company",
+            Validation.params("dimension", dimensionCode));
         return;
       }
       var p = pair.get();
       if (!p.dimensionEnabled()) {
-        v.add(field, "DIMENSION_DISABLED", "dimension " + p.dimensionCode() + " is disabled");
+        v.add(field, "DIMENSION_DISABLED", "dimension " + p.dimensionCode() + " is disabled",
+            Validation.params("dimension", p.dimensionCode()));
       } else if (p.valueId() == null) {
-        v.add(field, "UNKNOWN_VALUE", "dimension " + p.dimensionCode() + " has no value " + valueCode);
+        v.add(field, "UNKNOWN_VALUE", "dimension " + p.dimensionCode() + " has no value " + valueCode,
+            Validation.params("dimension", p.dimensionCode(), "value", valueCode));
       } else if (!p.valueEnabled()) {
-        v.add(field, "VALUE_DISABLED", p.dimensionCode() + " " + p.valueCode() + " is disabled");
+        v.add(field, "VALUE_DISABLED", p.dimensionCode() + " " + p.valueCode() + " is disabled",
+            Validation.params("dimension", p.dimensionCode(), "value", p.valueCode()));
       } else if (ids.put(p.dimensionId(), p.valueId()) != null) {
-        v.add(field, "DUPLICATE_DIMENSION", "dimension " + p.dimensionCode() + " is given twice");
+        v.add(field, "DUPLICATE_DIMENSION", "dimension " + p.dimensionCode() + " is given twice",
+            Validation.params("dimension", p.dimensionCode()));
       }
     });
     v.throwIfInvalid();

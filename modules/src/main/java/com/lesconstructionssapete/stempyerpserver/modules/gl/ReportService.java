@@ -152,11 +152,14 @@ public class ReportService {
     requireValue(data.valueFound(), filter);
     var v = Validation.check();
     if (data.account().isEmpty()) {
-      v.add("accountNo", "UNKNOWN_ACCOUNT", "no account " + accountNo + " in this company");
+      v.add("accountNo", "UNKNOWN_ACCOUNT", "no account " + accountNo + " in this company",
+          Validation.params("accountNo", accountNo));
     } else if (data.account().get().heading()) {
-      v.add("accountNo", "HEADING_ACCOUNT", "a heading has no lines of its own; see the trial balance");
+      v.add("accountNo", "HEADING_ACCOUNT", "a heading has no lines of its own; see the trial balance",
+          Validation.params("accountNo", accountNo));
     } else if (data.rows().size() > MAX_LEDGER_LINES) {
-      v.add("to", "TOO_MANY_LINES", "more than " + MAX_LEDGER_LINES + " lines; narrow the date range");
+      v.add("to", "TOO_MANY_LINES", "more than " + MAX_LEDGER_LINES + " lines; narrow the date range",
+          Validation.params("max", MAX_LEDGER_LINES));
     }
     v.throwIfInvalid();
 
@@ -200,7 +203,8 @@ public class ReportService {
   private static void requireValue(boolean found, DimensionFilter filter) {
     if (!found) {
       var v = Validation.check();
-      v.add("value", "UNKNOWN_VALUE", "dimension " + filter.dimension() + " has no value " + filter.value());
+      v.add("value", "UNKNOWN_VALUE", "dimension " + filter.dimension() + " has no value " + filter.value(),
+          Validation.params("dimension", filter.dimension(), "value", filter.value()));
       v.throwIfInvalid();
     }
   }

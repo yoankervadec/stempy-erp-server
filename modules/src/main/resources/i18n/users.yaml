@@ -1,0 +1,36 @@
+# Users (docs/ARCHITECTURE.md §23.5). UTF-8.
+# Each key lists its texts by language. error.* and status.* are French only: English is the code's own message.
+
+module.users:
+  en: Users
+  fr: Utilisateurs
+
+user:
+  en: Users
+  fr: Utilisateurs
+user.one:
+  en: User
+  fr: Utilisateur
+user.field.userNo:
+  en: User no.
+  fr: No d'utilisateur
+audit.action.PASSWORD_CHANGED:
+  en: Password changed
+  fr: Changement du mot de passe
+audit.action.MEMBERSHIP_GRANTED:
+  en: Company access granted
+  fr: Accès à l'entreprise accordé
+audit.action.ROLE_ASSIGNED:
+  en: Role assigned
+  fr: Rôle attribué
+
+error.INVALID_CREDENTIALS:
+  fr: Numéro d'utilisateur ou mot de passe invalide
+error.USER_NOT_FOUND:
+  fr: "Utilisateur introuvable : {user}"
+error.ROLE_NOT_FOUND:
+  fr: "Rôle introuvable : {role}"
+error.COMPANY_NOT_FOUND:
+  fr: "Entreprise introuvable : {company}"
+error.RESERVED_USER:
+  fr: Cet utilisateur réservé ne peut pas se connecter

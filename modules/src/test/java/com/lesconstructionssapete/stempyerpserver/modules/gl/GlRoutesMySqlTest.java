@@ -334,8 +334,13 @@ class GlRoutesMySqlTest {
   @Test
   void yearsFollowEachOther() throws Exception {
     year("2026-04-01");
-    assertEquals(List.of("startDate:NOT_CONTIGUOUS"),
-        errors(call("POST", "/gl/fiscal-years", "{\"startDate\":\"2027-05-01\"}", accountant)));
+    HttpResponse<String> gap = call("POST", "/gl/fiscal-years", "{\"startDate\":\"2027-05-01\"}", accountant);
+    assertEquals(List.of("startDate:NOT_CONTIGUOUS"), errors(gap));
+    // the company's language (French), the expected date in words; params keep the value as data
+    JsonNode error = MySqlTestStack.json(gap).get("errors").get(0);
+    assertEquals("Le nouvel exercice doit commencer le 1 avril 2027, le lendemain de la fin du précédent",
+        error.get("message").asText());
+    assertEquals("2027-04-01", error.get("params").get("date").asText());
     assertEquals(List.of("startDate:NOT_CONTIGUOUS"),
         errors(call("POST", "/gl/fiscal-years", "{\"startDate\":\"2026-04-01\"}", accountant)));
     year("2027-04-01");

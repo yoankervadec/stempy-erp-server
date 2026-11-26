@@ -1,0 +1,13 @@
+# Taxes (docs/ARCHITECTURE.md §23.5). UTF-8.
+# Each key lists its texts by language. error.* and status.* are French only: English is the code's own message.
+
+error.TAX_RULE_NOT_FOUND:
+  fr: Aucune règle de taxe pour la catégorie {category} à {placeOfSupply} le {date}
+error.TAX_RATE_NOT_FOUND:
+  fr: Le groupe de taxes {group} n'a aucun taux en vigueur le {date}
+error.CURRENCY_MISMATCH:
+  fr: La ligne est en {lineCurrency}, le document en {currency}
+error.DUPLICATE:
+  fr: La clé de ligne {key} est utilisée deux fois
+error.UNKNOWN:
+  fr: "{value} est inconnu"

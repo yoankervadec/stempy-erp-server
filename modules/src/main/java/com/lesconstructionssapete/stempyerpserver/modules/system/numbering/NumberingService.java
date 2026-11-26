@@ -130,7 +130,8 @@ public class NumberingService {
     Optional<DocumentType> type = types.find(form.documentType());
     if (type.isEmpty()) {
       v.add("documentType", "UNKNOWN_DOCUMENT_TYPE", "no document type '" + form.documentType()
-          + "' on this server (see GET /numbering/document-types)");
+          + "' on this server (see GET /numbering/document-types)",
+          Validation.params("documentType", form.documentType()));
     } else {
       checkAgainstType(v, type.get(), form.fields());
     }
@@ -157,7 +158,8 @@ public class NumberingService {
     if (shapeChanged) {
       types.find(current.documentType()).ifPresentOrElse(t -> checkAgainstType(v, t, after),
           () -> v.add("documentType", "UNKNOWN_DOCUMENT_TYPE", "no module on this server declares "
-              + current.documentType() + ": its pattern and mode can't be checked"));
+              + current.documentType() + ": its pattern and mode can't be checked",
+              Validation.params("documentType", current.documentType())));
     }
     v.throwIfInvalid();
 
@@ -235,7 +237,8 @@ public class NumberingService {
       }
     }
     if (type.isGaplessRequired() && f.mode() == Mode.GAPS_ALLOWED) {
-      v.add("mode", "GAPLESS_REQUIRED", type.key() + " must be numbered without gaps");
+      v.add("mode", "GAPLESS_REQUIRED", type.key() + " must be numbered without gaps",
+          Validation.params("documentType", type.key()));
     }
   }
 

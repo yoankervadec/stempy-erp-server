@@ -73,7 +73,7 @@ Every error has the same shape (RFC 7807, `Content-Type: application/problem+jso
 
 `code` is the stable thing to test against; `errors` only appears on validation failures and lists **every** field problem at once (at most one per field).
 
-**Language.** `title`, `detail` and each `message` are in your language (docs/ARCHITECTURE.md §23.5): your own choice (`PATCH /auth/me`), else the company's; before you sign in, the first of `fr` / `en` in `Accept-Language`, else French. English texts are the server's own; French ones are translated by `code`, so `code`, `field` and `params` never change with the language. A field error whose message names values has them in `params` (`"params": {"max": 50}` for `TOO_LONG`).
+**Language.** `title`, `detail` and each `message` are in your language (docs/ARCHITECTURE.md §23.5): your own choice (`PATCH /auth/me`), else the company's; before you sign in, the first of `fr` / `en` in `Accept-Language`, else French. English texts are the server's own; French ones are translated by `code`, so `code`, `field` and `params` never change with the language. A field error whose message names values has them in `params`, as data (`"params": {"max": 50}` for `TOO_LONG`, `{"accountNo": "4010"}` for `UNKNOWN_ACCOUNT`, dates as `2027-04-01`); the translated message writes them for your language (`le 1 avril 2027`, `1 234,50 $`).
 
 | Status | Typical `code` | Meaning |
 | --- | --- | --- |

@@ -1,0 +1,142 @@
+# General ledger (docs/ARCHITECTURE.md §23.5). UTF-8.
+# Each key lists its texts by language. error.* and status.* are French only: English is the code's own message.
+
+module.gl:
+  en: General ledger
+  fr: Grand livre
+
+glAccount:
+  en: Accounts
+  fr: Comptes
+glAccount.one:
+  en: Account
+  fr: Compte
+glAccount.field.accountNo:
+  en: Account no.
+  fr: No de compte
+glAccount.field.accountType:
+  en: Type
+  fr: Type
+glAccount.field.parentId:
+  en: Heading
+  fr: Regroupement
+glAccount.field.isHeading:
+  en: Heading account
+  fr: Compte de regroupement
+glAccount.field.manualPosting:
+  en: Manual entries allowed
+  fr: Écritures manuelles permises
+
+enum.AccountType.ASSET:
+  en: Asset
+  fr: Actif
+enum.AccountType.LIABILITY:
+  en: Liability
+  fr: Passif
+enum.AccountType.EQUITY:
+  en: Equity
+  fr: Capitaux propres
+enum.AccountType.REVENUE:
+  en: Revenue
+  fr: Produits
+enum.AccountType.EXPENSE:
+  en: Expense
+  fr: Charges
+
+glDimension:
+  en: Dimensions
+  fr: Dimensions
+glDimension.one:
+  en: Dimension
+  fr: Dimension
+
+glDimensionValue:
+  en: Dimension values
+  fr: Valeurs de dimension
+glDimensionValue.one:
+  en: Dimension value
+  fr: Valeur de dimension
+glDimensionValue.field.dimensionId:
+  en: Dimension
+  fr: Dimension
+
+audit.action.POSTED:
+  en: Posted
+  fr: Comptabilisation
+audit.action.REVERSED:
+  en: Reversed
+  fr: Contrepassation
+audit.action.CLOSED:
+  en: Closed
+  fr: Fermeture
+audit.action.REOPENED:
+  en: Reopened
+  fr: Réouverture
+
+# Accounts
+error.ACCOUNT_DISABLED:
+  fr: Le compte {accountNo} est désactivé
+error.UNKNOWN_ACCOUNT:
+  fr: Aucun compte {accountNo} dans cette entreprise
+error.HEADING_ACCOUNT:
+  fr: "Le compte {accountNo} est un compte de regroupement : il ne reçoit pas d'écritures"
+error.CONTROL_ACCOUNT:
+  fr: "Le compte {accountNo} est un compte de contrôle : seul son module y inscrit des écritures"
+error.NOT_A_HEADING:
+  fr: Le parent doit être un compte de regroupement
+error.HAS_CHILDREN:
+  fr: Des comptes sont regroupés sous ce compte
+error.HAS_POSTINGS:
+  fr: Le compte a déjà des écritures
+error.CYCLE:
+  fr: Un compte ne peut pas être placé sous lui-même ni sous un de ses sous-comptes
+
+# Dimensions
+error.UNKNOWN_DIMENSION:
+  fr: Aucune dimension {dimension} dans cette entreprise
+error.UNKNOWN_VALUE:
+  fr: La dimension {dimension} n'a pas de valeur {value}
+error.DIMENSION_DISABLED:
+  fr: La dimension {dimension} est désactivée
+error.VALUE_DISABLED:
+  fr: La valeur {value} de la dimension {dimension} est désactivée
+error.DUPLICATE_DIMENSION:
+  fr: La dimension {dimension} est donnée deux fois
+error.DIMENSION_REQUIRED:
+  fr: Le compte {accountNo} exige la dimension {dimension}
+error.DIMENSION_NOT_ALLOWED:
+  fr: Le compte {accountNo} n'accepte pas la dimension {dimension}
+
+# Fiscal years and periods
+error.NOT_FIRST_OF_MONTH:
+  fr: Un exercice commence le 1er d'un mois
+error.NOT_CONTIGUOUS:
+  fr: Le nouvel exercice doit commencer le {date}, le lendemain de la fin du précédent
+error.PERIOD_NOT_FOUND:
+  fr: "Aucune période ne couvre le {date} : créez d'abord l'exercice"
+error.PERIOD_CLOSED:
+  fr: "La période {period} est fermée : inscrivez dans une période ouverte ou faites-la rouvrir"
+error.PERIOD_ALREADY_CLOSED:
+  fr: La période est déjà fermée
+error.PERIOD_ALREADY_OPEN:
+  fr: La période est déjà ouverte
+
+# Journal entries and reports
+error.TOO_FEW_LINES:
+  fr: Une écriture compte au moins deux lignes
+error.TOO_MANY_LINES:
+  fr: Trop de lignes (au plus {max})
+error.BOTH_SIDES:
+  fr: Une ligne est un débit ou un crédit, pas les deux
+error.NO_AMOUNT:
+  fr: Une ligne a besoin d'un débit ou d'un crédit plus grand que zéro
+error.NEGATIVE:
+  fr: doit être zéro ou plus
+error.UNBALANCED:
+  fr: Le total des débits doit égaler le total des crédits
+error.ALREADY_REVERSED:
+  fr: Cette écriture a déjà été contrepassée
+error.CANNOT_REVERSE_A_REVERSAL:
+  fr: Une contrepassation ne peut pas être contrepassée
+error.BEFORE_FROM:
+  fr: doit être égale ou postérieure à la date de début

@@ -1,0 +1,11 @@
+# Scheduler (docs/ARCHITECTURE.md §23.5). UTF-8.
+# Each key lists its texts by language. error.* and status.* are French only: English is the code's own message.
+
+error.UNKNOWN_JOB:
+  fr: "Tâche inconnue : {job}"
+error.NOT_ALLOWED_FOR_JOB:
+  fr: Cette tâche ne peut pas être planifiée avec cette portée
+error.RUN_ALREADY_QUEUED:
+  fr: Une exécution manuelle de cette planification attend déjà de démarrer
+error.BEFORE_START:
+  fr: doit être postérieure au début

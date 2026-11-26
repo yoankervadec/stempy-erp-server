@@ -1910,35 +1910,63 @@ All optional, all with a default:
 
 Migration V14 adds both columns (`CHAR(2)`, checked to `fr` / `en`; nullable on users, `NOT NULL DEFAULT 'fr'` on companies). `/auth/login` returns the effective language for the default company and `user.language` (the user's own choice, or null). `/auth/me` returns the request's language. `PATCH /auth/me {"language": "en" | "fr" | null}` sets or clears the user's choice; it is audited (`user`, `UPDATED`, field `language`).
 
-**Bundles.** One pair per module, named after `ERPModule.name()`, in the module's resources: `i18n/<module>.properties` (English) and `i18n/<module>_fr.properties` (French), UTF-8. The platform has its own pair, `i18n/platform*.properties`, for shared texts (the standard fields, audit actions, HTTP titles, the platform's error codes). Keys come from `platform/i18n/LabelKeys`:
+**Bundles.** One YAML file per module, named after `ERPModule.name()`, in the module's resources: `i18n/<module>.yaml`, UTF-8, **every language side by side** under each key (one place to write both, and a missing translation shows right under its key). The platform has its own, `i18n/platform.yaml`, for shared texts (the standard fields, audit actions, HTTP titles, the platform's error codes). Keys come from `platform/i18n/LabelKeys`:
 
-```properties
+```yaml
 # menu group: module.<module name>
-module.masterdata.items=Items
+module.masterdata.items:
+  en: Items
+  fr: Articles
 # resource: plural, then singular
-product=Products
-product.one=Product
-# a resource's own field label; else the shared field.<name> (platform bundle)
-product.field.productNo=Product no.
-field.createdAt=Created at
+product:
+  en: Products
+  fr: Produits
+product.one:
+  en: Product
+  fr: Produit
+# a resource's own field label; else the shared field.<name> (platform.yaml)
+product.field.productNo:
+  en: Product no.
+  fr: No de produit
 # enum value: enum.<Enum simple name>.<CONSTANT>, wherever the enum is used
-enum.AccountType.ASSET=Asset
+enum.AccountType.ASSET:
+  en: Asset
+  fr: Actif
 # audit action, for histories
-audit.action.POSTED=Posted
+audit.action.POSTED:
+  en: Posted
+  fr: Comptabilisation
+# an error: French only (English is the code's own message), {param} filled from the error's params
+error.PERIOD_CLOSED:
+  fr: "La période {period} est fermée : inscrivez dans une période ouverte ou faites-la rouvrir"
 # later: layout section (§23.7), action and its confirmation (§23.9), report (§23.11)
-product.section.general=General
-glJournalEntry.action.reverse=Reverse
-glJournalEntry.action.reverse.confirm=Post the reversing entry?
-report.gl.trialBalance=Trial balance
+glJournalEntry.action.reverse.confirm:
+  en: "Reverse entry {entryNo}?"
+  fr: "Contrepasser l'écriture {entryNo} ?"
 ```
 
-- `platform/i18n/Messages` loads the platform's bundles and every module's at startup (`ModuleHost`, in the ServiceRegistry). One merged view per language; **a key defined by two bundles fails at startup**, so a module can't change another's text. A lookup falls back to English, then to a humanized API name (`unitAmount` is "Unit amount"). The fallback is a safety net only: the completeness test catches missing keys.
-- **Errors.** `FieldError` carries `params` (`{"max": 50}`, also sent to the client, left out when empty), filled by `Validation` (`TOO_LONG`, `INVALID_LENGTH`, `TOO_SMALL`, `TOO_LARGE`, `TOO_MANY_DECIMALS`); an `ErpException` can name its own (`.param("date", date)`). `ExceptionMapper` translates the finished body (`ErrorLocalizer`): the `title` from `status.NNN`, the `detail` and each field error's `message` from `error.CODE`, with `{param}` placeholders. **English keeps the code's own messages** (more precise, often with values in them), so `error.*` and `status.*` keys exist only in the French bundles. A code without a translation, or a template whose param is missing, keeps the English text. `code`, `field` and `params` never change.
+Quote a text in `"..."` when it starts with `{` or contains `: ` (YAML would read it otherwise). Loading fails at startup on a key defined twice (in one file or two), a language other than `en` / `fr`, or an empty text.
+
+**Parameters.** Any text may name values: `{name}` is replaced by the value named `name`, written for the language (`Language.locale()`: `fr-CA`, `en-CA`) by its type:
+
+| Value | French | English |
+| --- | --- | --- |
+| `BigDecimal` (quantities, rates), its own decimals | `1 234,50` | `1,234.50` |
+| `Money` (prices, amounts), with its currency | `1 234,50 $` | `$1,234.50` |
+| `LocalDate` | `26 novembre 2026` | `November 26, 2026` |
+| an enum constant | its label (`enum.Type.CONSTANT`) | idem |
+| anything else (product numbers, codes, ids, counts) | as is | as is |
+
+French separators are no-break spaces, so an amount never wraps. A text whose parameter isn't given isn't used (the English message, or the next fallback, is), so a half-filled sentence never reaches a user. `Messages.text(language, key, params)` fills any text (action confirmations, report titles later); errors go through `ErrorLocalizer`.
+
+- `platform/i18n/Messages` loads `platform.yaml` and every module's file at startup (`ModuleHost`, in the ServiceRegistry). One merged view per language; **a key defined twice fails at startup**, so a module can't change another's text. A lookup falls back to English, then to a humanized API name (`unitAmount` is "Unit amount"). The fallback is a safety net only: the completeness test catches missing keys.
+- **Errors.** `FieldError` carries `params` (`{"max": 50}`, also sent to the client as data, left out when empty), filled by `Validation`'s checks (`TOO_LONG`, `INVALID_LENGTH`, `TOO_SMALL`, `TOO_LARGE`, `TOO_MANY_DECIMALS`) or given with `v.add(field, code, message, Validation.params("accountNo", no, "date", date))` (null values left out); an `ErpException` names its own with `.param("period", name)`.
+- **One set of parameter names per code**, given by every place that throws it: a French template can only use what every site provides. `UNKNOWN_ACCOUNT`, `ACCOUNT_DISABLED`, `HEADING_ACCOUNT`, `CONTROL_ACCOUNT`: `{accountNo}`; GL's dimension codes: `{dimension}` (and `{value}`, `{accountNo}`); `NOT_ROUNDED`: `{decimals}`, `{currency}`; `TOO_MANY_LINES`: `{max}`; `PERIOD_CLOSED`: `{period}`; `PERIOD_NOT_FOUND`, `NOT_CONTIGUOUS`: `{date}`; tax, numbering, scheduling and users codes: the codes and dates their messages name. When adding a site for an existing code, give the same params. `ExceptionMapper` translates the finished body (`ErrorLocalizer`): the `title` from `status.NNN`, the `detail` and each field error's `message` from `error.CODE`, with `{param}` placeholders. **English keeps the code's own messages** (more precise, often with values in them), so `error.*` and `status.*` keys have only a `fr` text. A code without a translation, or a template whose param is missing, keeps the English text. `code`, `field` and `params` never change.
 - Error translations live with the code that throws them: shared codes (validation, query, auth, generic) in the platform bundle, a module's own codes (GL's `UNBALANCED`, numbering's `GAPLESS_REQUIRED`...) in its bundle.
 - **History labels:** the generic history (`GET {path}/{id}/history`) adds `actionLabel` and `labels` (field name to label) to each item. `changes` is unchanged.
-- **Completeness test** (`UiLabelsTest`, over `AllModules`): for every entity a module registers (a resource or not yet), its singular and plural labels, every non-internal field and every enum value have an English and a French text; every module with entities has its menu label; both languages have the same label keys; English bundles hold no `error.*` / `status.*`. A missing translation fails the build.
+- **Completeness test** (`UiLabelsTest`, over `AllModules`): for every entity a module registers (a resource or not yet), its singular and plural labels, every non-internal field and every enum value have an English and a French text; every module with entities has its menu label; both languages have the same label keys; no `error.*` / `status.*` has an `en` text. A missing translation fails the build.
 
-**As built (step 4):** as above. Not translated yet (they arrive with the screens that show them): permission descriptions (`PermissionRegistry`), document types (§21), job types, report headers (§23.11, step 9). Translated messages are generic where the English one names values not passed as params (`NOT_FOUND`: "Enregistrement introuvable" rather than "product 5 not found"); add `.param(...)` and a `{placeholder}` where a French message needs the value.
+**As built (step 4):** as above. Not translated yet (they arrive with the screens that show them): permission descriptions (`PermissionRegistry`), document types (§21), job types, report headers (§23.11, step 9). Codes whose English message names values pass them as params, and their French templates use them (2026-11-26). A few stay generic where the value isn't useful to a person (`NOT_FOUND`: "Enregistrement introuvable" rather than "product 5 not found"; `COMPANY_ACCESS_DENIED` without the company id).
 
 ### 23.6 `GET /meta`
 
@@ -2082,7 +2110,7 @@ The client starts once step 6 is done: products and accounts are then fully usab
 
 ### 23.13 Known gaps and limits (planned)
 
-- **Two languages only** (`fr`, `en`), and only for the texts the server owns. Data the users type (product names, account names) isn't translated. A third language is a `Language` constant, a `_xx` bundle per module, and the V14 check constraints widened.
+- **Two languages only** (`fr`, `en`), and only for the texts the server owns. Data the users type (product names, account names) isn't translated. A third language is a `Language` constant (with its locale), a third text under each key, and the V14 check constraints widened.
 - **No route changes a company's default language** yet: SQL until a company admin screen exists (the cache's TTL picks it up).
 - **Labels are deployed with the code.** A company can't rename a field or hide one without a release. Per-company label and layout overrides would come later, as data.
 - **No conditional fields inside a form** beyond `locked` per state (e.g. "show the bank account only when the method is transfer"). Add a `visibleWhen` rule to layouts if a screen needs it.

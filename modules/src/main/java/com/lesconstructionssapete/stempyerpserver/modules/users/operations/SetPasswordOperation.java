@@ -51,7 +51,8 @@ public class SetPasswordOperation implements Operation<SetPasswordOperation.Inpu
           "the " + SystemActor.USER_NO + " user cannot log in, so it cannot have a password");
     }
     UserRef user = accounts.findByUserNo(uow, in.userNo())
-        .orElseThrow(() -> new ResourceNotFoundException("USER_NOT_FOUND", "No user with number " + in.userNo()));
+        .orElseThrow(() -> new ResourceNotFoundException("USER_NOT_FOUND", "No user with number " + in.userNo())
+            .param("user", in.userNo()));
     accounts.replacePassword(uow, user, in.passwordHash(), in.now());
     sessions.revokeAllForUser(uow, user.id(), in.now());
     audit.record(uow, new AuditEntry("user", user.id(), null, "PASSWORD_CHANGED", in.actingUserId(), in.requestId(),

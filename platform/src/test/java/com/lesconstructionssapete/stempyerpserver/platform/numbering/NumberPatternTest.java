@@ -128,7 +128,8 @@ class NumberPatternTest {
     values.put("TERMINAL_NO", null);
     List<FieldError> errors = applyErrors(CUSTOMER_ORDER, values);
     assertEquals(2, errors.size());
-    assertTrue(errors.contains(new FieldError("params.STORE_NO", "TOO_LONG", "STORE_NO is longer than 3 characters")));
+    assertTrue(errors.contains(new FieldError("params.STORE_NO", "TOO_LONG", "STORE_NO is longer than 3 characters",
+        Map.of("max", 3))));
     assertTrue(errors.contains(new FieldError("params.TERMINAL_NO", "REQUIRED", "TERMINAL_NO is required")));
   }
 

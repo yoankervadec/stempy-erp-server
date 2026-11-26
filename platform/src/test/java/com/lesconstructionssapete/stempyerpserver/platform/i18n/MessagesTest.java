@@ -5,11 +5,16 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
+
+import com.lesconstructionssapete.stempyerpserver.platform.testsupport.TestStock;
+import com.lesconstructionssapete.stempyerpserver.shared.Money;
 
 class MessagesTest {
 
@@ -37,16 +42,84 @@ class MessagesTest {
     assertEquals(Optional.empty(), MESSAGES.error(Language.FR, "NO_SUCH_CODE", Map.of()));
   }
 
-  @Test
-  void decimalsArePlainInTemplates() {
-    assertEquals(Optional.of("1E+3 / 1000"),
-        Messages.format("1E+3 / {v}", Map.of("v", new BigDecimal("1E+3"))));
+  // ---- parameters, written for the language ----
+
+  private static final String NBSP = "\u00a0";
+
+  private static String fmt(Language language, String template, Object... params) {
+    Map<String, Object> map = new HashMap<>();
+    for (int i = 0; i < params.length; i += 2) {
+      map.put((String) params[i], params[i + 1]);
+    }
+    return MESSAGES.format(language, template, map).orElseThrow();
   }
+
+  @Test
+  void decimalsKeepTheirOwnDecimalsAndUseTheLanguagesSeparators() {
+    assertEquals("1" + NBSP + "234,50", fmt(Language.FR, "{q}", "q", new BigDecimal("1234.50")));
+    assertEquals("1,234.50", fmt(Language.EN, "{q}", "q", new BigDecimal("1234.50")));
+    assertEquals("3", fmt(Language.FR, "{q}", "q", new BigDecimal("3")));
+    assertEquals("0,125", fmt(Language.FR, "{q}", "q", new BigDecimal("0.125")));
+    // no exponent, ever
+    assertEquals("1" + NBSP + "000", fmt(Language.FR, "{q}", "q", new BigDecimal("1E+3")));
+  }
+
+  @Test
+  void moneyIsWrittenWithItsCurrency() {
+    Money price = Money.of("1234.50", "CAD");
+    assertEquals("Prix : 1" + NBSP + "234,50" + NBSP + "$", fmt(Language.FR, "Prix : {price}", "price", price));
+    assertEquals("Price: $1,234.50", fmt(Language.EN, "Price: {price}", "price", price));
+    assertEquals("US$12.50", fmt(Language.EN, "{p}", "p", Money.of("12.50", "USD")));
+  }
+
+  @Test
+  void datesAreWrittenInWordsAndEnumsAsTheirLabels() {
+    LocalDate date = LocalDate.of(2026, 11, 26);
+    assertEquals("le 26 novembre 2026", fmt(Language.FR, "le {d}", "d", date));
+    assertEquals("on November 26, 2026", fmt(Language.EN, "on {d}", "d", date));
+    // enum.Status.AVAILABLE in the test texts
+    assertEquals("Disponible", fmt(Language.FR, "{s}", "s", TestStock.Status.AVAILABLE));
+    assertEquals("Reserved", fmt(Language.FR, "{s}", "s", TestStock.Status.RESERVED));
+  }
+
+  @Test
+  void otherValuesAreWrittenAsTheyAre() {
+    // product numbers, ids and counts: no grouping, no translation
+    assertEquals("P-001 x 12345", fmt(Language.FR, "{no} x {n}", "no", "P-001", "n", 12345L));
+  }
+
+  @Test
+  void textFillsAnyKeysPlaceholders() {
+    var messages = Messages.load(MessagesTest.class.getClassLoader(), List.of("params"));
+    Map<String, Object> params = Map.of("productNo", "P-001", "quantity", new BigDecimal("2.5"));
+
+    assertEquals(Optional.of("Stock insuffisant pour P-001 : 2,5 disponibles"),
+        messages.text(Language.FR, "stock.short", params));
+    assertEquals(Optional.of("Not enough stock for P-001: 2.5 available"),
+        messages.text(Language.EN, "stock.short", params));
+    assertEquals(Optional.empty(), messages.text(Language.FR, "stock.short", Map.of("productNo", "P-001")));
+    assertEquals(Optional.empty(), messages.text(Language.FR, "no.such.key", params));
+  }
+
+  // ---- loading ----
 
   @Test
   void aKeyDefinedByTwoBundlesFailsAtStartup() {
     assertThrows(IllegalStateException.class,
         () -> Messages.load(MessagesTest.class.getClassLoader(), List.of("dup1", "dup2")));
+  }
+
+  @Test
+  void aKeyDefinedTwiceInOneFileFailsAtStartup() {
+    assertThrows(RuntimeException.class,
+        () -> Messages.load(MessagesTest.class.getClassLoader(), List.of("duplicatekey")));
+  }
+
+  @Test
+  void anUnknownLanguageFailsAtStartup() {
+    var e = assertThrows(IllegalStateException.class,
+        () -> Messages.load(MessagesTest.class.getClassLoader(), List.of("badlanguage")));
+    assertTrue(e.getMessage().contains("'de'"), e.getMessage());
   }
 
   @Test

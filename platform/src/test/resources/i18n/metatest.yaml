@@ -1,0 +1,21 @@
+# Test texts for MetaRoutesTest and MessagesTest (docs/ARCHITECTURE.md §23.5). UTF-8.
+# Each key lists its texts by language. error.* and status.* are French only: English is the code's own message.
+
+module.inventory:
+  en: Inventory
+  fr: Inventaire
+part:
+  en: Parts
+  fr: Pièces
+part.one:
+  en: Part
+  fr: Pièce
+part.field.code:
+  en: Part code
+  fr: Code de pièce
+enum.Status.AVAILABLE:
+  en: Available
+  fr: Disponible
+
+error.TOO_LONG:
+  fr: doit compter au plus {max} caractères

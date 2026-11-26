@@ -1,6 +1,7 @@
 package com.lesconstructionssapete.stempyerpserver.platform.error;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * The input is invalid. Carries per-field details so a UI can highlight each
@@ -23,6 +24,13 @@ public class ValidationFailedException extends ErpException {
   /** Convenience for the common single-field case. */
   public static ValidationFailedException field(String field, String code, String message) {
     return new ValidationFailedException("Validation failed", List.of(new FieldError(field, code, message)));
+  }
+
+  /** One field error whose message names values (Validation.params). */
+  public static ValidationFailedException field(String field, String code, String message,
+      Map<String, Object> params) {
+    return new ValidationFailedException("Validation failed",
+        List.of(new FieldError(field, code, message, params)));
   }
 
   public List<FieldError> fieldErrors() {

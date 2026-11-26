@@ -58,9 +58,11 @@ public class ReplaceDimensionRulesOperation implements Operation<ReplaceDimensio
     in.rules().forEach((code, rule) -> {
       var dimension = dimensions.findDimension(uow, account.companyId(), code);
       if (dimension.isEmpty()) {
-        v.add("rules." + code, "UNKNOWN_DIMENSION", "no dimension " + code + " in this company");
+        v.add("rules." + code, "UNKNOWN_DIMENSION", "no dimension " + code + " in this company",
+            Validation.params("dimension", code));
       } else if (byId.put(dimension.get().id(), rule) != null) {
-        v.add("rules." + code, "DUPLICATE_DIMENSION", "dimension " + dimension.get().code() + " is listed twice");
+        v.add("rules." + code, "DUPLICATE_DIMENSION", "dimension " + dimension.get().code() + " is listed twice",
+            Validation.params("dimension", dimension.get().code()));
       } else {
         after.put(dimension.map(DimensionRow::code).get(), rule.name());
       }

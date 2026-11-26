@@ -17,6 +17,14 @@ public enum Language {
     return name().toLowerCase(Locale.ROOT);
   }
 
+  /** How numbers, amounts and dates are written in this language: Canadian French and English. */
+  public Locale locale() {
+    return switch (this) {
+      case FR -> Locale.CANADA_FRENCH;
+      case EN -> Locale.CANADA;
+    };
+  }
+
   /** "fr", "FR", "fr-CA" and "fr_CA" are FR; empty for null, blank or an unsupported language. */
   public static Optional<Language> fromCode(String code) {
     if (code == null) {

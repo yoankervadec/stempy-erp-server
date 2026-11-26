@@ -1,0 +1,38 @@
+# Items module (docs/ARCHITECTURE.md §23.5). UTF-8.
+# Each key lists its texts by language. error.* and status.* are French only: English is the code's own message.
+
+module.masterdata.items:
+  en: Items
+  fr: Articles
+
+product:
+  en: Products
+  fr: Produits
+product.one:
+  en: Product
+  fr: Produit
+product.field.productNo:
+  en: Product no.
+  fr: No de produit
+product.field.name:
+  en: Description
+  fr: Description
+product.field.unitOfMeasureId:
+  en: Unit of measure
+  fr: Unité de mesure
+product.field.unitAmount:
+  en: Unit price
+  fr: Prix unitaire
+product.field.currencyId:
+  en: Currency
+  fr: Devise
+product.field.productCategoryId:
+  en: Category
+  fr: Catégorie
+
+productCategory:
+  en: Product categories
+  fr: Catégories de produits
+productCategory.one:
+  en: Product category
+  fr: Catégorie de produits

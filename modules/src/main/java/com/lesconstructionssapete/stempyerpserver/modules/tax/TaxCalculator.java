@@ -115,7 +115,8 @@ public final class TaxCalculator {
   private static void validate(TaxRequest request, TaxRuleSet rules) {
     Validation v = Validation.check();
     if (!rules.hasJurisdiction(request.placeOfSupply())) {
-      v.add("placeOfSupply", "UNKNOWN", "Unknown tax jurisdiction " + request.placeOfSupply());
+      v.add("placeOfSupply", "UNKNOWN", "Unknown tax jurisdiction " + request.placeOfSupply(),
+          Validation.params("value", request.placeOfSupply()));
     }
     Set<String> keys = new HashSet<>();
     for (int i = 0; i < request.lines().size(); i++) {
@@ -124,19 +125,24 @@ public final class TaxCalculator {
       if (line.key().isBlank()) {
         v.add(at + "key", "REQUIRED", "A line key is required");
       } else if (!keys.add(line.key())) {
-        v.add(at + "key", "DUPLICATE", "Line key " + line.key() + " is used twice");
+        v.add(at + "key", "DUPLICATE", "Line key " + line.key() + " is used twice", Validation.params("key", line.key()));
       }
       if (!line.amount().currency().equals(request.currency())) {
         v.add(at + "amount", "CURRENCY_MISMATCH", "The line is in " + line.amount().currency()
-            + ", the document in " + request.currency());
+            + ", the document in " + request.currency(),
+            Validation.params("lineCurrency", line.amount().currency(), "currency", request.currency()));
       } else if (!line.amount().isRounded()) {
-        v.add(at + "amount", "NOT_ROUNDED", "Round the line amount to the currency first: " + line.amount());
+        v.add(at + "amount", "NOT_ROUNDED", "Round the line amount to the currency first: " + line.amount(),
+            Validation.params("decimals", line.amount().currency().getDefaultFractionDigits(),
+                "currency", line.amount().currency()));
       }
       if (!rules.hasCategory(line.category())) {
-        v.add(at + "category", "UNKNOWN", "Unknown tax category " + line.category());
+        v.add(at + "category", "UNKNOWN", "Unknown tax category " + line.category(),
+            Validation.params("value", line.category()));
       }
       if (line.taxGroup() != null && !rules.hasGroup(line.taxGroup())) {
-        v.add(at + "taxGroup", "UNKNOWN", "Unknown tax group " + line.taxGroup());
+        v.add(at + "taxGroup", "UNKNOWN", "Unknown tax group " + line.taxGroup(),
+            Validation.params("value", line.taxGroup()));
       }
     }
     v.throwIfInvalid();

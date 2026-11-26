@@ -63,7 +63,7 @@ class MetaRoutesTest {
         .declare("stock.value.read", "See stock value");
   }
 
-  /** Test bundles: i18n/metatest.properties and i18n/metatest_fr.properties (test resources). */
+  /** Test texts: i18n/metatest.yaml (test resources). */
   private final Messages messages = Messages.load(MetaRoutesTest.class.getClassLoader(), List.of("metatest"));
 
   private void start() {

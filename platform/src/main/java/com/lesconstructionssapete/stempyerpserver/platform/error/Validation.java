@@ -3,6 +3,7 @@ package com.lesconstructionssapete.stempyerpserver.platform.error;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -90,6 +91,24 @@ public final class Validation {
         : this;
   }
 
+  /**
+   * Named values for a message ("accountNo", "1000", "date", date...), in
+   * this order, null values left out: what translations fill their
+   * {placeholders} with (docs/ARCHITECTURE.md §23.5).
+   */
+  public static Map<String, Object> params(Object... namesAndValues) {
+    if (namesAndValues.length % 2 != 0) {
+      throw new IllegalArgumentException("params: names and values come in pairs");
+    }
+    Map<String, Object> out = new LinkedHashMap<>();
+    for (int i = 0; i < namesAndValues.length; i += 2) {
+      if (namesAndValues[i + 1] != null) {
+        out.put((String) namesAndValues[i], namesAndValues[i + 1]);
+      }
+    }
+    return out;
+  }
+
   /** A rule with no standard check; same one-error-per-field rule applies. */
   public Validation add(String field, String code, String message) {
     return add(field, code, message, Map.of());
@@ -98,9 +117,19 @@ public final class Validation {
   /** As add(field, code, message), with the values the message names (for translations). */
   public Validation add(String field, String code, String message, Map<String, Object> params) {
     if (failed.add(field)) {
-      errors.add(new FieldError(field, code, message, params));
+      errors.add(new FieldError(field, code, message, withoutNulls(params)));
     }
     return this;
+  }
+
+  private static Map<String, Object> withoutNulls(Map<String, Object> params) {
+    Map<String, Object> out = new LinkedHashMap<>();
+    params.forEach((k, v) -> {
+      if (v != null) {
+        out.put(k, v);
+      }
+    });
+    return out;
   }
 
   // ---- outcome ----

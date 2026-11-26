@@ -1,0 +1,4 @@
+# A text with parameters, for MessagesTest.
+stock.short:
+  en: "Not enough stock for {productNo}: {quantity} available"
+  fr: "Stock insuffisant pour {productNo} : {quantity} disponibles"

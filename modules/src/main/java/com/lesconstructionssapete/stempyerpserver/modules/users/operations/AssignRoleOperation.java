@@ -45,12 +45,15 @@ public class AssignRoleOperation implements Operation<AssignRoleOperation.Input,
   @Override
   public Long execute(UnitOfWork uow, Input in) {
     long userId = accounts.findByUserNo(uow, in.userNo())
-        .orElseThrow(() -> new ResourceNotFoundException("USER_NOT_FOUND", "No user with number " + in.userNo()))
+        .orElseThrow(() -> new ResourceNotFoundException("USER_NOT_FOUND", "No user with number " + in.userNo())
+            .param("user", in.userNo()))
         .id();
     long companyId = access.findCompanyIdByCode(uow, in.companyCode())
-        .orElseThrow(() -> new ResourceNotFoundException("COMPANY_NOT_FOUND", "No company with code " + in.companyCode()));
+        .orElseThrow(() -> new ResourceNotFoundException("COMPANY_NOT_FOUND", "No company with code " + in.companyCode())
+            .param("company", in.companyCode()));
     long roleId = access.findRoleIdByCode(uow, in.roleCode())
-        .orElseThrow(() -> new ResourceNotFoundException("ROLE_NOT_FOUND", "No role with code " + in.roleCode()));
+        .orElseThrow(() -> new ResourceNotFoundException("ROLE_NOT_FOUND", "No role with code " + in.roleCode())
+            .param("role", in.roleCode()));
 
     Optional<Boolean> membership = access.membership(uow, userId, companyId);
     boolean hadRole = access.hasRole(uow, userId, companyId, roleId);

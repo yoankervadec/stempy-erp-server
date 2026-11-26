@@ -125,10 +125,12 @@ public class JournalPostingService implements GeneralLedgerApi {
       BigDecimal debit = orZero(line.debit());
       BigDecimal credit = orZero(line.credit());
       if (debit.stripTrailingZeros().scale() > digits) {
-        v.add(at + ".debit", "NOT_ROUNDED", "at most " + digits + " decimals in " + ctx.currencyCode());
+        v.add(at + ".debit", "NOT_ROUNDED", "at most " + digits + " decimals in " + ctx.currencyCode(),
+            Validation.params("decimals", digits, "currency", ctx.currencyCode()));
       }
       if (credit.stripTrailingZeros().scale() > digits) {
-        v.add(at + ".credit", "NOT_ROUNDED", "at most " + digits + " decimals in " + ctx.currencyCode());
+        v.add(at + ".credit", "NOT_ROUNDED", "at most " + digits + " decimals in " + ctx.currencyCode(),
+            Validation.params("decimals", digits, "currency", ctx.currencyCode()));
       }
       debits = debits.add(debit);
       credits = credits.add(credit);
@@ -173,7 +175,7 @@ public class JournalPostingService implements GeneralLedgerApi {
     if (r.lines().size() < 2) {
       v.add("lines", "TOO_FEW_LINES", "an entry needs at least two lines");
     } else if (r.lines().size() > MAX_LINES) {
-      v.add("lines", "TOO_MANY_LINES", "at most " + MAX_LINES + " lines per entry");
+      v.add("lines", "TOO_MANY_LINES", "at most " + MAX_LINES + " lines per entry", Validation.params("max", MAX_LINES));
     }
     for (int i = 0; i < r.lines().size(); i++) {
       LineRequest l = r.lines().get(i);
@@ -214,28 +216,33 @@ public class JournalPostingService implements GeneralLedgerApi {
   private static void checkAccount(Validation v, String at, LineRequest line, StoredAccount account, boolean manual,
       Map<String, DimensionRule> rules) {
     if (account == null) {
-      v.add(at + ".accountNo", "UNKNOWN_ACCOUNT", "no account " + line.accountNo() + " in this company");
+      v.add(at + ".accountNo", "UNKNOWN_ACCOUNT", "no account " + line.accountNo() + " in this company",
+          Validation.params("accountNo", line.accountNo()));
       return;
     }
     AccountFields a = account.fields();
     if (!a.isEnabled()) {
-      v.add(at + ".accountNo", "ACCOUNT_DISABLED", "account " + a.accountNo() + " is disabled");
+      v.add(at + ".accountNo", "ACCOUNT_DISABLED", "account " + a.accountNo() + " is disabled",
+          Validation.params("accountNo", a.accountNo()));
     }
     if (a.isHeading()) {
-      v.add(at + ".accountNo", "HEADING_ACCOUNT", "account " + a.accountNo() + " is a heading: it takes no postings");
+      v.add(at + ".accountNo", "HEADING_ACCOUNT", "account " + a.accountNo() + " is a heading: it takes no postings",
+          Validation.params("accountNo", a.accountNo()));
     }
     if (manual && !a.manualPosting()) {
       v.add(at + ".accountNo", "CONTROL_ACCOUNT", "account " + a.accountNo()
-          + " is a control account: only its module posts there");
+          + " is a control account: only its module posts there", Validation.params("accountNo", a.accountNo()));
     }
     Set<String> given = new HashSet<>();
     line.dimensions().keySet().forEach(code -> given.add(code.toUpperCase(Locale.ROOT)));
     rules.forEach((code, rule) -> {
       if (rule == DimensionRule.REQUIRED && !given.contains(code)) {
-        v.add(at + ".dimensions." + code, "DIMENSION_REQUIRED", "account " + a.accountNo() + " requires " + code);
+        v.add(at + ".dimensions." + code, "DIMENSION_REQUIRED", "account " + a.accountNo() + " requires " + code,
+            Validation.params("accountNo", a.accountNo(), "dimension", code));
       } else if (rule == DimensionRule.NOT_ALLOWED && given.contains(code)) {
         v.add(at + ".dimensions." + code, "DIMENSION_NOT_ALLOWED",
-            "account " + a.accountNo() + " doesn't take " + code);
+            "account " + a.accountNo() + " doesn't take " + code,
+            Validation.params("accountNo", a.accountNo(), "dimension", code));
       }
     });
   }
@@ -284,10 +291,11 @@ public class JournalPostingService implements GeneralLedgerApi {
 
   private static StoredPeriod requireOpenPeriod(Optional<StoredPeriod> period, LocalDate date) {
     StoredPeriod p = period.orElseThrow(() -> new ConflictException("PERIOD_NOT_FOUND",
-        "No period covers " + date + "; create the fiscal year first"));
+        "No period covers " + date + "; create the fiscal year first").param("date", date));
     if (p.status() != PeriodStatus.OPEN) {
-      throw new ConflictException("PERIOD_CLOSED", "The period " + p.startDate().toString().substring(0, 7)
-          + " is closed; post in an open period or have it reopened");
+      String name = p.startDate().toString().substring(0, 7);
+      throw new ConflictException("PERIOD_CLOSED", "The period " + name
+          + " is closed; post in an open period or have it reopened").param("period", name);
     }
     return p;
   }

@@ -100,7 +100,7 @@ public final class ModuleHost {
     this.messages = Messages.load(ModuleHost.class.getClassLoader(), bundles); // throws on a key defined twice
   }
 
-  /** The platform's own texts: i18n/platform.properties, i18n/platform_fr.properties. */
+  /** The platform's own texts: i18n/platform.yaml. */
   public static final String PLATFORM_BUNDLE = "platform";
 
   /** Every text, from the platform's bundles and one pair per module (docs/ARCHITECTURE.md §23.5). */

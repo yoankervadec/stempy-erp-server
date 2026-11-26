@@ -135,7 +135,8 @@ public final class TaxRuleSet {
         .toList();
     if (matching.isEmpty()) {
       throw new ConflictException("TAX_RULE_NOT_FOUND", "No tax rule for " + category + " supplies in "
-          + placeOfSupply + " on " + date);
+          + placeOfSupply + " on " + date)
+          .param("category", category).param("placeOfSupply", placeOfSupply).param("date", date);
     }
     if (matching.size() > 1) {
       throw new IllegalStateException("Several tax rules for " + category + " supplies in " + placeOfSupply + " on "
@@ -162,7 +163,8 @@ public final class TaxRuleSet {
         .map(Member::rate)
         .toList();
     if (valid.isEmpty()) {
-      throw new ConflictException("TAX_RATE_NOT_FOUND", "Tax group " + group + " has no rate valid on " + date);
+      throw new ConflictException("TAX_RATE_NOT_FOUND", "Tax group " + group + " has no rate valid on " + date)
+          .param("group", group).param("date", date);
     }
     Set<TaxKind> kinds = new HashSet<>();
     for (Rate r : valid) {

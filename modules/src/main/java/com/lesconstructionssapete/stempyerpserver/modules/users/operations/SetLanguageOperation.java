@@ -35,7 +35,8 @@ public class SetLanguageOperation implements Operation<SetLanguageOperation.Inpu
   @Override
   public Void execute(UnitOfWork uow, Input in) {
     String before = accounts.findLanguageForUpdate(uow, in.userId())
-        .orElseThrow(() -> new ResourceNotFoundException("USER_NOT_FOUND", "No user " + in.userId()))
+        .orElseThrow(() -> new ResourceNotFoundException("USER_NOT_FOUND", "No user " + in.userId())
+            .param("user", in.userId()))
         .orElse(null);
     String after = in.language() == null ? null : in.language().code();
     if (Objects.equals(before, after)) {

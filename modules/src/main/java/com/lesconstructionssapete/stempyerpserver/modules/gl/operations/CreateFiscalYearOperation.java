@@ -11,6 +11,7 @@ import com.lesconstructionssapete.stempyerpserver.modules.gl.StoredFiscalYear;
 import com.lesconstructionssapete.stempyerpserver.platform.audit.AuditEntry;
 import com.lesconstructionssapete.stempyerpserver.platform.audit.AuditLog;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWork;
+import com.lesconstructionssapete.stempyerpserver.platform.error.Validation;
 import com.lesconstructionssapete.stempyerpserver.platform.error.ValidationFailedException;
 import com.lesconstructionssapete.stempyerpserver.platform.write.EntityChanged.FieldChange;
 
@@ -49,7 +50,8 @@ public class CreateFiscalYearOperation implements Operation<CreateFiscalYearOper
       LocalDate expected = last.map(StoredFiscalYear::endDate).get().plusDays(1);
       if (!in.startDate().equals(expected)) {
         throw ValidationFailedException.field("startDate", "NOT_CONTIGUOUS",
-            "the next fiscal year must start on " + expected + ", the day after the last one ends");
+            "the next fiscal year must start on " + expected + ", the day after the last one ends",
+            Validation.params("date", expected));
       }
     }
     LocalDate end = in.startDate().plusMonths(PERIODS).minusDays(1);

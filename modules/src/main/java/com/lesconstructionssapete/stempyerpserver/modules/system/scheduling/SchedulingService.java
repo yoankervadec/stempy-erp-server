@@ -351,7 +351,7 @@ public class SchedulingService {
 
   private JobType registeredJob(String key, String field) {
     return scheduler.jobType(key).orElseThrow(() -> ValidationFailedException.field(field, "UNKNOWN_JOB",
-        "no job type '" + key + "' on this server (see GET /scheduler/job-types)"));
+        "no job type '" + key + "' on this server (see GET /scheduler/job-types)", Validation.params("job", key)));
   }
 
   private void requireJobPermission(RequestContext rc, String jobKey) {

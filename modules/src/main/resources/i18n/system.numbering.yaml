@@ -1,0 +1,19 @@
+# Document numbering (docs/ARCHITECTURE.md §23.5). UTF-8.
+# Each key lists its texts by language. error.* and status.* are French only: English is the code's own message.
+
+audit.action.COUNTER_SET:
+  en: Next number set
+  fr: Prochain numéro fixé
+
+error.UNKNOWN_DOCUMENT_TYPE:
+  fr: "Type de document inconnu : {documentType}"
+error.INVALID_PATTERN:
+  fr: Le modèle de numéro est invalide
+error.GAPLESS_REQUIRED:
+  fr: Les documents {documentType} doivent être numérotés sans trous
+error.NUMBER_SERIES_IN_USE:
+  fr: La série a déjà servi
+error.COUNTER_CANNOT_DECREASE:
+  fr: Le prochain numéro ne peut pas reculer
+error.CANNOT_UNSET:
+  fr: Faites plutôt d'une autre série la série par défaut
