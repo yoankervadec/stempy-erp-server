@@ -2,11 +2,17 @@ package com.lesconstructionssapete.stempyerpserver.modules.gl;
 
 import java.util.Map;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lesconstructionssapete.stempyerpserver.platform.error.BadRequestException;
 import com.lesconstructionssapete.stempyerpserver.platform.error.ResourceNotFoundException;
+import com.lesconstructionssapete.stempyerpserver.platform.web.EntityEndpoints;
 import com.lesconstructionssapete.stempyerpserver.platform.web.JsonBodies;
+import com.lesconstructionssapete.stempyerpserver.platform.web.JsonMapperFactory;
+import com.lesconstructionssapete.stempyerpserver.platform.web.RequestContext;
 import com.lesconstructionssapete.stempyerpserver.platform.web.RequestContexts;
+import com.lesconstructionssapete.stempyerpserver.platform.web.ResourceAction;
 import com.lesconstructionssapete.stempyerpserver.platform.web.Routes;
 
 import io.javalin.http.Context;
@@ -21,6 +27,10 @@ import io.javalin.http.Context;
  * POST   /gl/periods/{id}/close           OPEN -&gt; CLOSED                            gl.period.manage
  * POST   /gl/periods/{id}/reopen          CLOSED -&gt; OPEN                            gl.period.reopen
  * GET    /gl/periods/{id}/history         closes and reopens, newest first          + audit.history.read
+ *
+ * Generic (docs/ARCHITECTURE.md §23): QUERY /gl/fiscal-years and /gl/periods,
+ * GET /gl/fiscal-years/new and /gl/fiscal-years/{id}; the Close and Reopen
+ * actions; _refs and _meta on GET /gl/periods/{id}.
  * </pre>
  */
 public class PeriodController {
@@ -28,29 +38,63 @@ public class PeriodController {
   private static final int DEFAULT_LIMIT = 50;
   private static final int MAX_LIMIT = 500;
 
-  private final PeriodService service;
+  private static final ObjectMapper JSON = JsonMapperFactory.newObjectMapper();
+  private static final TypeReference<Map<String, Object>> MAP = new TypeReference<>() {
+  };
 
-  public PeriodController(PeriodService service) {
+  static final ResourceAction CLOSE = ResourceAction.onRecord("close").post("/close")
+      .permission(PeriodService.MANAGE).confirm()
+      .when(row -> PeriodStatus.OPEN.name().equals(String.valueOf(row.get("status"))));
+  static final ResourceAction REOPEN = ResourceAction.onRecord("reopen").post("/reopen")
+      .permission(PeriodService.REOPEN).confirm()
+      .when(row -> PeriodStatus.CLOSED.name().equals(String.valueOf(row.get("status"))));
+
+  private final PeriodService service;
+  private final EntityEndpoints entities;
+
+  public PeriodController(PeriodService service, EntityEndpoints entities) {
     this.service = service;
+    this.entities = entities;
   }
 
   public void register(Routes routes) {
+    entities.registerQuery(routes, "/gl/fiscal-years", FiscalYear.DEF, "gl.period");
+    // a new year's form is its start date: the generic create form posts to the hand-written POST below
+    entities.declareWrite(FiscalYear.DEF, EntityEndpoints.Action.CREATE, PeriodService.MANAGE);
+    routes.get("/gl/fiscal-years/new", entities.newRecord(FiscalYear.DEF));
+    routes.get("/gl/fiscal-years/{id}", entities.get(FiscalYear.DEF, PeriodService.READ));
+    entities.registerQuery(routes, "/gl/periods", Period.DEF, "gl.period");
+    entities.action(Period.DEF, CLOSE);
+    entities.action(Period.DEF, REOPEN);
+
     routes.get("/gl/fiscal-years", ctx -> ctx.json(service.fiscalYears(RequestContexts.require(ctx))));
     routes.post("/gl/fiscal-years", ctx -> {
       var year = service.createFiscalYear(RequestContexts.require(ctx), JsonBodies.read(ctx, JsonNode.class));
       ctx.status(201).header("Location", "/gl/fiscal-years").json(year);
     });
-    routes.get("/gl/periods/{id}", ctx -> ctx.json(service.getPeriod(RequestContexts.require(ctx), id(ctx))));
-    routes.post("/gl/periods/{id}/close", ctx -> ctx.json(service.closePeriod(RequestContexts.require(ctx),
-        id(ctx))));
-    routes.post("/gl/periods/{id}/reopen", ctx -> ctx.json(service.reopenPeriod(RequestContexts.require(ctx),
-        id(ctx))));
+    routes.get("/gl/periods/{id}", ctx -> {
+      RequestContext rc = RequestContexts.require(ctx);
+      ctx.json(decorated(rc, service.getPeriod(rc, id(ctx))));
+    });
+    routes.post("/gl/periods/{id}/close", ctx -> {
+      RequestContext rc = RequestContexts.require(ctx);
+      ctx.json(decorated(rc, service.closePeriod(rc, id(ctx))));
+    });
+    routes.post("/gl/periods/{id}/reopen", ctx -> {
+      RequestContext rc = RequestContexts.require(ctx);
+      ctx.json(decorated(rc, service.reopenPeriod(rc, id(ctx))));
+    });
     routes.get("/gl/periods/{id}/history", ctx -> {
       int limit = intParam(ctx, "limit", DEFAULT_LIMIT, 1, MAX_LIMIT);
       int offset = intParam(ctx, "offset", 0, 0, Integer.MAX_VALUE);
       ctx.json(Map.of("data", service.periodHistory(RequestContexts.require(ctx), id(ctx), limit, offset),
           "page", Map.of("limit", limit, "offset", offset)));
     });
+  }
+
+  /** A period as every answer shows it: the view with _refs and _meta (its Close / Reopen action). */
+  private Map<String, Object> decorated(RequestContext rc, Object view) {
+    return entities.decorate(rc, Period.DEF, JSON.convertValue(view, MAP), Map.of());
   }
 
   /** A non-numeric id can't exist: 404, like a missing one. */

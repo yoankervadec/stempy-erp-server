@@ -247,7 +247,12 @@ public class EntityDefinition<E> {
     return listColumns;
   }
 
-  /** As declared, else id descending. */
+  /** As declared; empty when undeclared (QUERY then keeps id order). */
+  public List<SortKey> declaredDefaultSort() {
+    return defaultSort;
+  }
+
+  /** As declared, else id descending (what GET /meta suggests). */
   public List<SortKey> defaultSort() {
     return defaultSort.isEmpty() && idField != null ? List.of(SortKey.desc(idField)) : defaultSort;
   }

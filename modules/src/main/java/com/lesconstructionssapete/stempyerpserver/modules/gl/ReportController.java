@@ -4,7 +4,12 @@ import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 
 import com.lesconstructionssapete.stempyerpserver.modules.gl.ReportService.DimensionFilter;
+import com.lesconstructionssapete.stempyerpserver.platform.entity.FieldType;
+import com.lesconstructionssapete.stempyerpserver.platform.entity.Format;
 import com.lesconstructionssapete.stempyerpserver.platform.error.BadRequestException;
+import com.lesconstructionssapete.stempyerpserver.platform.web.ActionParam;
+import com.lesconstructionssapete.stempyerpserver.platform.web.EntityEndpoints;
+import com.lesconstructionssapete.stempyerpserver.platform.web.Report;
 import com.lesconstructionssapete.stempyerpserver.platform.web.RequestContexts;
 import com.lesconstructionssapete.stempyerpserver.platform.web.Routes;
 
@@ -22,11 +27,54 @@ public class ReportController {
 
   private final ReportService service;
 
-  public ReportController(ReportService service) {
+  /** The trial balance (§22.6), for the generic report page (docs/ARCHITECTURE.md §23.11). */
+  static final Report TRIAL_BALANCE = Report.of("glTrialBalance", "/gl/reports/trial-balance")
+      .permission(ReportService.READ)
+      .param(ActionParam.date("from").required())
+      .param(ActionParam.date("to").required())
+      .param(ActionParam.bool("includeZero"))
+      .param(ActionParam.string("dimension"))
+      .param(ActionParam.string("value"))
+      .rows("rows").level("level").emphasis("isHeading")
+      .column("accountNo", FieldType.STRING)
+      .column("name", FieldType.STRING)
+      .column("accountType", FieldType.enumOf(AccountType.class))
+      .column("amounts.opening", FieldType.DECIMAL, Format.MONEY).summedAs("opening")
+      .column("amounts.debits", FieldType.DECIMAL, Format.MONEY).summedAs("debits")
+      .column("amounts.credits", FieldType.DECIMAL, Format.MONEY).summedAs("credits")
+      .column("amounts.closing", FieldType.DECIMAL, Format.MONEY).summedAs("closing")
+      .totals("totals");
+
+  /** One account's lines with a running balance (§22.6). */
+  static final Report ACCOUNT_LEDGER = Report.of("glAccountLedger", "/gl/reports/account-ledger")
+      .permission(ReportService.READ)
+      .param(ActionParam.string("accountNo").required())
+      .param(ActionParam.date("from").required())
+      .param(ActionParam.date("to").required())
+      .param(ActionParam.string("dimension"))
+      .param(ActionParam.string("value"))
+      .figure("opening", FieldType.DECIMAL, Format.MONEY)
+      .figure("debits", FieldType.DECIMAL, Format.MONEY)
+      .figure("credits", FieldType.DECIMAL, Format.MONEY)
+      .figure("closing", FieldType.DECIMAL, Format.MONEY)
+      .rows("lines")
+      .column("postingDate", FieldType.DATE)
+      .column("entryNo", FieldType.STRING)
+      .column("description", FieldType.STRING)
+      .column("debit", FieldType.DECIMAL, Format.MONEY)
+      .column("credit", FieldType.DECIMAL, Format.MONEY)
+      .column("balance", FieldType.DECIMAL, Format.MONEY);
+
+  private final EntityEndpoints entities;
+
+  public ReportController(ReportService service, EntityEndpoints entities) {
     this.service = service;
+    this.entities = entities;
   }
 
   public void register(Routes routes) {
+    entities.report(TRIAL_BALANCE);
+    entities.report(ACCOUNT_LEDGER);
     routes.get("/gl/reports/trial-balance", ctx -> ctx.json(service.trialBalance(RequestContexts.require(ctx),
         date(ctx, "from"), date(ctx, "to"), filter(ctx), bool(ctx, "includeZero"))));
     routes.get("/gl/reports/account-ledger", ctx -> ctx.json(service.accountLedger(RequestContexts.require(ctx),

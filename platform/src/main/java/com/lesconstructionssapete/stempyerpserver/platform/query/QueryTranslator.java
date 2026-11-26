@@ -12,6 +12,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.entity.FieldAccess;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.FieldType;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Operator;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Relation;
+import com.lesconstructionssapete.stempyerpserver.platform.entity.SortKey;
 import com.lesconstructionssapete.stempyerpserver.platform.error.FieldError;
 import com.lesconstructionssapete.stempyerpserver.platform.error.ValidationFailedException;
 
@@ -104,10 +105,20 @@ public final class QueryTranslator {
       }
     }
 
-    // 3. Client sort, then the id as a deterministic tiebreaker.
+    // 3. Client sort (else the entity's declared default order, on what the caller can read), then the id as a
+    // deterministic tiebreaker.
     List<String> order = new ArrayList<>();
     boolean sortedById = false;
-    for (QuerySpec.Sort s : spec.sort()) {
+    List<QuerySpec.Sort> sorts = spec.sort();
+    if (sorts.isEmpty()) {
+      sorts = new ArrayList<>();
+      for (SortKey k : root.declaredDefaultSort()) {
+        if (!k.field().isInternal() && access.canRead(k.field())) {
+          sorts.add(new QuerySpec.Sort(k.field().name(), !k.descending()));
+        }
+      }
+    }
+    for (QuerySpec.Sort s : sorts) {
       String expr = b.sortExpression(s.path());
       if (expr != null) {
         order.add(expr + (s.ascending() ? " ASC" : " DESC"));

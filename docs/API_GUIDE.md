@@ -315,7 +315,7 @@ All parts optional; an empty body means "first 50 rows, by id".
 
 Through **relations** (one hop is enough today, two allowed): `category.code`, `category.description` (products), and on both entities `createdByUser.userNo`, `createdByUser.name`, `updatedByUser.userNo`, `updatedByUser.name`. Example: `{ "field": "createdByUser.userNo", "op": "equals", "value": "U1" }`.
 
-**Sort**: at most 3 keys, `dir` `asc` (default) or `desc`; ties are always broken by `id`.
+**Sort**: at most 3 keys, `dir` `asc` (default) or `desc`; ties are always broken by `id`. Without `sort`, the resource's own order (its `/meta` `defaultSort`: products by number, accounts by number, journal entries newest first...), else by `id`.
 **Page**: `limit` 1–200 (default 50), `offset` ≥ 0. The response echoes them, with `hasMore`: `true` when another page follows (the server reads one row more than asked). There is no total count.
 
 **Names of referenced records**: each row has `_refs`, the title (and subtitle) of every record it points at that you may read, so a list can show names instead of ids:
@@ -504,6 +504,8 @@ A counter only moves up (`409 COUNTER_CANNOT_DECREASE`): lowering it would issue
 
 The books of the request's company: the **chart of accounts**, **fiscal years** with their periods, **dimensions**, **journal entries**, and two **reports**, the trial balance and the account ledger (docs/ARCHITECTURE.md §22).
 
+**For the generic screens** (docs/ARCHITECTURE.md §23): on top of the routes below, `QUERY /gl/journal-entries`, `QUERY /gl/periods` and `QUERY /gl/fiscal-years` list them like any resource (§6: filters, `search`, `hasMore`, `_refs`); `GET /gl/fiscal-years/new` and `GET /gl/fiscal-years/{id}` are the generic form and record. Every answer that shows one journal entry or period (`GET`, posting, reversing, closing, reopening) carries `_refs` (the lines' accounts, the period) and `_meta`, whose `actions` say whether **Reverse**, **Close** or **Reopen** apply to it now. `/meta` describes those actions with their dialogs, the journal entry page (header and lines with debit / credit totals), and the two reports.
+
 ### Accounts
 
 | Method | Path | Body | Permission | Returns |
@@ -660,6 +662,7 @@ If-None-Match: "<etag>"    (optional: 304 when nothing changed)
 - **`type`**: `string`, `integer`, `decimal`, `boolean`, `date`, `timestamp`, `enum` (with `values`), or `reference` (with `ref`, the target resource's `key`) for a foreign key whose target you can read. A foreign key to something you can't read is a plain `integer`.
 - **`searchable`**: `QUERY`'s `"search"` works for this resource (§6).
 - **`layout`**: how one record is laid out. `sections` (header fields by name, on `columns` columns), `collections` (tables of child rows: `columns` described like fields, `footerSums`, `editable`; `source: {resource, field}` says where the rows are: `QUERY` that resource where `field` equals the record's id), `summary` (read-only totals), `tabs` (`history`). `derived: true` when the resource declares none (its own fields, then created / updated, then one table per child resource). `presentation` is `page` when the layout has tables.
+- **`reports`** (top level, and per menu group): the reports you may run, for one generic report page: `params` (the form, described like fields), `figures` (values of the whole answer, shown above the rows: an account's opening and closing), `rows` (where the rows are in the answer), `columns` (`path` into a row such as `amounts.closing`, `label`, `type`, `format`, `total`: the path of its total in `totals`), `level` (a row's indentation, e.g. the chart's depth), `emphasis` (a row field marking rows to show in bold: headings). Run it with `GET {path}?param=value...`.
 - **`actions`**: what the resource does besides create / update / delete, among those you hold the permission for: `name`, `label`, `scope` (`record`: on one record, see its `_meta.actions`; `resource`: on the list), `method`, `path` (`{id}` to fill in), `confirm` (ask first), `params` (described like fields: the action's dialog).
 - **Display hints:** `title` / `subtitle` name a row (pickers, modal titles); `listColumns` are the columns to show first; `defaultSort` is the first order (send it as the `QUERY` `sort`); `presentation` says whether a record opens in a `modal` or on a `page`. Decimals have a `scale` (decimals to show and accept: sending more is `422 TOO_MANY_DECIMALS` when the server declares it); `format` is `money` (in the row's `currencyField`, else the company's currency), `percent` (5.25 means 5.25 %) or `multiline` (a text area).
 - `maxLength`, `min`, `max` appear only when the field has them (decimals as strings, like every amount). `operators` (for `QUERY` filters, §6) appear only on filterable fields.

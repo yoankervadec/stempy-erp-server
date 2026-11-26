@@ -1834,7 +1834,7 @@ All per company (the request's), `ADMINISTRATOR` has them all, writes audited (�
 
 ## 23. Server-driven UI
 
-_Status: planned 2026-11-25; steps 2 to 8 built 2026-11-25/26 (catalog, `GET /meta`, UI hints, translation, list and record reads, layouts, documents; migration V14). How to call it: docs/API_GUIDE.md §10. Steps in §23.12._
+_Status: planned 2026-11-25; steps 2 to 9 built 2026-11-25/26 (catalog, `GET /meta`, UI hints, translation, list and record reads, layouts, documents, GL pilot; migration V14). How to call it: docs/API_GUIDE.md §10. Steps in §23.12._
 
 The desktop client (Electron + React, in its own repository, built later) should be almost entirely generic: one list page, one record modal, one record page and one action dialog serve every resource. The server already describes its entities (`EntityDefinition`, §5) and their routes (`EntityEndpoints`). This section makes it publish everything a screen needs, **per caller, per company and in the caller's language**, so the client only renders what it is told. Hand-written React is kept for screens the layouts below can't express.
 
@@ -2123,6 +2123,8 @@ A module with a hand-written orchestrator (`JournalPostingService`) keeps its ow
 
 The client gets one generic report page with export. The trial balance and account ledger (§22.6) are described first. Printing documents (`GET {path}/{id}/pdf`, server-rendered, translated) comes later.
 
+**As built (step 9):** `platform/web/Report` (`of(key, path).permission(...).param(ActionParam...).figure(path, type, format).rows(path).level(path).emphasis(path).column(path, type, format).summedAs(totalPath).totals(path)`), declared with `EntityEndpoints.report(report)` in the module's route registration; the module serves `GET {path}?...` itself. `/meta` has a top-level `reports` list (those the caller holds the permission for) and each menu group a `reports` list. Labels `report.<key>`, `.param.<name>` (else `field.<name>`), `.column.<path>`, `.figure.<path>`, part of the startup check. GL declares `glTrialBalance` (rows by chart level, headings in bold, four money columns with their totals) and `glAccountLedger` (opening / debits / credits / closing as figures, the lines with their running balance).
+
 ### 23.12 Implementation order
 
 1. This plan. Done 2026-11-25.
@@ -2133,7 +2135,11 @@ The client gets one generic report page with export. The trial balance and accou
 6. **Records**: `_meta`, `GET /new`, actions with parameters, `409` with the current row. Done 2026-11-26.
 7. **Layouts**: `RecordLayout`, declared and derived, in `/meta`. Done 2026-11-26.
 8. **Documents**: `DocumentEndpoints`, `DocumentRules`, `/calculate`, tested on a test-only header-and-lines entity. Done 2026-11-26.
-9. **GL pilot**: accounts (declared writes), journal entries (page with a `lines` collection, `reverse`), periods (`close`, `reopen`), trial balance and account ledger as reports.
+9. **GL pilot**: accounts (declared writes), journal entries (page with a `lines` collection, `reverse`), periods (`close`, `reopen`), trial balance and account ledger as reports. Done 2026-11-26:
+   - Read-only entity definitions for the existing tables (`JournalEntry`, `JournalLine`, `FiscalYear`, `Period`, named like their audit entries), registered with `EntityEndpoints.registerQuery` (the generic `QUERY` and the catalog entry only, the hand-written routes stay). Hand-written answers go through `EntityEndpoints.decorate(rc, entity, view, collections)` for `_refs` and `_meta`: journal entries (`GET`, post, reverse) and periods (`GET`, close, reopen). Their shape is unchanged otherwise.
+   - Actions: `reverse` (date + description, confirmed, only on an entry neither reversed nor a reversal), `close` / `reopen` (confirmed, by status). Layout: the entry page (general, source, the lines with debit / credit sums, history). Fiscal years: `declareWrite(CREATE)` (the body is `{startDate}`, the generic form), `GET /new` and `GET /{id}` from the generic handlers, the derived page lists their periods.
+   - `QUERY` now applies the entity's **declared** default order when the body has no `sort` (undeclared entities keep id order).
+   - Not generic yet: the manual journal entry form (its body names accounts by `accountNo`, lines by `debit` / `credit` with dimensions as a map), so `can.create` is false for journal entries and the client uses an override; the hand-written lists (`GET /gl/journal-entries?from=...`, `GET /gl/fiscal-years`) stay for existing callers.
 10. **Later**: export, saved views, bulk actions, change feed, printing, attachments and notes, each in its own commit.
 
 The client starts once step 6 is done: products and accounts are then fully usable through the generic screens.

@@ -71,7 +71,12 @@ public final class ResourceCatalog {
     }
   }
 
+  /** A report and the module that declared it. */
+  public record DeclaredReport(String module, Report report) {
+  }
+
   private final Map<String, Resource> byKey = new LinkedHashMap<>();
+  private final Map<String, DeclaredReport> reports = new LinkedHashMap<>();
   private String module;
   private volatile boolean frozen;
 
@@ -136,6 +141,23 @@ public final class ResourceCatalog {
     byKey.put(r.key(), r.withLayout(layout));
   }
 
+  /** From EntityEndpoints.report(). */
+  synchronized void report(Report report) {
+    requireOpen();
+    if (module == null) {
+      throw new IllegalStateException("No module is registering routes; call enterModule() first");
+    }
+    report.check();
+    if (reports.putIfAbsent(report.key(), new DeclaredReport(module, report)) != null) {
+      throw new IllegalStateException("Report " + report.key() + " is declared twice");
+    }
+  }
+
+  /** In declaration order. */
+  public Collection<DeclaredReport> reports() {
+    return Collections.unmodifiableCollection(reports.values());
+  }
+
   /** From EntityEndpoints.action(). */
   synchronized void action(EntityDefinition<?> entity, ResourceAction action) {
     Resource r = existing(entity);
@@ -178,6 +200,18 @@ public final class ResourceCatalog {
             check(texts, LabelKeys.collection(r.key(), c.name(), c.relation().target().name()), language, missing);
           }
         }
+      }
+    }
+    for (Language language : Language.values()) {
+      Map<String, String> texts = messages.all(language);
+      for (DeclaredReport d : reports.values()) {
+        Report r = d.report();
+        check(texts, new String[] { LabelKeys.report(r.key()) }, language, missing);
+        r.params().forEach(p -> check(texts, LabelKeys.reportParam(r.key(), p.name()), language, missing));
+        r.columns().forEach(c -> check(texts, new String[] { LabelKeys.reportColumn(r.key(), c.path()) }, language,
+            missing));
+        r.figures().forEach(f -> check(texts, new String[] { LabelKeys.reportFigure(r.key(), f.path()) }, language,
+            missing));
       }
     }
     return missing;

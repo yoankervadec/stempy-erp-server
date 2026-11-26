@@ -39,7 +39,9 @@ import io.javalin.http.Context;
  *
  * <pre>
  * { "apiVersion": 1, "language": "fr",
- *   "menu": [{ "module": "masterdata.items", "label", "resources": ["product", "productCategory"] }],
+ *   "menu": [{ "module": "masterdata.items", "label", "resources": ["product", "productCategory"], "reports": [] }],
+ *   "reports": [{ "key", "label", "module", "method", "path", "params", "figures", "rows", "level", "emphasis",
+ *                 "columns": [{ "path", "label", "type", "scale"?, "format"?, "values"?, "total" }], "totals" }],
  *   "resources": [{ "key": "product", "label", "labelOne", "module": "masterdata.items", "path": "/masterdata/products",
  *     "can": { "read", "create", "update", "delete", "history" }, "idField": "id", "versionField": "version",
  *     "title": "productNo", "subtitle": "name", "listColumns": [...], "defaultSort": [{ "field", "dir" }],
@@ -108,23 +110,35 @@ public final class MetaRoutes {
 
   /** The body of GET /meta for this caller. */
   public Map<String, Object> describe(RequestContext rc) {
-    Map<String, List<String>> menu = new LinkedHashMap<>();
+    Map<String, List<String>> menuResources = new LinkedHashMap<>();
+    Map<String, List<String>> menuReports = new LinkedHashMap<>();
     List<Map<String, Object>> resources = new ArrayList<>();
     FieldAccess access = FieldAccess.forPermissions(rc::hasPermission);
     for (Resource r : catalog.all()) {
       if (!can(rc, r, Action.READ)) {
         continue;
       }
-      menu.computeIfAbsent(r.module(), m -> new ArrayList<>()).add(r.key());
+      menuResources.computeIfAbsent(r.module(), m -> new ArrayList<>()).add(r.key());
+      menuReports.computeIfAbsent(r.module(), m -> new ArrayList<>());
       resources.add(resource(rc, r, access));
+    }
+    List<Map<String, Object>> reports = new ArrayList<>();
+    for (ResourceCatalog.DeclaredReport d : catalog.reports()) {
+      if (!permissions.has(rc, d.report().permission())) {
+        continue;
+      }
+      menuResources.computeIfAbsent(d.module(), m -> new ArrayList<>());
+      menuReports.computeIfAbsent(d.module(), m -> new ArrayList<>()).add(d.report().key());
+      reports.add(report(rc, d));
     }
     Language language = rc.language();
     List<Map<String, Object>> groups = new ArrayList<>();
-    menu.forEach((module, keys) -> {
+    menuResources.forEach((module, keys) -> {
       Map<String, Object> group = new LinkedHashMap<>();
       group.put("module", module);
       group.put("label", messages.label(language, module, LabelKeys.module(module)));
       group.put("resources", keys);
+      group.put("reports", menuReports.get(module));
       groups.add(group);
     });
     Map<String, Object> out = new LinkedHashMap<>();
@@ -132,7 +146,73 @@ public final class MetaRoutes {
     out.put("language", language.code());
     out.put("menu", groups);
     out.put("resources", resources);
+    out.put("reports", reports);
     return out;
+  }
+
+  // ---- reports (§23.11) ----
+
+  private Map<String, Object> report(RequestContext rc, ResourceCatalog.DeclaredReport d) {
+    Language language = rc.language();
+    Report r = d.report();
+    Map<String, Object> out = new LinkedHashMap<>();
+    out.put("key", r.key());
+    out.put("label", messages.label(language, r.key(), LabelKeys.report(r.key())));
+    out.put("module", d.module());
+    out.put("method", "GET");
+    out.put("path", r.path());
+    List<Map<String, Object>> params = new ArrayList<>();
+    for (ActionParam p : r.params()) {
+      params.add(param(rc, LabelKeys.reportParam(r.key(), p.name()), p));
+    }
+    out.put("params", params);
+    List<Map<String, Object>> figures = new ArrayList<>();
+    for (Report.Figure f : r.figures()) {
+      Map<String, Object> figure = new LinkedHashMap<>();
+      figure.put("path", f.path());
+      figure.put("label", messages.label(language, lastSegment(f.path()), LabelKeys.reportFigure(r.key(), f.path())));
+      figure.put("type", f.type().name());
+      if (f.format() != null) {
+        figure.put("format", f.format().name().toLowerCase(Locale.ROOT));
+      }
+      figures.add(figure);
+    }
+    out.put("figures", figures);
+    out.put("rows", r.rows());
+    out.put("level", r.level());
+    out.put("emphasis", r.emphasis());
+    List<Map<String, Object>> columns = new ArrayList<>();
+    for (Report.Column c : r.columns()) {
+      Map<String, Object> column = new LinkedHashMap<>();
+      column.put("path", c.path());
+      column.put("label", messages.label(language, lastSegment(c.path()), LabelKeys.reportColumn(r.key(), c.path())));
+      column.put("type", c.type().name());
+      if (c.type() == FieldType.DECIMAL) {
+        column.put("scale", DEFAULT_SCALE);
+      }
+      if (c.format() != null) {
+        column.put("format", c.format().name().toLowerCase(Locale.ROOT));
+      }
+      Object[] constants = c.type().javaType().getEnumConstants();
+      if (constants != null) {
+        List<Map<String, Object>> values = new ArrayList<>();
+        for (Object constant : constants) {
+          Enum<?> value = (Enum<?>) constant;
+          values.add(pair("value", value.name(), "label", messages.label(language, value.name(),
+              LabelKeys.enumValue(value))));
+        }
+        column.put("values", values);
+      }
+      column.put("total", c.total());
+      columns.add(column);
+    }
+    out.put("columns", columns);
+    out.put("totals", r.totals());
+    return out;
+  }
+
+  private static String lastSegment(String path) {
+    return path.substring(path.lastIndexOf('.') + 1);
   }
 
   private Map<String, Object> resource(RequestContext rc, Resource r, FieldAccess access) {
@@ -327,7 +407,7 @@ public final class MetaRoutes {
       action.put("confirm", a.needsConfirmation());
       List<Map<String, Object>> params = new ArrayList<>();
       for (ActionParam p : a.params()) {
-        params.add(param(rc, r, a, p));
+        params.add(param(rc, LabelKeys.actionParam(r.key(), a.name(), p.name()), p));
       }
       action.put("params", params);
       out.add(action);
@@ -336,11 +416,11 @@ public final class MetaRoutes {
   }
 
   /** Like a field (§23.6): name, label, type (ref, values), required, bounds. */
-  private Map<String, Object> param(RequestContext rc, Resource r, ResourceAction a, ActionParam p) {
+  private Map<String, Object> param(RequestContext rc, String[] labelKeys, ActionParam p) {
     Language language = rc.language();
     Map<String, Object> out = new LinkedHashMap<>();
     out.put("name", p.name());
-    out.put("label", messages.label(language, p.name(), LabelKeys.actionParam(r.key(), a.name(), p.name())));
+    out.put("label", messages.label(language, p.name(), labelKeys));
     Optional<Resource> ref = p.referencedEntity().flatMap(catalog::forEntity)
         .filter(target -> can(rc, target, Action.READ));
     out.put("type", ref.isPresent() ? "reference" : p.type().name());

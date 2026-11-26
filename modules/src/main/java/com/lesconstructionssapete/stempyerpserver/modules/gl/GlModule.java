@@ -88,7 +88,8 @@ public class GlModule implements ERPModule {
 
   @Override
   public void registerEntities(EntityRegistry entityRegistry) {
-    entityRegistry.registerAll(Account.class, Dimension.class, DimensionValue.class);
+    entityRegistry.registerAll(Account.class, Dimension.class, DimensionValue.class, JournalEntry.class,
+        JournalLine.class, FiscalYear.class, Period.class);
   }
 
   @Override
@@ -138,9 +139,9 @@ public class GlModule implements ERPModule {
   @Override
   public void registerRoutes(Routes routes, ServiceRegistry serviceRegistry) {
     new AccountController(accounts, serviceRegistry.get(EntityEndpoints.class)).register(routes);
-    new PeriodController(periods).register(routes);
+    new PeriodController(periods, serviceRegistry.get(EntityEndpoints.class)).register(routes);
     new DimensionController(dimensions, serviceRegistry.get(EntityEndpoints.class)).register(routes);
-    new JournalController(journal).register(routes);
-    new ReportController(reports).register(routes);
+    new JournalController(journal, serviceRegistry.get(EntityEndpoints.class)).register(routes);
+    new ReportController(reports, serviceRegistry.get(EntityEndpoints.class)).register(routes);
   }
 }

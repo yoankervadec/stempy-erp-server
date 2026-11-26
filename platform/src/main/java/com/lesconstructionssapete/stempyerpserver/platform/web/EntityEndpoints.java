@@ -212,6 +212,49 @@ public final class EntityEndpoints {
   }
 
   /**
+   * Only the generic QUERY on {@code path} (search, filter, sort, page, _refs)
+   * and the resource in the catalog, for an entity whose other routes are
+   * hand-written (journal entries, periods): the generic list page works,
+   * the module keeps its own GET / POST. Answers through decorate() give its
+   * records _refs and _meta.
+   */
+  public <E> void registerQuery(Routes routes, String path, EntityDefinition<E> entity, String permissionPrefix) {
+    routes.query(path, query(entity, Action.READ.permission(permissionPrefix)));
+    catalog.add(path, entity, permissionPrefix, Set.of(Action.READ));
+  }
+
+  /**
+   * A hand-written read's answer, made like the generic ones: _refs on the
+   * record and on the rows of each collection ({@code collections}: key in the
+   * record -> its rows' entity), _meta on the record. {@code record} is the
+   * view as JSON-shaped values (e.g. converted by Jackson); it is changed in
+   * place and returned.
+   */
+  public Map<String, Object> decorate(RequestContext rc, EntityDefinition<?> entity, Map<String, Object> record,
+      Map<String, EntityDefinition<?>> collections) {
+    uowFactory.executeReadOnly(uow -> {
+      references.attach(uow, entity, List.of(record), rc);
+      collections.forEach((key, child) -> {
+        if (record.get(key) instanceof List<?> rows) {
+          @SuppressWarnings("unchecked")
+          List<Map<String, Object>> lines = (List<Map<String, Object>>) rows;
+          references.attach(uow, child, lines, rc);
+        }
+      });
+      catalog.forEntity(entity).ifPresent(r -> record.put("_meta", recordMeta.describe(uow, r, fieldsOnly(record), rc)));
+      return null;
+    });
+    return record;
+  }
+
+  /** Describes a report for GET /meta (docs/ARCHITECTURE.md §23.11); the module serves its route. */
+  public void report(Report report) {
+    report.check();
+    permissions.requireDeclared(report.permission());
+    catalog.report(report);
+  }
+
+  /**
    * How a record of an entity registered here is laid out (sections, child
    * tables, totals, tabs), for GET /meta (docs/ARCHITECTURE.md §23.7). Without
    * one, /meta derives a layout.

@@ -142,7 +142,7 @@ class MetaRoutesTest {
     // cost needs widget.cost.read
     assertTrue(field(widget, "name") != null);
     assertEquals(null, field(widget, "cost"));
-    assertEquals("[{\"module\":\"widgets\",\"label\":\"Widgets\",\"resources\":[\"widget\"]}]",
+    assertEquals("[{\"module\":\"widgets\",\"label\":\"Widgets\",\"resources\":[\"widget\"],\"reports\":[]}]",
         meta.get("menu").toString());
   }
 

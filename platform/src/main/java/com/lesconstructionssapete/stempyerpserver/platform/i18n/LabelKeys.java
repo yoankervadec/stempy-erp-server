@@ -66,6 +66,26 @@ public final class LabelKeys {
     return "tab." + tab;
   }
 
+  /** A report's title ("report.glTrialBalance"). */
+  public static String report(String reportKey) {
+    return "report." + reportKey;
+  }
+
+  /** One of its parameters: its own label, else a shared field label of the same name. */
+  public static String[] reportParam(String reportKey, String param) {
+    return new String[] { report(reportKey) + ".param." + param, "field." + param };
+  }
+
+  /** One of its columns, by path ("report.glTrialBalance.column.amounts.closing"). */
+  public static String reportColumn(String reportKey, String column) {
+    return report(reportKey) + ".column." + column;
+  }
+
+  /** One of its figures ("report.glAccountLedger.figure.opening"). */
+  public static String reportFigure(String reportKey, String figure) {
+    return report(reportKey) + ".figure." + figure;
+  }
+
   /** An audit action ("CREATED", "POSTED"). */
   public static String auditAction(String action) {
     return "audit.action." + action;

@@ -25,6 +25,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.GeneralLedgerApi.JournalEntryRequest;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.GeneralLedgerApi.LineRequest;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.events.JournalEntryPosted;
@@ -256,7 +257,19 @@ class GlJournalMySqlTest {
     assertEquals("{\"PROJECT\":\"P1\"}", lines.get(0).get("dimensions").toString());
     assertEquals("123.45", lines.get(1).get("credit").asText());
     assertEquals("{}", lines.get(1).get("dimensions").toString());
-    assertEquals(e, ok(200, call("GET", PATH + "/" + e.get("id").asLong(), null, reader)));
+    // the same entry for the reader; _refs and _meta are per caller (the poster may reverse it, the reader not)
+    JsonNode read = ok(200, call("GET", PATH + "/" + e.get("id").asLong(), null, reader));
+    assertEquals(withoutCallerParts(e), withoutCallerParts(read));
+    assertEquals("reverse", e.get("_meta").get("actions").get(0).get("name").asText());
+    assertEquals("[]", read.get("_meta").get("actions").toString());
+  }
+
+  /** A copy without _refs / _meta, on the entry and its lines. */
+  private static JsonNode withoutCallerParts(JsonNode entry) {
+    ObjectNode copy = entry.deepCopy();
+    copy.remove(List.of("_refs", "_meta"));
+    copy.get("lines").forEach(l -> ((ObjectNode) l).remove("_refs"));
+    return copy;
   }
 
   @Test
@@ -512,5 +525,121 @@ class GlJournalMySqlTest {
         () -> uow.execute(u -> ledger.post(u, moduleContext(), request)));
     assertEquals(List.of("lines:UNBALANCED", "sourceType:REQUIRED"),
         e.fieldErrors().stream().map(f -> f.field() + ":" + f.code()).sorted().toList());
+  }
+
+  // ---- the GL pilot of the server-driven UI (docs/ARCHITECTURE.md §23.12 step 9) ----
+
+  private static JsonNode metaResource(String token, String key) throws Exception {
+    for (JsonNode r : ok(200, call("GET", "/meta", null, token)).get("resources")) {
+      if (r.get("key").asText().equals(key)) {
+        return r;
+      }
+    }
+    return null;
+  }
+
+  @Test
+  void journalEntriesAreAGenericList() throws Exception {
+    postOk(entry("2026-01-10", "4000", "10.00", "{}"));
+    postOk(entry("2026-01-12", "4000", "20.00", "{}"));
+
+    JsonNode page = ok(200, call("QUERY", PATH, "{\"search\":\"JE\",\"page\":{\"limit\":1}}", accountant));
+
+    assertEquals(1, page.get("data").size());
+    assertTrue(page.get("page").get("hasMore").asBoolean());
+    JsonNode newest = page.get("data").get(0);
+    assertEquals("2026-01-12", newest.get("postingDate").asText());
+    assertEquals("2026-01-01", newest.get("_refs").get("periodId").get("title").asText());
+  }
+
+  @Test
+  void reverseIsOfferedOnlyWhileItApplies() throws Exception {
+    long id = postOk(entry("2026-01-10", "4000", "10.00", "{}")).get("id").asLong();
+    JsonNode before = ok(200, call("GET", PATH + "/" + id, null, accountant)).get("_meta");
+
+    JsonNode reversal = ok(201, call("POST", PATH + "/" + id + "/reverse", "{\"postingDate\":\"2026-02-01\"}",
+        accountant));
+
+    assertEquals("[{\"name\":\"reverse\",\"confirm\":\"Contrepasser l'écriture JE00000001 ?\"}]",
+        before.get("actions").toString());
+    assertEquals("[]", ok(200, call("GET", PATH + "/" + id, null, accountant)).get("_meta").get("actions").toString());
+    // a reversal can't be reversed; the reader may reverse nothing
+    assertEquals("[]", reversal.get("_meta").get("actions").toString());
+    assertEquals("[]", ok(200, call("GET", PATH + "/" + id, null, reader)).get("_meta").get("actions").toString());
+  }
+
+  @Test
+  void metaDescribesTheJournalEntryPage() throws Exception {
+    JsonNode journal = metaResource(accountant, "glJournalEntry");
+
+    assertFalse(journal.get("can").get("create").asBoolean()); // the manual entry form is custom (accountNo)
+    assertEquals("page", journal.get("presentation").asText());
+    JsonNode lines = journal.get("layout").get("collections").get(0);
+    assertEquals("lines", lines.get("name").asText());
+    assertTrue(lines.get("source").isNull()); // embedded in GET /gl/journal-entries/{id}
+    assertEquals("[\"debit\",\"credit\"]", lines.get("footerSums").toString());
+    JsonNode reverse = journal.get("actions").get(0);
+    assertEquals("/gl/journal-entries/{id}/reverse", reverse.get("path").asText());
+    assertEquals("Contrepasser", reverse.get("label").asText());
+    assertEquals("Date de la contrepassation", reverse.get("params").get(0).get("label").asText());
+    assertTrue(reverse.get("params").get(0).get("required").asBoolean());
+  }
+
+  @Test
+  void periodsAreClosedAndReopenedThroughTheirActions() throws Exception {
+    JsonNode open = ok(200, call("GET", "/gl/periods/" + firstPeriod, null, admin));
+    assertEquals("[{\"name\":\"close\",\"confirm\":\"Fermer la période 2026-01 ?\"}]",
+        open.get("_meta").get("actions").toString());
+
+    JsonNode closed = ok(200, call("POST", "/gl/periods/" + firstPeriod + "/close", null, admin));
+
+    assertEquals("reopen", closed.get("_meta").get("actions").get(0).get("name").asText());
+    long year = open.get("fiscalYearId").asLong();
+    JsonNode periods = ok(200, call("QUERY", "/gl/periods", """
+        {"where": {"field": "fiscalYearId", "op": "equals", "value": %d}, "page": {"limit": 20}}""".formatted(year),
+        admin));
+    assertEquals(12, periods.get("data").size());
+    assertEquals("CLOSED", periods.get("data").get(0).get("status").asText());
+  }
+
+  @Test
+  void fiscalYearsHaveTheGenericFormAndPage() throws Exception {
+    long year = ok(200, call("GET", "/gl/periods/" + firstPeriod, null, admin)).get("fiscalYearId").asLong();
+
+    JsonNode blank = ok(200, call("GET", "/gl/fiscal-years/new", null, admin));
+    JsonNode one = ok(200, call("GET", "/gl/fiscal-years/" + year, null, admin));
+    JsonNode meta = metaResource(admin, "glFiscalYear");
+
+    assertTrue(blank.get("startDate").isNull());
+    assertEquals("2026-12-31", one.get("endDate").asText());
+    assertTrue(meta.get("can").get("create").asBoolean());
+    assertEquals("{\"create\":true,\"update\":false}", meta.get("fields").get(1).get("writable").toString());
+    assertEquals("{\"resource\":\"glPeriod\",\"field\":\"fiscalYearId\"}",
+        meta.get("layout").get("collections").get(0).get("source").toString());
+  }
+
+  @Test
+  void theReportsAreDescribedForThoseWhoMayRunThem() throws Exception {
+    JsonNode meta = ok(200, call("GET", "/meta", null, admin));
+    JsonNode readerMeta = ok(200, call("GET", "/meta", null, reader));
+
+    JsonNode trial = meta.get("reports").get(0);
+    assertEquals("glTrialBalance", trial.get("key").asText());
+    assertEquals("Balance de vérification", trial.get("label").asText());
+    assertEquals("/gl/reports/trial-balance", trial.get("path").asText());
+    assertEquals("Du", trial.get("params").get(0).get("label").asText());
+    assertEquals("level", trial.get("level").asText());
+    assertEquals("isHeading", trial.get("emphasis").asText());
+    JsonNode closing = trial.get("columns").get(6);
+    assertEquals("amounts.closing", closing.get("path").asText());
+    assertEquals("closing", closing.get("total").asText());
+    assertEquals("money", closing.get("format").asText());
+    assertEquals("opening", meta.get("reports").get(1).get("figures").get(0).get("path").asText());
+    for (JsonNode group : meta.get("menu")) {
+      if (group.get("module").asText().equals("gl")) {
+        assertEquals("[\"glTrialBalance\",\"glAccountLedger\"]", group.get("reports").toString());
+      }
+    }
+    assertEquals("[]", readerMeta.get("reports").toString());
   }
 }

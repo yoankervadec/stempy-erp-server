@@ -67,6 +67,244 @@ glDimensionValue.field.dimensionId:
   en: Dimension
   fr: Dimension
 
+# Journal entries (read through the generic routes; posted and reversed by their own)
+glJournalEntry:
+  en: Journal entries
+  fr: Écritures de journal
+glJournalEntry.one:
+  en: Journal entry
+  fr: Écriture de journal
+glJournalEntry.field.entryNo:
+  en: Entry no.
+  fr: No d'écriture
+glJournalEntry.field.postingDate:
+  en: Posting date
+  fr: Date de comptabilisation
+glJournalEntry.field.periodId:
+  en: Period
+  fr: Période
+glJournalEntry.field.sourceType:
+  en: Source
+  fr: Source
+glJournalEntry.field.sourceId:
+  en: Source id
+  fr: Id de la source
+glJournalEntry.field.sourceNo:
+  en: Source no.
+  fr: No de la source
+glJournalEntry.field.reversalOfId:
+  en: Reverses
+  fr: Contrepasse
+glJournalEntry.field.reversedById:
+  en: Reversed by
+  fr: Contrepassée par
+glJournalEntry.field.currencyCode:
+  en: Currency
+  fr: Devise
+glJournalEntry.field.total:
+  en: Total
+  fr: Total
+glJournalEntry.field.postedAt:
+  en: Posted at
+  fr: Comptabilisée le
+glJournalEntry.field.postedBy:
+  en: Posted by
+  fr: Comptabilisée par
+glJournalEntry.section.source:
+  en: Source
+  fr: Source
+glJournalEntry.collection.lines:
+  en: Lines
+  fr: Lignes
+glJournalEntry.action.reverse:
+  en: Reverse
+  fr: Contrepasser
+glJournalEntry.action.reverse.confirm:
+  en: "Reverse entry {entryNo}?"
+  fr: "Contrepasser l'écriture {entryNo} ?"
+glJournalEntry.action.reverse.param.postingDate:
+  en: Reversal date
+  fr: Date de la contrepassation
+
+glJournalLine:
+  en: Journal lines
+  fr: Lignes d'écriture
+glJournalLine.one:
+  en: Journal line
+  fr: Ligne d'écriture
+glJournalLine.field.entryId:
+  en: Entry
+  fr: Écriture
+glJournalLine.field.lineNo:
+  en: Line
+  fr: Ligne
+glJournalLine.field.postingDate:
+  en: Posting date
+  fr: Date de comptabilisation
+glJournalLine.field.accountId:
+  en: Account
+  fr: Compte
+glJournalLine.field.debit:
+  en: Debit
+  fr: Débit
+glJournalLine.field.credit:
+  en: Credit
+  fr: Crédit
+glJournalLine.field.dimensionSetId:
+  en: Dimensions
+  fr: Dimensions
+
+# Fiscal years and periods
+glFiscalYear:
+  en: Fiscal years
+  fr: Exercices
+glFiscalYear.one:
+  en: Fiscal year
+  fr: Exercice
+glFiscalYear.field.startDate:
+  en: Start
+  fr: Début
+glFiscalYear.field.endDate:
+  en: End
+  fr: Fin
+glFiscalYear.collection.periods:
+  en: Periods
+  fr: Périodes
+glPeriod:
+  en: Periods
+  fr: Périodes
+glPeriod.one:
+  en: Period
+  fr: Période
+glPeriod.field.fiscalYearId:
+  en: Fiscal year
+  fr: Exercice
+glPeriod.field.periodNo:
+  en: No.
+  fr: "No"
+glPeriod.field.startDate:
+  en: Start
+  fr: Début
+glPeriod.field.endDate:
+  en: End
+  fr: Fin
+glPeriod.field.status:
+  en: Status
+  fr: Statut
+glPeriod.field.statusChangedAt:
+  en: Status changed at
+  fr: Statut changé le
+glPeriod.field.statusChangedBy:
+  en: Status changed by
+  fr: Statut changé par
+glPeriod.action.close:
+  en: Close
+  fr: Fermer
+glPeriod.action.close.confirm:
+  en: "Close period {name}?"
+  fr: "Fermer la période {name} ?"
+glPeriod.action.reopen:
+  en: Reopen
+  fr: Rouvrir
+glPeriod.action.reopen.confirm:
+  en: "Reopen period {name}?"
+  fr: "Rouvrir la période {name} ?"
+enum.PeriodStatus.OPEN:
+  en: Open
+  fr: Ouverte
+enum.PeriodStatus.CLOSED:
+  en: Closed
+  fr: Fermée
+
+# Reports (docs/ARCHITECTURE.md §23.11)
+report.glTrialBalance:
+  en: Trial balance
+  fr: Balance de vérification
+report.glTrialBalance.param.from:
+  en: From
+  fr: Du
+report.glTrialBalance.param.to:
+  en: To
+  fr: Au
+report.glTrialBalance.param.includeZero:
+  en: Include zero balances
+  fr: Inclure les soldes nuls
+report.glTrialBalance.param.dimension:
+  en: Dimension
+  fr: Dimension
+report.glTrialBalance.param.value:
+  en: Dimension value
+  fr: Valeur de dimension
+report.glTrialBalance.column.accountNo:
+  en: Account no.
+  fr: No de compte
+report.glTrialBalance.column.name:
+  en: Name
+  fr: Nom
+report.glTrialBalance.column.accountType:
+  en: Type
+  fr: Type
+report.glTrialBalance.column.amounts.opening:
+  en: Opening
+  fr: Solde d'ouverture
+report.glTrialBalance.column.amounts.debits:
+  en: Debits
+  fr: Débits
+report.glTrialBalance.column.amounts.credits:
+  en: Credits
+  fr: Crédits
+report.glTrialBalance.column.amounts.closing:
+  en: Closing
+  fr: Solde de clôture
+report.glAccountLedger:
+  en: Account ledger
+  fr: Grand livre du compte
+report.glAccountLedger.param.accountNo:
+  en: Account no.
+  fr: No de compte
+report.glAccountLedger.param.from:
+  en: From
+  fr: Du
+report.glAccountLedger.param.to:
+  en: To
+  fr: Au
+report.glAccountLedger.param.dimension:
+  en: Dimension
+  fr: Dimension
+report.glAccountLedger.param.value:
+  en: Dimension value
+  fr: Valeur de dimension
+report.glAccountLedger.figure.opening:
+  en: Opening
+  fr: Solde d'ouverture
+report.glAccountLedger.figure.debits:
+  en: Debits
+  fr: Débits
+report.glAccountLedger.figure.credits:
+  en: Credits
+  fr: Crédits
+report.glAccountLedger.figure.closing:
+  en: Closing
+  fr: Solde de clôture
+report.glAccountLedger.column.postingDate:
+  en: Date
+  fr: Date
+report.glAccountLedger.column.entryNo:
+  en: Entry no.
+  fr: No d'écriture
+report.glAccountLedger.column.description:
+  en: Description
+  fr: Description
+report.glAccountLedger.column.debit:
+  en: Debit
+  fr: Débit
+report.glAccountLedger.column.credit:
+  en: Credit
+  fr: Crédit
+report.glAccountLedger.column.balance:
+  en: Balance
+  fr: Solde
+
 audit.action.POSTED:
   en: Posted
   fr: Comptabilisation
