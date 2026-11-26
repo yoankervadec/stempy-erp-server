@@ -2,6 +2,7 @@ package com.lesconstructionssapete.stempyerpserver.platform.module;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -20,6 +21,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.events.outbox.Outbox;
 import com.lesconstructionssapete.stempyerpserver.platform.events.outbox.OutboxSettings;
 import com.lesconstructionssapete.stempyerpserver.platform.events.outbox.internal.JdbcOutboxWriter;
 import com.lesconstructionssapete.stempyerpserver.platform.events.outbox.internal.OutboxPruneJob;
+import com.lesconstructionssapete.stempyerpserver.platform.i18n.Messages;
 import com.lesconstructionssapete.stempyerpserver.platform.idempotency.Idempotency;
 import com.lesconstructionssapete.stempyerpserver.platform.numbering.DocumentNumbers;
 import com.lesconstructionssapete.stempyerpserver.platform.numbering.DocumentTypes;
@@ -75,6 +77,7 @@ public final class ModuleHost {
   private final PermissionRegistry permissions = new PermissionRegistry();
   private final EntityRegistry entities = new EntityRegistry();
   private final DocumentTypes documentTypes = new DocumentTypes();
+  private final Messages messages;
   private UnitOfWorkFactory uowFactory;
   private ServiceRegistry services;
   private final Scheduler scheduler = new Scheduler();
@@ -91,6 +94,18 @@ public final class ModuleHost {
     entities.freeze(permissions::contains); // throws on a bad relation or undeclared field permission
     this.modules.forEach(m -> m.registerDocumentTypes(documentTypes)); // throws on a bad declaration
     documentTypes.freeze();
+    List<String> bundles = new ArrayList<>();
+    bundles.add(PLATFORM_BUNDLE);
+    this.modules.forEach(m -> bundles.add(m.name()));
+    this.messages = Messages.load(ModuleHost.class.getClassLoader(), bundles); // throws on a key defined twice
+  }
+
+  /** The platform's own texts: i18n/platform.properties, i18n/platform_fr.properties. */
+  public static final String PLATFORM_BUNDLE = "platform";
+
+  /** Every text, from the platform's bundles and one pair per module (docs/ARCHITECTURE.md §23.5). */
+  public Messages messages() {
+    return messages;
   }
 
   public PermissionRegistry permissions() {
@@ -108,7 +123,7 @@ public final class ModuleHost {
   /**
    * Publishes the platform services every module may use (UnitOfWorkFactory,
    * EventBus, EntityRegistry, PermissionRegistry, PermissionChecker,
-   * EntityEndpoints, ResourceCatalog, Scheduler, Outbox, AuditLog, DocumentTypes, DocumentNumbers, Idempotency), then each module's
+   * Messages, EntityEndpoints, ResourceCatalog, Scheduler, Outbox, AuditLog, DocumentTypes, DocumentNumbers, Idempotency), then each module's
    * own, then
    * wires event handlers (synchronous and async), then job types. The
    * registries are frozen afterwards. Nothing runs yet: see startScheduler()
@@ -135,8 +150,9 @@ public final class ModuleHost {
     registry.register(AuditLog.class, auditLog);
     var catalog = new ResourceCatalog();
     registry.register(ResourceCatalog.class, catalog);
+    registry.register(Messages.class, messages);
     registry.register(EntityEndpoints.class, new EntityEndpoints(uowFactory, QueryLimits.defaults(), checker,
-        eventBus, clock, auditLog, () -> registry.find(UserDirectory.class), catalog));
+        eventBus, clock, auditLog, () -> registry.find(UserDirectory.class), catalog, messages));
     registry.register(Scheduler.class, scheduler);
     registry.register(Outbox.class, outbox);
     registry.register(DocumentTypes.class, documentTypes);
@@ -216,7 +232,7 @@ public final class ModuleHost {
     var health = new HealthChecks().add("database",
         () -> uowFactory.executeReadOnly(uow -> Jdbc.queryFirst(uow, "SELECT 1", rs -> rs.getInt(1))));
     var authFilter = new AuthFilter(s.get(SessionAuthenticator.class), s.get(CompanyAccess.class));
-    var server = new WebServer(config, new ExceptionMapper(new ErrorTranslator()), authFilter::handle);
+    var server = new WebServer(config, new ExceptionMapper(new ErrorTranslator(), messages), authFilter::handle);
     server.start(routes -> {
       HealthRoutes.register(routes, health);
       ResourceCatalog catalog = s.get(ResourceCatalog.class);
@@ -225,7 +241,7 @@ public final class ModuleHost {
         m.registerRoutes(routes, s);
       });
       catalog.freeze();
-      new MetaRoutes(catalog, s.get(PermissionChecker.class)).register(routes);
+      new MetaRoutes(catalog, s.get(PermissionChecker.class), messages).register(routes);
     });
     return server;
   }

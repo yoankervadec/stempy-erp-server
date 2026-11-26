@@ -10,6 +10,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
+import com.lesconstructionssapete.stempyerpserver.platform.i18n.Language;
+
 /**
  * Keeps CompanyAccess answers in memory, so an authenticated request doesn't
  * load roles and overrides every time. Single server instance, so in-process
@@ -33,6 +35,7 @@ public final class CachedCompanyAccess implements CompanyAccess {
   private final Clock clock;
   private final ConcurrentHashMap<Key, Entry<Optional<Set<String>>>> permissions = new ConcurrentHashMap<>();
   private final ConcurrentHashMap<Long, Entry<OptionalLong>> defaults = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<Key, Entry<Optional<Language>>> languages = new ConcurrentHashMap<>();
 
   public CachedCompanyAccess(CompanyAccess source, Duration ttl, Clock clock) {
     this.source = Objects.requireNonNull(source, "source");
@@ -53,15 +56,22 @@ public final class CachedCompanyAccess implements CompanyAccess {
     return cached(defaults, userId, () -> source.defaultCompany(userId));
   }
 
-  /** After a change to one user's memberships, roles or overrides. */
+  @Override
+  public Optional<Language> language(long userId, long companyId) {
+    return cached(languages, new Key(userId, companyId), () -> source.language(userId, companyId));
+  }
+
+  /** After a change to one user's memberships, roles, overrides or language. */
   public void invalidateUser(long userId) {
     permissions.keySet().removeIf(k -> k.userId() == userId);
+    languages.keySet().removeIf(k -> k.userId() == userId);
     defaults.remove(userId);
   }
 
-  /** After a change that can affect many users, e.g. a role's permissions. */
+  /** After a change that can affect many users, e.g. a role's permissions or a company's language. */
   public void invalidateAll() {
     permissions.clear();
+    languages.clear();
     defaults.clear();
   }
 

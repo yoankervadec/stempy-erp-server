@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -53,14 +54,14 @@ public final class Validation {
 
   public Validation maxLength(String field, CharSequence value, int max) {
     return value != null && value.length() > max
-        ? add(field, "TOO_LONG", "must be at most " + max + " characters")
+        ? add(field, "TOO_LONG", "must be at most " + max + " characters", Map.of("max", max))
         : this;
   }
 
   /** Also fails on null: use for values that must be present AND sized. */
   public Validation lengthBetween(String field, char[] value, int min, int max) {
     return value == null || value.length < min || value.length > max
-        ? add(field, "INVALID_LENGTH", "must be " + min + " to " + max + " characters")
+        ? add(field, "INVALID_LENGTH", "must be " + min + " to " + max + " characters", Map.of("min", min, "max", max))
         : this;
   }
 
@@ -72,27 +73,32 @@ public final class Validation {
 
   public Validation min(String field, BigDecimal value, BigDecimal min) {
     return value != null && value.compareTo(min) < 0
-        ? add(field, "TOO_SMALL", "must be at least " + min.toPlainString())
+        ? add(field, "TOO_SMALL", "must be at least " + min.toPlainString(), Map.of("min", min))
         : this;
   }
 
   public Validation max(String field, BigDecimal value, BigDecimal max) {
     return value != null && value.compareTo(max) > 0
-        ? add(field, "TOO_LARGE", "must be at most " + max.toPlainString())
+        ? add(field, "TOO_LARGE", "must be at most " + max.toPlainString(), Map.of("max", max))
         : this;
   }
 
   /** Trailing zeros don't count: 1.50 has one decimal. */
   public Validation maxScale(String field, BigDecimal value, int scale) {
     return value != null && value.stripTrailingZeros().scale() > scale
-        ? add(field, "TOO_MANY_DECIMALS", "must have at most " + scale + " decimals")
+        ? add(field, "TOO_MANY_DECIMALS", "must have at most " + scale + " decimals", Map.of("scale", scale))
         : this;
   }
 
   /** A rule with no standard check; same one-error-per-field rule applies. */
   public Validation add(String field, String code, String message) {
+    return add(field, code, message, Map.of());
+  }
+
+  /** As add(field, code, message), with the values the message names (for translations). */
+  public Validation add(String field, String code, String message, Map<String, Object> params) {
     if (failed.add(field)) {
-      errors.add(new FieldError(field, code, message));
+      errors.add(new FieldError(field, code, message, params));
     }
     return this;
   }

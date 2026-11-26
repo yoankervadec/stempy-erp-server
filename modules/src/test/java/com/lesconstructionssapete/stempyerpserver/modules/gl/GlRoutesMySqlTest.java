@@ -432,7 +432,9 @@ class GlRoutesMySqlTest {
     assertFalse(readOnly.get("can").get("create").asBoolean());
     for (JsonNode f : managed.get("fields")) {
       if (f.get("name").asText().equals("accountType")) {
-        assertEquals("[\"ASSET\",\"LIABILITY\",\"EQUITY\",\"REVENUE\",\"EXPENSE\"]", f.get("values").toString());
+        assertEquals(5, f.get("values").size());
+        // the company's language (French by default)
+        assertEquals("{\"value\":\"ASSET\",\"label\":\"Actif\"}", f.get("values").get(0).toString());
       }
       if (f.get("name").asText().equals("parentId")) {
         // a self-reference: parent accounts are picked from the accounts

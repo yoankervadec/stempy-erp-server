@@ -27,10 +27,14 @@ public class UserAccountRepository {
   public record UserRef(long id) {
   }
 
+  /** The user's own language and the company's default, as stored (codes or null). */
+  public record Languages(String user, String company) {
+  }
+
   /** Latest non-deleted credential of the user with this user number. */
   public Optional<LoginCandidate> findLoginCandidate(UnitOfWork uow, String userNo) {
     return Jdbc.queryFirst(uow, """
-        SELECT u.id, u.user_no, u.name, cr.password_hash,
+        SELECT u.id, u.user_no, u.name, u.language, cr.password_hash,
                (u.is_enabled AND u.deleted_at IS NULL AND cr.is_enabled AND EXISTS (
                   SELECT 1 FROM user_companies uc JOIN companies c ON c.id = uc.company_id
                   WHERE uc.user_id = u.id AND uc.is_enabled AND c.is_enabled)) AS active
@@ -44,7 +48,7 @@ public class UserAccountRepository {
   }
 
   public Optional<UserProfile> findProfile(UnitOfWork uow, long userId) {
-    return Jdbc.queryFirst(uow, "SELECT id, user_no, name FROM users WHERE id = ? AND deleted_at IS NULL",
+    return Jdbc.queryFirst(uow, "SELECT id, user_no, name, language FROM users WHERE id = ? AND deleted_at IS NULL",
         UserAccountRepository::profile, userId);
   }
 
@@ -82,6 +86,37 @@ public class UserAccountRepository {
         userNo, name);
   }
 
+  /**
+   * A live user's own language and, when {@code companyId} isn't null, that
+   * company's default. Empty if the user (or the company) doesn't exist.
+   */
+  public Optional<Languages> findLanguages(UnitOfWork uow, long userId, Long companyId) {
+    if (companyId == null) {
+      return Jdbc.queryFirst(uow, "SELECT language FROM users WHERE id = ? AND deleted_at IS NULL",
+          rs -> new Languages(rs.getString("language"), null), userId);
+    }
+    return Jdbc.queryFirst(uow, """
+        SELECT u.language, c.default_language
+        FROM users u JOIN companies c ON c.id = ?
+        WHERE u.id = ? AND u.deleted_at IS NULL""",
+        rs -> new Languages(rs.getString("language"), rs.getString("default_language")), companyId, userId);
+  }
+
+  /**
+   * A live user's own language, locking the row: empty if there is no such
+   * user, an empty inner Optional if they chose none.
+   */
+  public Optional<Optional<String>> findLanguageForUpdate(UnitOfWork uow, long userId) {
+    return Jdbc.queryFirst(uow, "SELECT language FROM users WHERE id = ? AND deleted_at IS NULL FOR UPDATE",
+        rs -> Optional.ofNullable(rs.getString("language")), userId);
+  }
+
+  /** The user is their own updater: only they change their language. */
+  public void setLanguage(UnitOfWork uow, long userId, String language, Instant now) {
+    Jdbc.update(uow, "UPDATE users SET language = ?, updated_at = ?, updated_by = id WHERE id = ?",
+        language, now, userId);
+  }
+
   /** Soft-deletes the current credential(s) and inserts the new one (keeps history). */
   public void replacePassword(UnitOfWork uow, UserRef user, String passwordHash, Instant now) {
     Jdbc.update(uow, "UPDATE user_credentials SET deleted_at = ? WHERE user_id = ? AND deleted_at IS NULL",
@@ -91,6 +126,7 @@ public class UserAccountRepository {
   }
 
   private static UserProfile profile(ResultSet rs) throws SQLException {
-    return new UserProfile(rs.getLong("id"), rs.getString("user_no"), rs.getString("name"));
+    return new UserProfile(rs.getLong("id"), rs.getString("user_no"), rs.getString("name"),
+        rs.getString("language"));
   }
 }

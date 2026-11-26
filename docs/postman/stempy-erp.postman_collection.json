@@ -314,6 +314,39 @@
           }
         },
         {
+          "name": "Choose my language (en, fr, or null for the company's)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"language\": \"en\"\n}"
+            },
+            "description": "Sets the language the server answers you in, in every company (API_GUIDE §4). null goes back to each company's default."
+          }
+        },
+        {
           "name": "UI metadata (what you may see and do)",
           "request": {
             "method": "GET",

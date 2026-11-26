@@ -1834,7 +1834,7 @@ All per company (the request's), `ADMINISTRATOR` has them all, writes audited (�
 
 ## 23. Server-driven UI
 
-_Status: planned 2026-11-25; steps 2 and 3 built 2026-11-25 (catalog, `GET /meta`, UI hints; no migration). How to call it: docs/API_GUIDE.md §10. Steps in §23.12._
+_Status: planned 2026-11-25; steps 2 to 4 built 2026-11-25 (catalog, `GET /meta`, UI hints, translation; migration V14). How to call it: docs/API_GUIDE.md §10. Steps in §23.12._
 
 The desktop client (Electron + React, in its own repository, built later) should be almost entirely generic: one list page, one record modal, one record page and one action dialog serve every resource. The server already describes its entities (`EntityDefinition`, §5) and their routes (`EntityEndpoints`). This section makes it publish everything a screen needs, **per caller, per company and in the caller's language**, so the client only renders what it is told. Hand-written React is kept for screens the layouts below can't express.
 
@@ -1902,38 +1902,43 @@ All optional, all with a default:
 
 ### 23.5 Translation
 
-**The request's locale**, put on `RequestContext`, is the first of:
-1. a supported language in `Accept-Language` (`fr`, `en`; `fr-CA` counts as `fr`);
-2. the user's own `users.locale`;
-3. the company's `companies.default_locale`;
-4. `fr`.
+**The request's language**, `RequestContext.language()` (a `platform/i18n/Language`: `FR`, `EN`), is:
+- **for a signed-in request:** the user's own `users.language`, else the company's `companies.default_language` (never null), else `fr`. Resolved by `CompanyAccess.language(user, company)` and cached with the permissions (`CachedCompanyAccess`, same TTL, cleared by `invalidateUser`).
+- **before sign-in** (login, a 401, a company that can't be chosen): the first supported language of `Accept-Language` (`fr-CA` counts as `fr`), else `fr`.
 
-Migration V14 adds both columns (nullable on users, `NOT NULL DEFAULT 'fr'` on companies). `/auth/login` and `/auth/me` return the effective locale, and a user can change theirs (`PATCH /auth/me {locale}`).
+`Accept-Language` doesn't override a signed-in user's choice: Electron (Chromium) always sends the operating system's, which would beat the language the user picked. To change their language, the client calls `PATCH /auth/me`.
 
-**Bundles.** Each module ships `ui-labels.properties` (English) and `ui-labels_fr.properties` (French) in its resources. The platform ships its own for shared texts (history tab, standard actions). Keys:
+Migration V14 adds both columns (`CHAR(2)`, checked to `fr` / `en`; nullable on users, `NOT NULL DEFAULT 'fr'` on companies). `/auth/login` returns the effective language for the default company and `user.language` (the user's own choice, or null). `/auth/me` returns the request's language. `PATCH /auth/me {"language": "en" | "fr" | null}` sets or clears the user's choice; it is audited (`user`, `UPDATED`, field `language`).
+
+**Bundles.** One pair per module, named after `ERPModule.name()`, in the module's resources: `i18n/<module>.properties` (English) and `i18n/<module>_fr.properties` (French), UTF-8. The platform has its own pair, `i18n/platform*.properties`, for shared texts (the standard fields, audit actions, HTTP titles, the platform's error codes). Keys come from `platform/i18n/LabelKeys`:
 
 ```properties
-# menu group (the module name)
-masterdata.items=Items
+# menu group: module.<module name>
+module.masterdata.items=Items
 # resource: plural, then singular
 product=Products
 product.one=Product
+# a resource's own field label; else the shared field.<name> (platform bundle)
 product.field.productNo=Product no.
-# layout section (§23.7)
+field.createdAt=Created at
+# enum value: enum.<Enum simple name>.<CONSTANT>, wherever the enum is used
+enum.AccountType.ASSET=Asset
+# audit action, for histories
+audit.action.POSTED=Posted
+# later: layout section (§23.7), action and its confirmation (§23.9), report (§23.11)
 product.section.general=General
-# enum value: enum.<module>.<Enum>.<CONSTANT>
-enum.gl.AccountType.ASSET=Asset
-# action and its confirmation (§23.9)
 glJournalEntry.action.reverse=Reverse
 glJournalEntry.action.reverse.confirm=Post the reversing entry?
-# report (§23.11)
 report.gl.trialBalance=Trial balance
 ```
 
-- `platform/i18n/Messages` loads every module's bundles at startup (one merged view per locale) and resolves a key for a locale. A missing key falls back to the English bundle, then to a humanized API name (`unitAmount` becomes "Unit amount"). The fallback is a safety net only: the completeness test below catches missing keys.
-- **Errors.** `FieldError` and `ErpException` gain optional `params` (`{"max": 50}`). `ExceptionMapper` translates the `message` / `detail` from `errors.properties` / `errors_fr.properties` by `code`, interpolating the params (`MAX_LENGTH=Au plus {max} caracteres`). A code with no bundle entry keeps today's English text. `code` and `field` never change, so the client can still branch on them.
-- **Also translated** with the same bundles: permission descriptions (`PermissionRegistry`, for a future role screen), document types (§21), field names in audit histories (`AuditHistory.view` adds a `label` per field) and report headers.
-- **Completeness test** (in `modules`, over `AllModules`): every resource, field, enum value, section, collection, action and report key has a French and an English entry, and the two bundles have the same keys. A missing translation fails the build instead of surprising a user.
+- `platform/i18n/Messages` loads the platform's bundles and every module's at startup (`ModuleHost`, in the ServiceRegistry). One merged view per language; **a key defined by two bundles fails at startup**, so a module can't change another's text. A lookup falls back to English, then to a humanized API name (`unitAmount` is "Unit amount"). The fallback is a safety net only: the completeness test catches missing keys.
+- **Errors.** `FieldError` carries `params` (`{"max": 50}`, also sent to the client, left out when empty), filled by `Validation` (`TOO_LONG`, `INVALID_LENGTH`, `TOO_SMALL`, `TOO_LARGE`, `TOO_MANY_DECIMALS`); an `ErpException` can name its own (`.param("date", date)`). `ExceptionMapper` translates the finished body (`ErrorLocalizer`): the `title` from `status.NNN`, the `detail` and each field error's `message` from `error.CODE`, with `{param}` placeholders. **English keeps the code's own messages** (more precise, often with values in them), so `error.*` and `status.*` keys exist only in the French bundles. A code without a translation, or a template whose param is missing, keeps the English text. `code`, `field` and `params` never change.
+- Error translations live with the code that throws them: shared codes (validation, query, auth, generic) in the platform bundle, a module's own codes (GL's `UNBALANCED`, numbering's `GAPLESS_REQUIRED`...) in its bundle.
+- **History labels:** the generic history (`GET {path}/{id}/history`) adds `actionLabel` and `labels` (field name to label) to each item. `changes` is unchanged.
+- **Completeness test** (`UiLabelsTest`, over `AllModules`): for every entity a module registers (a resource or not yet), its singular and plural labels, every non-internal field and every enum value have an English and a French text; every module with entities has its menu label; both languages have the same label keys; English bundles hold no `error.*` / `status.*`. A missing translation fails the build.
+
+**As built (step 4):** as above. Not translated yet (they arrive with the screens that show them): permission descriptions (`PermissionRegistry`), document types (§21), job types, report headers (§23.11, step 9). Translated messages are generic where the English one names values not passed as params (`NOT_FOUND`: "Enregistrement introuvable" rather than "product 5 not found"); add `.param(...)` and a `{placeholder}` where a French message needs the value.
 
 ### 23.6 `GET /meta`
 
@@ -1942,7 +1947,7 @@ Authenticated, no extra permission. It answers for the caller, the request's com
 ```json
 {
   "apiVersion": 1,
-  "locale": "fr",
+  "language": "fr",
   "menu": [
     { "module": "masterdata.items", "label": "Articles", "resources": ["product", "productCategory"] }
   ],
@@ -1958,7 +1963,7 @@ Authenticated, no extra permission. It answers for the caller, the request's com
         "maxLength": 50, "filterable": true, "sortable": true,
         "operators": ["equals", "notEquals", "in", "isNull", "contains", "startsWith"],
         "writable": { "create": true, "update": true } },
-      { "name": "productCategoryId", "label": "Categorie", "type": "reference", "ref": "productCategory",
+      { "name": "productCategoryId", "label": "Catégorie", "type": "reference", "ref": "productCategory",
         "required": true, "filterable": true, "writable": { "create": true, "update": true } },
       { "name": "unitAmount", "label": "Prix unitaire", "type": "decimal", "scale": 2,
         "format": "money", "currencyField": "currencyId", "min": "0" }
@@ -1973,6 +1978,7 @@ Authenticated, no extra permission. It answers for the caller, the request's com
 - A resource the caller can't read is left out, and so is its menu entry. A field the caller can't read (its `readPermission`, or `internal`) is left out.
 - `writable.create` is `isCreatable()` and `FieldAccess.canWrite`; `writable.update` is `isUpdatable()` and `canWrite`. The id, version and audit fields are read-only.
 - Field types on the wire: `string`, `integer`, `decimal`, `boolean`, `date`, `timestamp`, `enum` (with `values: [{value, label}]`), `reference` (with `ref`).
+- Since step 4: `language` at the top, `label` on menu groups, `label` / `labelOne` on resources, `label` on fields and enum values, all in the request's language. The ETag differs per language.
 - Built by `MetaRoutes` from the catalog, the layouts, the actions, the reports and `Messages`. The per-caller part (the permission filtering) is cheap, but the result is still cached per (permission set, company, locale), since many users share a role.
 
 **As built (step 2):**
@@ -2064,7 +2070,7 @@ The client gets one generic report page with export. The trial balance and accou
 1. This plan. Done 2026-11-25.
 2. **Catalog and `GET /meta`**: `ResourceCatalog` filled by `EntityEndpoints`, `MetaRoutes` with fields, permissions (`can`, `writable`), enum values, references from relations, the menu, the ETag. Tests: two users with different roles see different resources and fields. Done 2026-11-25.
 3. **UI hints** (§23.4) and their defaults; products and accounts declare theirs. Done 2026-11-25.
-4. **Translation**: V14 (`users.locale`, `companies.default_locale`), locale on `RequestContext`, `Messages`, label bundles for every module, translated errors with `params`, history labels, the completeness test.
+4. **Translation**: V14 (`users.language`, `companies.default_language`), language on `RequestContext`, `Messages`, label bundles for every module, translated errors with `params`, history labels, `PATCH /auth/me`, the completeness test. Done 2026-11-25.
 5. **Lists**: `_refs`, `hasMore`, `search`, CORS.
 6. **Records**: `_meta`, `GET /new`, actions with parameters, `409` with the current row.
 7. **Layouts**: `RecordLayouts`, declared and derived, in `/meta`.
@@ -2076,7 +2082,8 @@ The client starts once step 6 is done: products and accounts are then fully usab
 
 ### 23.13 Known gaps and limits (planned)
 
-- **Two languages only** (`fr`, `en`), and only for the texts the server owns. Data the users type (product names, account names) isn't translated.
+- **Two languages only** (`fr`, `en`), and only for the texts the server owns. Data the users type (product names, account names) isn't translated. A third language is a `Language` constant, a `_xx` bundle per module, and the V14 check constraints widened.
+- **No route changes a company's default language** yet: SQL until a company admin screen exists (the cache's TTL picks it up).
 - **Labels are deployed with the code.** A company can't rename a field or hide one without a release. Per-company label and layout overrides would come later, as data.
 - **No conditional fields inside a form** beyond `locked` per state (e.g. "show the bank account only when the method is transfer"). Add a `visibleWhen` rule to layouts if a screen needs it.
 - **Journal entries list through their own `GET`**, not `QUERY`, so their list has the report-style filters only until it is moved.

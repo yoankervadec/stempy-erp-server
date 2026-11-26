@@ -73,6 +73,8 @@ Every error has the same shape (RFC 7807, `Content-Type: application/problem+jso
 
 `code` is the stable thing to test against; `errors` only appears on validation failures and lists **every** field problem at once (at most one per field).
 
+**Language.** `title`, `detail` and each `message` are in your language (docs/ARCHITECTURE.md §23.5): your own choice (`PATCH /auth/me`), else the company's; before you sign in, the first of `fr` / `en` in `Accept-Language`, else French. English texts are the server's own; French ones are translated by `code`, so `code`, `field` and `params` never change with the language. A field error whose message names values has them in `params` (`"params": {"max": 50}` for `TOO_LONG`).
+
 | Status | Typical `code` | Meaning |
 | --- | --- | --- |
 | 400 | `BAD_REQUEST`, `COMPANY_REQUIRED`, `INVALID_COMPANY_ID`, `INVALID_PARAMETER` | Malformed JSON / unknown property in a fixed body (login), no company chosen when you have several, bad `X-Company-Id`, bad query parameter (`limit`, `status`, ...) |
@@ -110,15 +112,17 @@ Every error has the same shape (RFC 7807, `Content-Type: application/problem+jso
   "token": "Qm9...43 characters",
   "expiresAt": "2026-11-29T15:00:00Z",
   "idleTimeoutSeconds": 28800,
-  "user": { "id": 1, "userNo": "U1", "name": "Admin" },
+  "user": { "id": 1, "userNo": "U1", "name": "Admin", "language": null },
   "companies": [ { "id": 1, "code": "LCS", "description": null } ],
-  "defaultCompanyId": 1
+  "defaultCompanyId": 1,
+  "language": "fr"
 }
 ```
 
 - The token is shown only here. A session ends after 8 h without use, after 7 days in any case, at logout, or when the password changes.
 - `defaultCompanyId` is `null` when you belong to several companies and have no default: then every company-scoped request needs `X-Company-Id`.
 - Wrong user number and wrong password give the same `401 INVALID_CREDENTIALS`.
+- `language` is what the server will answer in for the default company: your own choice (`user.language`), else that company's default.
 
 ### `GET /auth/me`
 
@@ -128,9 +132,14 @@ Who you are in the request's company and what you may do there:
 {
   "user": { "id": 1, "userNo": "U1", "name": "Admin" },
   "company": { "id": 1, "code": "LCS", "description": null },
-  "permissions": [ "masterdata.product.create", "masterdata.product.delete", "..." ]
+  "permissions": [ "masterdata.product.create", "masterdata.product.delete", "..." ],
+  "language": "fr"
 }
 ```
+
+### `PATCH /auth/me`
+
+Choose the language the server answers you in, in every company: `{"language": "en"}` (or `"fr"`). `{"language": null}` goes back to each company's default. Answers like `GET /auth/me`, already in the new language. Anything else in the body is `422 UNKNOWN_FIELD`; another language is `422 INVALID_VALUE`.
 
 ### `POST /auth/logout`
 
@@ -219,7 +228,8 @@ Every create, update and delete is recorded in the audit trail, in the same tran
 { "data": [
     { "id": 42, "action": "UPDATED", "occurredAt": "2026-11-24T15:04:05Z",
       "user": { "id": 1, "userNo": "U1", "name": "Jane Roy" }, "requestId": "c4ff5f85-...",
-      "changes": { "name": { "old": "Hex bolt M8", "new": "Hex bolt M8 zinc" } } },
+      "changes": { "name": { "old": "Hex bolt M8", "new": "Hex bolt M8 zinc" } },
+      "actionLabel": "Modification", "labels": { "name": "Description" } },
     { "id": 17, "action": "CREATED", ..., "changes": { "productNo": { "old": null, "new": "P-001" }, ... } } ],
   "page": { "limit": 50, "offset": 0 } }
 ```
@@ -227,6 +237,7 @@ Every create, update and delete is recorded in the audit trail, in the same tran
 - Needs the record's `.read` permission **and** `audit.history.read` (`ADMINISTRATOR` has both); without it, `403 PERMISSION_DENIED`.
 - `changes` lists only the fields whose value really changed (`"0.25"` resent as `"0.2500"` is not a change); a `PATCH` that changes nothing adds no entry. `DELETED` carries no changes. Decimals and dates are strings.
 - A field you may not read shows as `{ "masked": true }`: you see **that** it changed, not to what.
+- `actionLabel` and `labels` (each changed field's label) are in your language, for showing the history as is (generic entity routes; the hand-written histories of schedules, series, periods and journal entries don't have them yet).
 - Only your company's entries are shown. A deleted record keeps its history (its `GET` is `404`, its history is not).
 - `limit` 1 to 200 (default 50); a bad value is `400 INVALID_PARAMETER`.
 
@@ -577,16 +588,17 @@ If-None-Match: "<etag>"    (optional: 304 when nothing changed)
 ```json
 {
   "apiVersion": 1,
-  "menu": [{ "module": "masterdata.items", "resources": ["product", "productCategory"] }],
+  "language": "fr",
+  "menu": [{ "module": "masterdata.items", "label": "Articles", "resources": ["product", "productCategory"] }],
   "resources": [{
-    "key": "product", "module": "masterdata.items", "path": "/masterdata/products",
+    "key": "product", "label": "Produits", "labelOne": "Produit", "module": "masterdata.items", "path": "/masterdata/products",
     "can": { "read": true, "create": true, "update": true, "delete": true, "history": false },
     "idField": "id", "versionField": "version",
     "title": "productNo", "subtitle": "name",
     "listColumns": ["productNo", "name", "productCategoryId", "unitAmount", "isEnabled"],
     "defaultSort": [{ "field": "productNo", "dir": "asc" }], "presentation": "modal",
     "fields": [
-      { "name": "productNo", "type": "string", "required": true, "unique": true, "maxLength": 50,
+      { "name": "productNo", "label": "No de produit", "type": "string", "required": true, "unique": true, "maxLength": 50,
         "filterable": true, "sortable": true, "operators": ["equals", "notEquals", "in", "isNull", "contains", "startsWith"],
         "writable": { "create": true, "update": true } },
       { "name": "productCategoryId", "type": "reference", "ref": "productCategory", "required": true, "unique": false,
@@ -599,6 +611,7 @@ If-None-Match: "<etag>"    (optional: 304 when nothing changed)
 }
 ```
 
+- **Labels** are in your language (see §2, "Language"): `language` at the top, `label` on each menu group, resource (`labelOne`: singular), field and enum value (`values: [{ "value": "ASSET", "label": "Actif" }]`). Each language has its own `ETag`.
 - **Only what you can read:** a resource without its read permission is absent (and so is its menu entry), and so is a field with a read permission you lack.
 - **`key`** is the entity's name, the same one audit histories use. Resources are listed in the order the modules register them.
 - **`can`**: the actions you hold the permission for. `history` needs `audit.history.read`. A hand-written write counts when it accepts the generic body on the same path (accounts: `gl.account.manage`).

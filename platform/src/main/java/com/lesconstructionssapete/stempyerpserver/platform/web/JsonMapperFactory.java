@@ -2,7 +2,9 @@ package com.lesconstructionssapete.stempyerpserver.platform.web;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.util.Map;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -11,6 +13,7 @@ import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.databind.ser.std.StdSerializer;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.lesconstructionssapete.stempyerpserver.platform.error.FieldError;
 import com.lesconstructionssapete.stempyerpserver.shared.Money;
 
 /**
@@ -54,6 +57,9 @@ public final class JsonMapperFactory {
         .addSerializer(BigDecimal.class, new PlainBigDecimalSerializer())
         .addSerializer(Money.class, new MoneySerializer()));
 
+    // FieldError.params only when the message names values (the error package has no Jackson).
+    mapper.addMixIn(FieldError.class, FieldErrorJson.class);
+
     mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
     mapper.disable(SerializationFeature.WRITE_DURATIONS_AS_TIMESTAMPS);
 
@@ -61,6 +67,12 @@ public final class JsonMapperFactory {
     mapper.enable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES);
     mapper.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
     mapper.disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT);
+  }
+
+  @SuppressWarnings("unused")
+  private abstract static class FieldErrorJson {
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    abstract Map<String, Object> params();
   }
 
   /**

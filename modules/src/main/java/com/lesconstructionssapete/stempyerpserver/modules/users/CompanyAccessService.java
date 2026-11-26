@@ -6,7 +6,9 @@ import java.util.Set;
 
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.ListUserCompaniesOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.LoadEffectivePermissionsOperation;
+import com.lesconstructionssapete.stempyerpserver.modules.users.operations.ResolveLanguageOperation;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
+import com.lesconstructionssapete.stempyerpserver.platform.i18n.Language;
 import com.lesconstructionssapete.stempyerpserver.platform.security.CompanyAccess;
 
 /**
@@ -19,12 +21,20 @@ public class CompanyAccessService implements CompanyAccess {
   private final UnitOfWorkFactory uowFactory;
   private final LoadEffectivePermissionsOperation loadPermissions;
   private final ListUserCompaniesOperation listCompanies;
+  private final ResolveLanguageOperation resolveLanguage;
 
   public CompanyAccessService(UnitOfWorkFactory uowFactory, LoadEffectivePermissionsOperation loadPermissions,
-      ListUserCompaniesOperation listCompanies) {
+      ListUserCompaniesOperation listCompanies, ResolveLanguageOperation resolveLanguage) {
     this.uowFactory = uowFactory;
     this.loadPermissions = loadPermissions;
     this.listCompanies = listCompanies;
+    this.resolveLanguage = resolveLanguage;
+  }
+
+  @Override
+  public Optional<Language> language(long userId, long companyId) {
+    return uowFactory.executeReadOnly(
+        uow -> resolveLanguage.execute(uow, new ResolveLanguageOperation.Input(userId, companyId)));
   }
 
   @Override

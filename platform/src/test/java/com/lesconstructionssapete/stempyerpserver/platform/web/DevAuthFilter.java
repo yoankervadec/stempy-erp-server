@@ -5,6 +5,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import com.lesconstructionssapete.stempyerpserver.platform.error.UnauthenticatedException;
+import com.lesconstructionssapete.stempyerpserver.platform.i18n.Language;
 
 import io.javalin.http.Context;
 
@@ -14,7 +15,8 @@ import io.javalin.http.Context;
  * test sources so it can never be enabled in a real deployment.
  *
  * Headers: X-Dev-User-Id and X-Dev-Company-Id (both required to authenticate),
- * X-Dev-Permissions (optional, comma-separated). No X-Dev-User-Id: the request
+ * X-Dev-Permissions (optional, comma-separated), X-Dev-Language (optional:
+ * fr, en; default Language.DEFAULT). No X-Dev-User-Id: the request
  * stays unauthenticated. Malformed: 401.
  */
 public final class DevAuthFilter {
@@ -22,6 +24,7 @@ public final class DevAuthFilter {
   public static final String USER_HEADER = "X-Dev-User-Id";
   public static final String COMPANY_HEADER = "X-Dev-Company-Id";
   public static final String PERMISSIONS_HEADER = "X-Dev-Permissions";
+  public static final String LANGUAGE_HEADER = "X-Dev-Language";
 
   public void handle(Context ctx) {
     String user = ctx.header(USER_HEADER);
@@ -31,7 +34,8 @@ public final class DevAuthFilter {
     long userId = parseId(user, USER_HEADER);
     long companyId = parseId(ctx.header(COMPANY_HEADER), COMPANY_HEADER);
     RequestContexts.set(ctx, new RequestContext(
-        RequestContexts.requestId(ctx), userId, companyId, permissions(ctx.header(PERMISSIONS_HEADER))));
+        RequestContexts.requestId(ctx), userId, companyId, permissions(ctx.header(PERMISSIONS_HEADER)),
+        Language.fromCode(ctx.header(LANGUAGE_HEADER)).orElse(Language.DEFAULT)));
   }
 
   private static long parseId(String raw, String header) {

@@ -14,9 +14,12 @@ import java.util.List;
  * @param defaultCompanyId   used when a request sends no X-Company-Id; null if
  *                           the user has several companies and no valid
  *                           default (the header is then required)
+ * @param language           the language the server answers in for the
+ *                           default company ("fr", "en"): the user's own
+ *                           choice, else that company's default
  */
 public record LoginResponse(String token, Instant expiresAt, long idleTimeoutSeconds, UserProfile user,
-    List<CompanySummary> companies, Long defaultCompanyId) {
+    List<CompanySummary> companies, Long defaultCompanyId, String language) {
 
   @Override
   public String toString() {

@@ -4,6 +4,8 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 
+import com.lesconstructionssapete.stempyerpserver.platform.i18n.Language;
+
 /**
  * Which companies a user may work in, and with which permissions. Implemented
  * by the users module (which owns memberships, roles and overrides) and
@@ -24,4 +26,12 @@ public interface CompanyAccess {
    * none, or several and no valid default.
    */
   OptionalLong defaultCompany(long userId);
+
+  /**
+   * The language this user reads in this company: their own choice, else the
+   * company's default (docs/ARCHITECTURE.md §23.5). Empty if neither is known.
+   */
+  default Optional<Language> language(long userId, long companyId) {
+    return Optional.empty();
+  }
 }

@@ -24,8 +24,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lesconstructionssapete.stempyerpserver.platform.audit.AuditLog;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
+import com.lesconstructionssapete.stempyerpserver.platform.error.Validation;
 import com.lesconstructionssapete.stempyerpserver.platform.error.ValidationFailedException;
 import com.lesconstructionssapete.stempyerpserver.platform.events.EventBus;
+import com.lesconstructionssapete.stempyerpserver.platform.i18n.Messages;
 import com.lesconstructionssapete.stempyerpserver.platform.query.QueryLimits;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionChecker;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionRegistry;
@@ -52,8 +54,12 @@ class WebServerTest {
   }
 
   private void start(Consumer<Routes> routes) {
+    start(routes, Messages.empty());
+  }
+
+  private void start(Consumer<Routes> routes, Messages messages) {
     server = new WebServer(new WebServerConfig("127.0.0.1", 0),
-        new ExceptionMapper(new ErrorTranslator()), new DevAuthFilter()::handle);
+        new ExceptionMapper(new ErrorTranslator(), messages), new DevAuthFilter()::handle);
     server.start(routes);
   }
 
@@ -124,6 +130,65 @@ class WebServerTest {
 
     assertEquals(401, r.statusCode());
     assertEquals("DEV_AUTH_INVALID", json(r).get("code").asText());
+  }
+
+  // ---- translated errors (docs/ARCHITECTURE.md §23.5) ----
+
+  /** The real platform bundles. */
+  private static final Messages PLATFORM = Messages.load(WebServerTest.class.getClassLoader(), List.of("platform"));
+
+  private void startTooLong() {
+    start(routes -> routes.post("/fail", ctx -> {
+      RequestContexts.require(ctx);
+      Validation.check().maxLength("name", "toolong", 5).throwIfInvalid();
+    }), PLATFORM);
+  }
+
+  @Test
+  void errorsAreInTheCallersLanguageWithCodeFieldAndParamsUnchanged() throws Exception {
+    startTooLong();
+
+    JsonNode fr = json(send("POST", "/fail", "{}", DevAuthFilter.USER_HEADER, "7", DevAuthFilter.COMPANY_HEADER,
+        "42", DevAuthFilter.LANGUAGE_HEADER, "fr"));
+    JsonNode en = json(send("POST", "/fail", "{}", DevAuthFilter.USER_HEADER, "7", DevAuthFilter.COMPANY_HEADER,
+        "42", DevAuthFilter.LANGUAGE_HEADER, "en"));
+
+    assertEquals("Données invalides", fr.get("title").asText());
+    assertEquals("Les données envoyées contiennent des erreurs", fr.get("detail").asText());
+    JsonNode error = fr.get("errors").get(0);
+    assertEquals("name", error.get("field").asText());
+    assertEquals("TOO_LONG", error.get("code").asText());
+    assertEquals("doit compter au plus 5 caractères", error.get("message").asText());
+    assertEquals(5, error.get("params").get("max").asInt());
+    // English: the code's own texts
+    assertEquals("Unprocessable Content", en.get("title").asText());
+    assertEquals("must be at most 5 characters", en.get("errors").get(0).get("message").asText());
+  }
+
+  @Test
+  void beforeSignInTheAcceptLanguageDecides() throws Exception {
+    startTooLong();
+
+    JsonNode fr = json(send("POST", "/fail", "{}", "Accept-Language", "fr-CA,fr;q=0.9"));
+    JsonNode en = json(send("POST", "/fail", "{}", "Accept-Language", "en-US"));
+    JsonNode none = json(send("POST", "/fail", "{}"));
+
+    assertEquals("Vous devez être connecté.", fr.get("detail").asText());
+    assertEquals("UNAUTHENTICATED", fr.get("code").asText());
+    assertEquals("Authentication required", en.get("detail").asText());
+    // no header: the default language
+    assertEquals("Vous devez être connecté.", none.get("detail").asText());
+  }
+
+  @Test
+  void fieldErrorsWithoutParamsHaveNoParamsKey() throws Exception {
+    start(routes -> routes.post("/fail", ctx -> {
+      throw ValidationFailedException.field("name", "REQUIRED", "is required");
+    }));
+
+    JsonNode error = json(send("POST", "/fail", "{}")).get("errors").get(0);
+
+    assertFalse(error.has("params"));
   }
 
   @Test
@@ -254,6 +319,6 @@ class WebServerTest {
     eventBus.freeze();
     return new EntityEndpoints(uowFactory, QueryLimits.defaults(), new PermissionChecker(permissions), eventBus,
         Clock.systemUTC(), new AuditLog(JsonMapperFactory.newObjectMapper()), Optional::empty,
-        new ResourceCatalog());
+        new ResourceCatalog(), Messages.empty());
   }
 }

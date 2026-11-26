@@ -26,6 +26,9 @@ import com.lesconstructionssapete.stempyerpserver.platform.error.BadRequestExcep
 import com.lesconstructionssapete.stempyerpserver.platform.error.ResourceNotFoundException;
 import com.lesconstructionssapete.stempyerpserver.platform.error.ValidationFailedException;
 import com.lesconstructionssapete.stempyerpserver.platform.events.EventBus;
+import com.lesconstructionssapete.stempyerpserver.platform.i18n.LabelKeys;
+import com.lesconstructionssapete.stempyerpserver.platform.i18n.Language;
+import com.lesconstructionssapete.stempyerpserver.platform.i18n.Messages;
 import com.lesconstructionssapete.stempyerpserver.platform.query.FilterNode;
 import com.lesconstructionssapete.stempyerpserver.platform.query.QueryExecutor;
 import com.lesconstructionssapete.stempyerpserver.platform.query.QueryLimits;
@@ -112,6 +115,7 @@ public final class EntityEndpoints {
   private final AuditLog audit;
   private final Supplier<Optional<UserDirectory>> userDirectory;
   private final ResourceCatalog catalog;
+  private final Messages messages;
 
   /**
    * @param clock         should tick in whole seconds, like a MySQL TIMESTAMP
@@ -120,10 +124,11 @@ public final class EntityEndpoints {
    *                      empty: histories show user ids only
    * @param catalog       where register() and declareWrite() record the
    *                      resources GET /meta describes
+   * @param messages      labels for histories (field names, actions)
    */
   public EntityEndpoints(UnitOfWorkFactory uowFactory, QueryLimits limits, PermissionChecker permissions,
       EventBus eventBus, Clock clock, AuditLog audit, Supplier<Optional<UserDirectory>> userDirectory,
-      ResourceCatalog catalog) {
+      ResourceCatalog catalog, Messages messages) {
     this.uowFactory = Objects.requireNonNull(uowFactory, "uowFactory");
     this.permissions = Objects.requireNonNull(permissions, "permissions");
     this.eventBus = Objects.requireNonNull(eventBus, "eventBus");
@@ -132,6 +137,7 @@ public final class EntityEndpoints {
     this.audit = Objects.requireNonNull(audit, "audit");
     this.userDirectory = Objects.requireNonNull(userDirectory, "userDirectory");
     this.catalog = Objects.requireNonNull(catalog, "catalog");
+    this.messages = Objects.requireNonNull(messages, "messages");
     this.parser = new QuerySpecParser(limits);
     this.translator = new QueryTranslator(limits);
   }
@@ -260,7 +266,8 @@ public final class EntityEndpoints {
    * GET {id}/history: the record's audit entries in the caller's company,
    * newest first, paged with ?limit= and ?offset=. Needs the record's read
    * permission AND audit.history.read; values of fields the caller may not read are
-   * masked. Works for deleted rows too (their history outlives them).
+   * masked. Each item has "actionLabel" and "labels" (its fields' labels) in
+   * the reader's language. Works for deleted rows too (their history outlives them).
    */
   public <E> Handler history(EntityDefinition<E> entity, String readPermission) {
     permissions.requireDeclared(readPermission);
@@ -278,7 +285,7 @@ public final class EntityEndpoints {
             .collect(Collectors.toSet());
         Map<Long, UserDirectory.UserSummary> users = userIds.isEmpty() ? Map.of()
             : userDirectory.get().map(d -> d.find(uow, userIds)).orElse(Map.of());
-        return AuditHistory.view(records, entity, access(rc), users);
+        return AuditHistory.view(records, entity, access(rc), users, labels(entity, rc.language()));
       });
       ctx.json(new Page(items, new PageInfo(limit, offset)));
     };
@@ -300,6 +307,21 @@ public final class EntityEndpoints {
     RequestContext rc = RequestContexts.require(ctx);
     permissions.require(rc, permission);
     return rc;
+  }
+
+  /** Field and action labels for a history, in the reader's language. */
+  private AuditHistory.Labels labels(EntityDefinition<?> entity, Language language) {
+    return new AuditHistory.Labels() {
+      @Override
+      public String field(String name) {
+        return messages.label(language, name, LabelKeys.field(entity.name(), name));
+      }
+
+      @Override
+      public String action(String action) {
+        return messages.label(language, action, LabelKeys.auditAction(action));
+      }
+    };
   }
 
   private static FieldAccess access(RequestContext rc) {

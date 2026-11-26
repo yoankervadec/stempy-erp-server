@@ -13,8 +13,10 @@ import com.lesconstructionssapete.stempyerpserver.modules.users.operations.GetUs
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.ListUserCompaniesOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.LoadEffectivePermissionsOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.PurgeDeadSessionsOperation;
+import com.lesconstructionssapete.stempyerpserver.modules.users.operations.ResolveLanguageOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.ResolveSessionOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.RevokeSessionOperation;
+import com.lesconstructionssapete.stempyerpserver.modules.users.operations.SetLanguageOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.SetPasswordOperation;
 import com.lesconstructionssapete.stempyerpserver.platform.audit.AuditLog;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWorkFactory;
@@ -87,6 +89,12 @@ public class UsersModule implements ERPModule {
     var access = new AccessRepository();
     var listCompanies = new ListUserCompaniesOperation(access);
 
+    var resolveLanguage = new ResolveLanguageOperation(accounts);
+    var companyAccess = new CachedCompanyAccess(
+        new CompanyAccessService(uowFactory, new LoadEffectivePermissionsOperation(access, permissions), listCompanies,
+            resolveLanguage),
+        settings.permissionCacheTtl(), clock);
+
     authService = new AuthService(uowFactory, settings, hasher, new CredentialVerifier(hasher),
         new LoginThrottle(settings.maxFailedLogins(), settings.lockout(), clock), clock,
         new FindLoginCandidateOperation(accounts),
@@ -94,11 +102,7 @@ public class UsersModule implements ERPModule {
         new RevokeSessionOperation(sessions),
         new SetPasswordOperation(accounts, sessions, audit),
         new GetUserProfileOperation(accounts),
-        listCompanies);
-
-    var companyAccess = new CachedCompanyAccess(
-        new CompanyAccessService(uowFactory, new LoadEffectivePermissionsOperation(access, permissions), listCompanies),
-        settings.permissionCacheTtl(), clock);
+        listCompanies, resolveLanguage, new SetLanguageOperation(accounts, audit), companyAccess);
     var authorization = new AuthorizationService(uowFactory, companyAccess, clock,
         new AssignRoleOperation(accounts, access, audit));
 

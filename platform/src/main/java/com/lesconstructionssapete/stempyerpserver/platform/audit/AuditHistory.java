@@ -28,6 +28,16 @@ public final class AuditHistory {
 
   private static final JsonNode MASKED = JsonNodeFactory.instance.objectNode().put("masked", true);
 
+  /**
+   * Names fields and actions for people, in the reader's language
+   * (docs/ARCHITECTURE.md §23.5).
+   */
+  public interface Labels {
+    String field(String name);
+
+    String action(String action);
+  }
+
   private AuditHistory() {
   }
 
@@ -43,6 +53,17 @@ public final class AuditHistory {
    */
   public static List<Map<String, Object>> view(List<AuditRecord> records, EntityDefinition<?> entity,
       FieldAccess access, Map<Long, UserSummary> users) {
+    return view(records, entity, access, users, null);
+  }
+
+  /**
+   * As above, each item also carrying "actionLabel" and "labels" (field name
+   * to label, for the fields in its changes).
+   *
+   * @param labels null: no labels
+   */
+  public static List<Map<String, Object>> view(List<AuditRecord> records, EntityDefinition<?> entity,
+      FieldAccess access, Map<Long, UserSummary> users, Labels labels) {
     List<Map<String, Object>> items = new ArrayList<>(records.size());
     for (AuditRecord r : records) {
       Map<String, Object> item = new LinkedHashMap<>();
@@ -52,6 +73,12 @@ public final class AuditHistory {
       item.put("user", user(r.userId(), users));
       item.put("requestId", r.requestId());
       item.put("changes", masked(r.changes(), entity, access));
+      if (labels != null) {
+        item.put("actionLabel", labels.action(r.action()));
+        Map<String, String> names = new LinkedHashMap<>();
+        r.changes().fieldNames().forEachRemaining(f -> names.put(f, labels.field(f)));
+        item.put("labels", names);
+      }
       items.add(item);
     }
     return items;

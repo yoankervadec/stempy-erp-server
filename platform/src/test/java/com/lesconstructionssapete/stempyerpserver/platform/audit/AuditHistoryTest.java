@@ -68,4 +68,28 @@ class AuditHistoryTest {
     assertEquals(List.of("id", "action", "occurredAt", "user", "requestId", "changes"),
         List.copyOf(items.get(0).keySet()));
   }
+
+  @Test
+  void labelsNameTheActionAndEveryChangedFieldMaskedOrNot() throws Exception {
+    AuditHistory.Labels labels = new AuditHistory.Labels() {
+      @Override
+      public String field(String name) {
+        return "<" + name + ">";
+      }
+
+      @Override
+      public String action(String action) {
+        return "[" + action + "]";
+      }
+    };
+
+    var item = AuditHistory.view(List.of(record(1L, changes())), TestWidget.DEF, holding(), Map.of(), labels)
+        .getFirst();
+
+    assertEquals("[UPDATED]", item.get("actionLabel"));
+    assertEquals(Map.of("name", "<name>", "cost", "<cost>", "legacy", "<legacy>"), item.get("labels"));
+    // without labels: neither key
+    var plain = AuditHistory.view(List.of(record(1L, changes())), TestWidget.DEF, holding(), Map.of()).getFirst();
+    assertEquals(false, plain.containsKey("labels"));
+  }
 }

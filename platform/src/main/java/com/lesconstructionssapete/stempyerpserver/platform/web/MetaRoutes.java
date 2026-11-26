@@ -21,6 +21,9 @@ import com.lesconstructionssapete.stempyerpserver.platform.entity.FieldType;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Operator;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Relation;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.SortKey;
+import com.lesconstructionssapete.stempyerpserver.platform.i18n.LabelKeys;
+import com.lesconstructionssapete.stempyerpserver.platform.i18n.Language;
+import com.lesconstructionssapete.stempyerpserver.platform.i18n.Messages;
 import com.lesconstructionssapete.stempyerpserver.platform.security.PermissionChecker;
 import com.lesconstructionssapete.stempyerpserver.platform.web.EntityEndpoints.Action;
 import com.lesconstructionssapete.stempyerpserver.platform.web.ResourceCatalog.Resource;
@@ -33,13 +36,13 @@ import io.javalin.http.Context;
  * without knowing the permission rules.
  *
  * <pre>
- * { "apiVersion": 1,
- *   "menu": [{ "module": "masterdata.items", "resources": ["product", "productCategory"] }],
- *   "resources": [{ "key": "product", "module": "masterdata.items", "path": "/masterdata/products",
+ * { "apiVersion": 1, "language": "fr",
+ *   "menu": [{ "module": "masterdata.items", "label", "resources": ["product", "productCategory"] }],
+ *   "resources": [{ "key": "product", "label", "labelOne", "module": "masterdata.items", "path": "/masterdata/products",
  *     "can": { "read", "create", "update", "delete", "history" }, "idField": "id", "versionField": "version",
  *     "title": "productNo", "subtitle": "name", "listColumns": [...], "defaultSort": [{ "field", "dir" }],
  *     "presentation": "modal",
- *     "fields": [{ "name", "type", "ref"?, "values"?, "required", "unique", "maxLength"?, "min"?, "max"?,
+ *     "fields": [{ "name", "label", "type", "ref"?, "values"? [{ "value", "label" }], "required", "unique", "maxLength"?, "min"?, "max"?,
  *                  "scale"? (decimals), "format"?, "currencyField"?,
  *                  "filterable", "sortable", "operators"?, "writable": { "create", "update" } }] }] }
  * </pre>
@@ -50,6 +53,9 @@ import io.javalin.http.Context;
  * permission, if any, is held. A many-to-one foreign key is a "reference" to
  * the target's resource when the caller can read that resource, a plain
  * integer otherwise.
+ *
+ * Labels (§23.5) are in the request's language (RequestContext.language),
+ * from the bundles' LabelKeys, else humanized.
  *
  * The UI hints (§23.4) follow the same rule: a title, subtitle, column, sort
  * key or currency field the caller can't read is left out (the title falls
@@ -69,11 +75,13 @@ public final class MetaRoutes {
 
   private final ResourceCatalog catalog;
   private final PermissionChecker permissions;
+  private final Messages messages;
   private final ObjectMapper json = JsonMapperFactory.newObjectMapper();
 
-  public MetaRoutes(ResourceCatalog catalog, PermissionChecker permissions) {
+  public MetaRoutes(ResourceCatalog catalog, PermissionChecker permissions, Messages messages) {
     this.catalog = Objects.requireNonNull(catalog, "catalog");
     this.permissions = Objects.requireNonNull(permissions, "permissions");
+    this.messages = Objects.requireNonNull(messages, "messages");
     permissions.requireDeclared(AuditLog.READ_PERMISSION);
   }
 
@@ -105,10 +113,19 @@ public final class MetaRoutes {
       menu.computeIfAbsent(r.module(), m -> new ArrayList<>()).add(r.key());
       resources.add(resource(rc, r, access));
     }
+    Language language = rc.language();
+    List<Map<String, Object>> groups = new ArrayList<>();
+    menu.forEach((module, keys) -> {
+      Map<String, Object> group = new LinkedHashMap<>();
+      group.put("module", module);
+      group.put("label", messages.label(language, module, LabelKeys.module(module)));
+      group.put("resources", keys);
+      groups.add(group);
+    });
     Map<String, Object> out = new LinkedHashMap<>();
     out.put("apiVersion", API_VERSION);
-    out.put("menu", menu.entrySet().stream()
-        .map(e -> pair("module", e.getKey(), "resources", e.getValue())).toList());
+    out.put("language", language.code());
+    out.put("menu", groups);
     out.put("resources", resources);
     return out;
   }
@@ -127,10 +144,13 @@ public final class MetaRoutes {
     List<? extends Field<?, ?>> readable = entity.readableFields(access);
     List<Map<String, Object>> fields = new ArrayList<>();
     for (Field<?, ?> f : readable) {
-      fields.add(field(rc, entity, f, access, create, update));
+      fields.add(field(rc, r, f, access, create, update));
     }
+    Language language = rc.language();
     Map<String, Object> out = new LinkedHashMap<>();
     out.put("key", r.key());
+    out.put("label", messages.label(language, r.key(), LabelKeys.resource(r.key())));
+    out.put("labelOne", messages.label(language, r.key(), LabelKeys.resourceOne(r.key()), LabelKeys.resource(r.key())));
     out.put("module", r.module());
     out.put("path", r.path());
     out.put("can", can);
@@ -146,18 +166,22 @@ public final class MetaRoutes {
     return out;
   }
 
-  private Map<String, Object> field(RequestContext rc, EntityDefinition<?> entity, Field<?, ?> f,
+  private Map<String, Object> field(RequestContext rc, Resource resource, Field<?, ?> f,
       FieldAccess access, boolean create, boolean update) {
+    Language language = rc.language();
     Map<String, Object> out = new LinkedHashMap<>();
     out.put("name", f.name());
-    Optional<Resource> ref = reference(entity, f).filter(target -> can(rc, target, Action.READ));
+    out.put("label", messages.label(language, f.name(), LabelKeys.field(resource.key(), f.name())));
+    Optional<Resource> ref = reference(resource.entity(), f).filter(target -> can(rc, target, Action.READ));
     out.put("type", ref.isPresent() ? "reference" : f.type().name());
     ref.ifPresent(target -> out.put("ref", target.key()));
     Object[] constants = f.type().javaType().getEnumConstants();
     if (constants != null) {
-      List<String> values = new ArrayList<>();
+      List<Map<String, Object>> values = new ArrayList<>();
       for (Object c : constants) {
-        values.add(((Enum<?>) c).name());
+        Enum<?> value = (Enum<?>) c;
+        values.add(pair("value", value.name(), "label", messages.label(language, value.name(),
+            LabelKeys.enumValue(value))));
       }
       out.put("values", values);
     }

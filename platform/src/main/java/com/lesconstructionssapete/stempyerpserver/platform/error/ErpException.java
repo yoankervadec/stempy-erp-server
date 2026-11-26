@@ -1,5 +1,10 @@
 package com.lesconstructionssapete.stempyerpserver.platform.error;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Objects;
+
 /**
  * Base class for expected, business-level failures that should reach the client
  * as a clear error
@@ -30,6 +35,7 @@ package com.lesconstructionssapete.stempyerpserver.platform.error;
 public abstract class ErpException extends RuntimeException {
 
   private final String code;
+  private final Map<String, Object> params = new LinkedHashMap<>();
 
   protected ErpException(String code, String message) {
     super(message);
@@ -43,6 +49,19 @@ public abstract class ErpException extends RuntimeException {
 
   public String code() {
     return code;
+  }
+
+  /**
+   * Names a value the message contains, so a translation can show it too
+   * (docs/ARCHITECTURE.md §23.5): {@code throw new XException(...).param("date", date)}.
+   */
+  public ErpException param(String name, Object value) {
+    params.put(Objects.requireNonNull(name, "name"), value);
+    return this;
+  }
+
+  public Map<String, Object> params() {
+    return Collections.unmodifiableMap(params);
   }
 
   public abstract ErrorCategory category();

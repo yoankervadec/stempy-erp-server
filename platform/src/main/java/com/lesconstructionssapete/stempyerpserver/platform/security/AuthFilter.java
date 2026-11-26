@@ -7,6 +7,7 @@ import java.util.Set;
 import com.lesconstructionssapete.stempyerpserver.platform.error.BadRequestException;
 import com.lesconstructionssapete.stempyerpserver.platform.error.ForbiddenException;
 import com.lesconstructionssapete.stempyerpserver.platform.error.UnauthenticatedException;
+import com.lesconstructionssapete.stempyerpserver.platform.i18n.Language;
 import com.lesconstructionssapete.stempyerpserver.platform.security.SessionAuthenticator.Principal;
 import com.lesconstructionssapete.stempyerpserver.platform.web.RequestContext;
 import com.lesconstructionssapete.stempyerpserver.platform.web.RequestContexts;
@@ -69,7 +70,8 @@ public final class AuthFilter {
     Set<String> permissions = access.permissions(userId, companyId)
         .orElseThrow(() -> new ForbiddenException("COMPANY_ACCESS_DENIED",
             "No access to company " + companyId));
-    return new RequestContext(RequestContexts.requestId(ctx), userId, companyId, permissions);
+    Language language = access.language(userId, companyId).orElse(Language.DEFAULT);
+    return new RequestContext(RequestContexts.requestId(ctx), userId, companyId, permissions, language);
   }
 
   private static Optional<Long> requestedCompany(Context ctx) {
