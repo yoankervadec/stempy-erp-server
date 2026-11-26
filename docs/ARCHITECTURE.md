@@ -1834,7 +1834,7 @@ All per company (the request's), `ADMINISTRATOR` has them all, writes audited (�
 
 ## 23. Server-driven UI
 
-_Status: planned 2026-11-25, not built. Steps in §23.12._
+_Status: planned 2026-11-25; step 2 built 2026-11-25 (catalog and `GET /meta`, no migration). How to call it: docs/API_GUIDE.md §10. Steps in §23.12._
 
 The desktop client (Electron + React, in its own repository, built later) should be almost entirely generic: one list page, one record modal, one record page and one action dialog serve every resource. The server already describes its entities (`EntityDefinition`, §5) and their routes (`EntityEndpoints`). This section makes it publish everything a screen needs, **per caller, per company and in the caller's language**, so the client only renders what it is told. Hand-written React is kept for screens the layouts below can't express.
 
@@ -1862,15 +1862,15 @@ Out of scope for this repository, but the contract is designed for it:
 
 | Item | Meaning |
 | --- | --- |
-| `key` | The permission prefix: `masterdata.product`, `gl.account` |
+| `key` | The entity's name: `product`, `glAccount`. Unique (the `EntityRegistry` guarantees it), and already what audit histories use. Not the permission prefix: dimensions and their values share `gl.dimension` |
 | `module` | The `ERPModule.name()` that registered it, for grouping in the menu |
 | `path` | The routes' base path: `/masterdata/products` |
 | `entity` | Its `EntityDefinition` |
-| `actions` | Which of `READ`, `CREATE`, `UPDATE`, `DELETE` it serves, plus history |
+| `permissions` | The permission each action it serves (`READ`, `CREATE`, `UPDATE`, `DELETE`) needs; `READ` also serves the history |
 | `ui` | `generic` (default) or `custom` (the client uses an override) |
 
 - `EntityEndpoints.register(...)` records its resource itself, so the generic entities need nothing new.
-- A hand-written write that keeps the entity's body shape on the same path (`AccountController` + `AccountForm`: same `PATH`, same field names) declares it: `catalog.declareWrites("gl.account", CREATE, UPDATE)`. The generic form then works, and the hand-written rules come back as field errors like any other `422`.
+- A hand-written write that keeps the entity's body shape on the same path (`AccountController` + `AccountForm`: same `PATH`, same field names) declares it with its own permission: `entities.declareWrite(Account.DEF, CREATE, "gl.account.manage")`. The generic form then works, and the hand-written rules come back as field errors like any other `422`.
 - A resource without generic reads (journal entries) is declared in full with `catalog.declare(...)`, naming its routes. That resource's list uses its own `GET` with query parameters, described like a report's (§23.11), until it moves to `QUERY`.
 - `ModuleHost` tells the catalog which module is registering, so modules don't repeat their name.
 
@@ -1908,16 +1908,16 @@ Migration V14 adds both columns (nullable on users, `NOT NULL DEFAULT 'fr'` on c
 # menu group (the module name)
 masterdata.items=Items
 # resource: plural, then singular
-masterdata.product=Products
-masterdata.product.one=Product
-masterdata.product.field.productNo=Product no.
+product=Products
+product.one=Product
+product.field.productNo=Product no.
 # layout section (§23.7)
-masterdata.product.section.general=General
+product.section.general=General
 # enum value: enum.<module>.<Enum>.<CONSTANT>
 enum.gl.AccountType.ASSET=Asset
 # action and its confirmation (§23.9)
-gl.journalEntry.action.reverse=Reverse
-gl.journalEntry.action.reverse.confirm=Post the reversing entry?
+glJournalEntry.action.reverse=Reverse
+glJournalEntry.action.reverse.confirm=Post the reversing entry?
 # report (§23.11)
 report.gl.trialBalance=Trial balance
 ```
@@ -1936,13 +1936,13 @@ Authenticated, no extra permission. It answers for the caller, the request's com
   "apiVersion": 1,
   "locale": "fr",
   "menu": [
-    { "module": "masterdata.items", "label": "Articles", "resources": ["masterdata.product", "masterdata.productCategory"] }
+    { "module": "masterdata.items", "label": "Articles", "resources": ["product", "productCategory"] }
   ],
   "resources": [{
-    "key": "masterdata.product", "path": "/masterdata/products", "ui": "generic",
+    "key": "product", "module": "masterdata.items", "path": "/masterdata/products", "ui": "generic",
     "label": "Produits", "labelOne": "Produit", "presentation": "modal",
     "can": { "read": true, "create": true, "update": false, "delete": false, "history": true },
-    "title": "productNo", "subtitle": "name",
+    "idField": "id", "versionField": "version", "title": "productNo", "subtitle": "name",
     "listColumns": ["productNo", "name", "unitAmount", "isEnabled"],
     "defaultSort": [{ "field": "productNo", "dir": "asc" }],
     "fields": [
@@ -1950,7 +1950,7 @@ Authenticated, no extra permission. It answers for the caller, the request's com
         "maxLength": 50, "filterable": true, "sortable": true,
         "operators": ["equals", "notEquals", "in", "isNull", "contains", "startsWith"],
         "writable": { "create": true, "update": true } },
-      { "name": "productCategoryId", "label": "Categorie", "type": "reference", "ref": "masterdata.productCategory",
+      { "name": "productCategoryId", "label": "Categorie", "type": "reference", "ref": "productCategory",
         "required": true, "filterable": true, "writable": { "create": true, "update": true } },
       { "name": "unitAmount", "label": "Prix unitaire", "type": "decimal", "scale": 2,
         "format": "money", "currencyField": "currencyId", "min": "0" }
@@ -1966,6 +1966,13 @@ Authenticated, no extra permission. It answers for the caller, the request's com
 - `writable.create` is `isCreatable()` and `FieldAccess.canWrite`; `writable.update` is `isUpdatable()` and `canWrite`. The id, version and audit fields are read-only.
 - Field types on the wire: `string`, `integer`, `decimal`, `boolean`, `date`, `timestamp`, `enum` (with `values: [{value, label}]`), `reference` (with `ref`).
 - Built by `MetaRoutes` from the catalog, the layouts, the actions, the reports and `Messages`. The per-caller part (the permission filtering) is cheap, but the result is still cached per (permission set, company, locale), since many users share a role.
+
+**As built (step 2):**
+- `platform/web/ResourceCatalog` (in the ServiceRegistry) and `platform/web/MetaRoutes`. `ModuleHost.startWebServer` names each module before its `registerRoutes`, freezes the catalog after the last one, then registers `GET /meta`. A resource registered outside a module, an entity registered twice, a write declared for an entity without reads, or a registration after the freeze fails at startup.
+- The body has `apiVersion`, `menu` and `resources` (`key`, `module`, `path`, `can`, `idField`, `versionField`, `fields`). Labels, hints, layouts, actions and reports arrive with their steps; a client must ignore keys it doesn't know.
+- Each field: `name`, `type` (`ref`, `values`), `required`, `unique`, `maxLength` / `min` / `max` when set, `filterable`, `sortable`, `operators` (filterable fields), `writable {create, update}`. A field's `pattern()` is not sent: Java and JavaScript regular expressions differ, and the server reports a mismatch as a field error anyway.
+- Self-references work (`glAccount.parentId` is a reference to `glAccount`). Users are not a resource yet, so `createdBy` / `updatedBy` stay integers.
+- Not cached yet: the body is rebuilt per request (in memory, no database access) and hashed for the `ETag`. Add the cache when profiles show it.
 
 ### 23.7 Record layouts
 
@@ -2047,7 +2054,7 @@ The client gets one generic report page with export. The trial balance and accou
 ### 23.12 Implementation order
 
 1. This plan. Done 2026-11-25.
-2. **Catalog and `GET /meta`**: `ResourceCatalog` filled by `EntityEndpoints`, `MetaRoutes` with fields, permissions (`can`, `writable`), enum values, references from relations, the menu, the ETag. Tests: two users with different roles see different resources and fields.
+2. **Catalog and `GET /meta`**: `ResourceCatalog` filled by `EntityEndpoints`, `MetaRoutes` with fields, permissions (`can`, `writable`), enum values, references from relations, the menu, the ETag. Tests: two users with different roles see different resources and fields. Done 2026-11-25.
 3. **UI hints** (§23.4) and their defaults; products and accounts declare theirs.
 4. **Translation**: V14 (`users.locale`, `companies.default_locale`), locale on `RequestContext`, `Messages`, label bundles for every module, translated errors with `params`, history labels, the completeness test.
 5. **Lists**: `_refs`, `hasMore`, `search`, CORS.

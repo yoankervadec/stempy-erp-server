@@ -253,6 +253,7 @@ class WebServerTest {
     var eventBus = new EventBus();
     eventBus.freeze();
     return new EntityEndpoints(uowFactory, QueryLimits.defaults(), new PermissionChecker(permissions), eventBus,
-        Clock.systemUTC(), new AuditLog(JsonMapperFactory.newObjectMapper()), Optional::empty);
+        Clock.systemUTC(), new AuditLog(JsonMapperFactory.newObjectMapper()), Optional::empty,
+        new ResourceCatalog());
   }
 }

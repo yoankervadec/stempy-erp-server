@@ -111,15 +111,19 @@ public final class EntityEndpoints {
   private final QueryLimits limits;
   private final AuditLog audit;
   private final Supplier<Optional<UserDirectory>> userDirectory;
+  private final ResourceCatalog catalog;
 
   /**
    * @param clock         should tick in whole seconds, like a MySQL TIMESTAMP
    * @param userDirectory names the users in histories; looked up per request
    *                      (the users module publishes it after this is built),
    *                      empty: histories show user ids only
+   * @param catalog       where register() and declareWrite() record the
+   *                      resources GET /meta describes
    */
   public EntityEndpoints(UnitOfWorkFactory uowFactory, QueryLimits limits, PermissionChecker permissions,
-      EventBus eventBus, Clock clock, AuditLog audit, Supplier<Optional<UserDirectory>> userDirectory) {
+      EventBus eventBus, Clock clock, AuditLog audit, Supplier<Optional<UserDirectory>> userDirectory,
+      ResourceCatalog catalog) {
     this.uowFactory = Objects.requireNonNull(uowFactory, "uowFactory");
     this.permissions = Objects.requireNonNull(permissions, "permissions");
     this.eventBus = Objects.requireNonNull(eventBus, "eventBus");
@@ -127,14 +131,16 @@ public final class EntityEndpoints {
     this.limits = Objects.requireNonNull(limits, "limits");
     this.audit = Objects.requireNonNull(audit, "audit");
     this.userDirectory = Objects.requireNonNull(userDirectory, "userDirectory");
+    this.catalog = Objects.requireNonNull(catalog, "catalog");
     this.parser = new QuerySpecParser(limits);
     this.translator = new QueryTranslator(limits);
   }
 
   /**
-   * Registers the routes for {@code actions} (all of them if none given).
-   * Fails at startup if a needed permission isn't declared, or DELETE is asked
-   * for an entity without soft delete.
+   * Registers the routes for {@code actions} (all of them if none given) and
+   * records the entity as a resource in the ResourceCatalog. Fails at startup
+   * if a needed permission isn't declared, DELETE is asked for an entity
+   * without soft delete, or the entity is already registered.
    */
   public <E> void register(Routes routes, String path, EntityDefinition<E> entity, String permissionPrefix,
       Action... actions) {
@@ -157,6 +163,18 @@ public final class EntityEndpoints {
       }
       routes.delete(one, delete(entity, Action.DELETE.permission(permissionPrefix)));
     }
+    catalog.add(path, entity, permissionPrefix, allowed);
+  }
+
+  /**
+   * Tells the catalog that a hand-written route serves {@code action} for an
+   * entity registered here (at least READ), with the same body shape as the
+   * generic one and on the same path, so the generic UI form works for it.
+   * E.g. accounts: POST and PATCH /gl/accounts need gl.account.manage.
+   */
+  public void declareWrite(EntityDefinition<?> entity, Action action, String permission) {
+    permissions.requireDeclared(permission);
+    catalog.declareWrite(entity, action, permission);
   }
 
   // ---- handlers (public for routes that need a custom path) ----

@@ -329,4 +329,54 @@ class ItemWriteRoutesMySqlTest {
     assertEquals(Map.of("code", "ALREADY_EXISTS"), fieldErrors(send("POST", "/masterdata/product-categories",
         Map.of("code", "HW", "description", "Duplicate"), editor)));
   }
+
+  // ---- GET /meta (docs/ARCHITECTURE.md §23.6) ----
+
+  private static JsonNode metaResource(String token, String key) throws Exception {
+    HttpResponse<String> r = send("GET", "/meta", null, token);
+    assertEquals(200, r.statusCode(), r.body());
+    for (JsonNode resource : MySqlTestStack.json(r).get("resources")) {
+      if (resource.get("key").asText().equals(key)) {
+        return resource;
+      }
+    }
+    return null;
+  }
+
+  private static JsonNode metaField(JsonNode resource, String name) {
+    for (JsonNode f : resource.get("fields")) {
+      if (f.get("name").asText().equals(name)) {
+        return f;
+      }
+    }
+    return null;
+  }
+
+  @Test
+  void metaDescribesProductsForTheEditor() throws Exception {
+    JsonNode products = metaResource(editor, "product");
+
+    assertEquals("masterdata.items", products.get("module").asText());
+    assertEquals(PRODUCTS, products.get("path").asText());
+    assertEquals("{\"read\":true,\"create\":true,\"update\":true,\"delete\":true,\"history\":false}",
+        products.get("can").toString());
+    JsonNode category = metaField(products, "productCategoryId");
+    assertEquals("reference", category.get("type").asText());
+    assertEquals("productCategory", category.get("ref").asText());
+    assertTrue(metaField(products, "productNo").get("unique").asBoolean());
+    assertTrue(metaResource(editor, "productCategory") != null);
+    // GL is installed, but the editor holds no GL permission
+    assertEquals(null, metaResource(editor, "glAccount"));
+  }
+
+  @Test
+  void metaShowsTheReaderAReadOnlyProductWithoutCategories() throws Exception {
+    JsonNode products = metaResource(reader, "product");
+
+    assertFalse(products.get("can").get("create").asBoolean());
+    assertFalse(metaField(products, "name").get("writable").get("update").asBoolean());
+    // the reader can't read categories: a plain id, not a picker
+    assertEquals("integer", metaField(products, "productCategoryId").get("type").asText());
+    assertEquals(null, metaResource(reader, "productCategory"));
+  }
 }

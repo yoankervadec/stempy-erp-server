@@ -206,6 +206,21 @@ public final class Field<E, V> {
     return version;
   }
 
+  /** Null when unbounded. */
+  public Integer maxLength() {
+    return maxLength;
+  }
+
+  /** Null when unbounded. */
+  public BigDecimal min() {
+    return min;
+  }
+
+  /** Null when unbounded. */
+  public BigDecimal max() {
+    return max;
+  }
+
   public String readPermission() {
     return readPermission;
   }

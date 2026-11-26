@@ -314,6 +314,41 @@
           }
         },
         {
+          "name": "UI metadata (what you may see and do)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": true
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              },
+              {
+                "key": "If-None-Match",
+                "value": "",
+                "disabled": true,
+                "description": "The ETag of a previous answer"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/meta",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "meta"
+              ]
+            },
+            "description": "Resources, fields and actions for this user in this company (API_GUIDE §10). Send the ETag back in If-None-Match to get 304 while nothing changed."
+          }
+        },
+        {
           "name": "Logout",
           "request": {
             "method": "POST",

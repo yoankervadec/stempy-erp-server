@@ -38,6 +38,9 @@ public class AccountController {
 
   public void register(Routes routes) {
     entities.register(routes, PATH, Account.DEF, "gl.account", EntityEndpoints.Action.READ);
+    // Same path and body shape as the generic writes, so the generic UI form serves them (§23.3).
+    entities.declareWrite(Account.DEF, EntityEndpoints.Action.CREATE, "gl.account.manage");
+    entities.declareWrite(Account.DEF, EntityEndpoints.Action.UPDATE, "gl.account.manage");
     routes.post(PATH, ctx -> {
       RequestContext rc = RequestContexts.require(ctx);
       long id = service.createAccount(rc, JsonBodies.read(ctx, JsonNode.class));

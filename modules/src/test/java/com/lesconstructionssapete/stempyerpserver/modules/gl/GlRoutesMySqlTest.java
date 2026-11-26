@@ -408,4 +408,36 @@ class GlRoutesMySqlTest {
       pool.shutdownNow();
     }
   }
+
+  // ---- GET /meta: the hand-written account writes count (docs/ARCHITECTURE.md §23.3) ----
+
+  private static JsonNode metaAccounts(String token) throws Exception {
+    for (JsonNode r : ok(200, call("GET", "/meta", null, token)).get("resources")) {
+      if (r.get("key").asText().equals("glAccount")) {
+        return r;
+      }
+    }
+    return null;
+  }
+
+  @Test
+  void metaOffersAccountWritesToManagersOnly() throws Exception {
+    JsonNode managed = metaAccounts(accountant);
+    JsonNode readOnly = metaAccounts(reader);
+
+    assertEquals("gl", managed.get("module").asText());
+    assertTrue(managed.get("can").get("create").asBoolean());
+    assertTrue(managed.get("can").get("update").asBoolean());
+    assertFalse(managed.get("can").get("delete").asBoolean());
+    assertFalse(readOnly.get("can").get("create").asBoolean());
+    for (JsonNode f : managed.get("fields")) {
+      if (f.get("name").asText().equals("accountType")) {
+        assertEquals("[\"ASSET\",\"LIABILITY\",\"EQUITY\",\"REVENUE\",\"EXPENSE\"]", f.get("values").toString());
+      }
+      if (f.get("name").asText().equals("parentId")) {
+        // a self-reference: parent accounts are picked from the accounts
+        assertEquals("glAccount", f.get("ref").asText());
+      }
+    }
+  }
 }

@@ -32,7 +32,7 @@ INSERT INTO units_of_measure (code, description, is_enabled) VALUES ('UN', 'Unit
 -- note the ids (SELECT id, code FROM currencies; ...): the collection assumes 1 and 1
 ```
 
-Optional, to test permissions and multiple companies, see §10.
+Optional, to test permissions and multiple companies, see §11.
 
 ---
 
@@ -563,7 +563,47 @@ Idempotency-Key: 2f1c6a52-6d0e-4b8e-9a3c-0c5f0b7f4a11
 - **Account ledger:** one posting account's `opening`, `debits`, `credits`, `closing`, and its `lines` in date order: `entryId`, `entryNo`, `lineNo`, `postingDate`, `description` (the line's, else the entry's), `sourceType`, `sourceNo`, `debit`, `credit`, the running `balance`, `dimensions`. At most 5,000 lines (`TOO_MANY_LINES`: narrow the dates). Codes: `UNKNOWN_ACCOUNT`, `HEADING_ACCOUNT`.
 - Other codes: `REQUIRED`, `BEFORE_FROM`, `UNKNOWN_VALUE` (no such dimension value); a date that doesn't parse is `400 INVALID_PARAMETER`.
 
-## 10. Optional: a second user and company, to test permissions
+## 10. UI metadata (`GET /meta`)
+
+What the caller may see and do in the request's company, for building menus, lists and forms (docs/ARCHITECTURE.md §23). Any signed-in user may call it.
+
+```
+GET /meta
+Authorization: Bearer <token>
+X-Company-Id: 1            (multi-company users)
+If-None-Match: "<etag>"    (optional: 304 when nothing changed)
+```
+
+```json
+{
+  "apiVersion": 1,
+  "menu": [{ "module": "masterdata.items", "resources": ["product", "productCategory"] }],
+  "resources": [{
+    "key": "product", "module": "masterdata.items", "path": "/masterdata/products",
+    "can": { "read": true, "create": true, "update": true, "delete": true, "history": false },
+    "idField": "id", "versionField": "version",
+    "fields": [
+      { "name": "productNo", "type": "string", "required": true, "unique": true, "maxLength": 50,
+        "filterable": true, "sortable": true, "operators": ["equals", "notEquals", "in", "isNull", "contains", "startsWith"],
+        "writable": { "create": true, "update": true } },
+      { "name": "productCategoryId", "type": "reference", "ref": "productCategory", "required": true, "unique": false,
+        "filterable": true, "sortable": false, "operators": ["equals", "..."], "writable": { "create": true, "update": true } }
+    ]
+  }]
+}
+```
+
+- **Only what you can read:** a resource without its read permission is absent (and so is its menu entry), and so is a field with a read permission you lack.
+- **`key`** is the entity's name, the same one audit histories use. Resources are listed in the order the modules register them.
+- **`can`**: the actions you hold the permission for. `history` needs `audit.history.read`. A hand-written write counts when it accepts the generic body on the same path (accounts: `gl.account.manage`).
+- **`writable`**: whether a form may send the field when creating / updating: you can do the action, the field isn't server-managed (`id`, `version`, `createdAt`...) or immutable (on update), and you hold its write permission, if it has one. The server checks again on every write.
+- **`type`**: `string`, `integer`, `decimal`, `boolean`, `date`, `timestamp`, `enum` (with `values`), or `reference` (with `ref`, the target resource's `key`) for a foreign key whose target you can read. A foreign key to something you can't read is a plain `integer`.
+- `maxLength`, `min`, `max` appear only when the field has them (decimals as strings, like every amount). `operators` (for `QUERY` filters, §6) appear only on filterable fields.
+- **`ETag`**: send it back in `If-None-Match` and the answer is `304` with no body until your permissions, the company or the server's resources change.
+
+---
+
+## 11. Optional: a second user and company, to test permissions
 
 ```sql
 INSERT INTO companies (code, description, is_enabled) VALUES ('DEMO', 'Demo company', TRUE);
@@ -597,7 +637,7 @@ WHERE u.user_no = 'U1' AND c.code = 'LCS';
 
 ---
 
-## 11. Things worth trying
+## 12. Things worth trying
 
 **Authentication**
 - [ ] Login with a wrong password, then an unknown user: same `401 INVALID_CREDENTIALS`, same message.
@@ -607,7 +647,7 @@ WHERE u.user_no = 'U1' AND c.code = 'LCS';
 - [ ] Logout, then reuse the token: `401`.
 - [ ] `set-password U1` while logged in: every session of U1 ends.
 
-**Companies and permissions** (after §10)
+**Companies and permissions** (after §11)
 - [ ] U1 with two companies: `GET /auth/me` without `X-Company-Id` uses the default; with `X-Company-Id: <DEMO id>` you see DEMO.
 - [ ] `X-Company-Id: 999` → `403 COMPANY_ACCESS_DENIED`; `X-Company-Id: abc` → `400 INVALID_COMPANY_ID`.
 - [ ] Data created in LCS is invisible (`404` / not listed) with `X-Company-Id: <DEMO id>`.

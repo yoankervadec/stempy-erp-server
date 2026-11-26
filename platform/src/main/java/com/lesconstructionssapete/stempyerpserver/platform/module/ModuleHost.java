@@ -43,6 +43,8 @@ import com.lesconstructionssapete.stempyerpserver.platform.web.ExceptionMapper;
 import com.lesconstructionssapete.stempyerpserver.platform.web.HealthChecks;
 import com.lesconstructionssapete.stempyerpserver.platform.web.HealthRoutes;
 import com.lesconstructionssapete.stempyerpserver.platform.web.JsonMapperFactory;
+import com.lesconstructionssapete.stempyerpserver.platform.web.MetaRoutes;
+import com.lesconstructionssapete.stempyerpserver.platform.web.ResourceCatalog;
 import com.lesconstructionssapete.stempyerpserver.platform.web.WebServer;
 import com.lesconstructionssapete.stempyerpserver.platform.web.WebServerConfig;
 
@@ -106,7 +108,7 @@ public final class ModuleHost {
   /**
    * Publishes the platform services every module may use (UnitOfWorkFactory,
    * EventBus, EntityRegistry, PermissionRegistry, PermissionChecker,
-   * EntityEndpoints, Scheduler, Outbox, AuditLog, DocumentTypes, DocumentNumbers, Idempotency), then each module's
+   * EntityEndpoints, ResourceCatalog, Scheduler, Outbox, AuditLog, DocumentTypes, DocumentNumbers, Idempotency), then each module's
    * own, then
    * wires event handlers (synchronous and async), then job types. The
    * registries are frozen afterwards. Nothing runs yet: see startScheduler()
@@ -131,8 +133,10 @@ public final class ModuleHost {
     Clock clock = Clock.tick(Clock.systemUTC(), Duration.ofSeconds(1));
     var auditLog = new AuditLog(JsonMapperFactory.newObjectMapper());
     registry.register(AuditLog.class, auditLog);
+    var catalog = new ResourceCatalog();
+    registry.register(ResourceCatalog.class, catalog);
     registry.register(EntityEndpoints.class, new EntityEndpoints(uowFactory, QueryLimits.defaults(), checker,
-        eventBus, clock, auditLog, () -> registry.find(UserDirectory.class)));
+        eventBus, clock, auditLog, () -> registry.find(UserDirectory.class), catalog));
     registry.register(Scheduler.class, scheduler);
     registry.register(Outbox.class, outbox);
     registry.register(DocumentTypes.class, documentTypes);
@@ -203,8 +207,8 @@ public final class ModuleHost {
   }
 
   /**
-   * Starts the HTTP API: /health (with a database check) and every module's
-   * routes, authenticated through the SessionAuthenticator and CompanyAccess a
+   * Starts the HTTP API: /health (with a database check), every module's
+   * routes (recording their resources in the ResourceCatalog) and GET /meta, authenticated through the SessionAuthenticator and CompanyAccess a
    * module published.
    */
   public WebServer startWebServer(WebServerConfig config) {
@@ -215,7 +219,13 @@ public final class ModuleHost {
     var server = new WebServer(config, new ExceptionMapper(new ErrorTranslator()), authFilter::handle);
     server.start(routes -> {
       HealthRoutes.register(routes, health);
-      modules.forEach(m -> m.registerRoutes(routes, s));
+      ResourceCatalog catalog = s.get(ResourceCatalog.class);
+      modules.forEach(m -> {
+        catalog.enterModule(m.name());
+        m.registerRoutes(routes, s);
+      });
+      catalog.freeze();
+      new MetaRoutes(catalog, s.get(PermissionChecker.class)).register(routes);
     });
     return server;
   }
