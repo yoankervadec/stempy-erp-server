@@ -45,3 +45,7 @@ replay_pid*
 
 # Claude
 .claude/
+
+# Dev script runtime files and logs
+.run/
+logs/

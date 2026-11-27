@@ -1,8 +1,53 @@
 <configuration>
+  <!--
+    Logs go to the console and to files under LOG_DIR (default: ./logs, relative to the
+    working directory). Set LOG_DIR as an environment variable or -DLOG_DIR=... to move them.
+
+      stempy-erp.log        everything at INFO and above, rolled daily (or at 50MB),
+                            archives gzipped, kept 90 days (3GB cap)
+      stempy-erp-warn.log   WARN and ERROR only, kept 1 year (1GB cap): the "what went
+                            wrong last month" file, small enough to keep long
+
+    Archives land in LOG_DIR/archive/ as <name>.YYYY-MM-DD.N.log.gz.
+  -->
+  <property name="LOG_DIR" value="${LOG_DIR:-logs}"/>
   <!-- One line per event; [requestId] is set by RequestIdFilter, empty outside a request. -->
+  <property name="PATTERN" value="%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] [%X{requestId}] %logger{36} - %msg%n"/>
+
   <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
     <encoder>
-      <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] [%X{requestId}] %logger{36} - %msg%n</pattern>
+      <pattern>${PATTERN}</pattern>
+    </encoder>
+  </appender>
+
+  <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <file>${LOG_DIR}/stempy-erp.log</file>
+    <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+      <fileNamePattern>${LOG_DIR}/archive/stempy-erp.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+      <maxFileSize>50MB</maxFileSize>
+      <maxHistory>90</maxHistory>
+      <totalSizeCap>3GB</totalSizeCap>
+      <cleanHistoryOnStart>true</cleanHistoryOnStart>
+    </rollingPolicy>
+    <encoder>
+      <pattern>${PATTERN}</pattern>
+    </encoder>
+  </appender>
+
+  <appender name="WARN_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+      <level>WARN</level>
+    </filter>
+    <file>${LOG_DIR}/stempy-erp-warn.log</file>
+    <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+      <fileNamePattern>${LOG_DIR}/archive/stempy-erp-warn.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+      <maxFileSize>50MB</maxFileSize>
+      <maxHistory>365</maxHistory>
+      <totalSizeCap>1GB</totalSizeCap>
+      <cleanHistoryOnStart>true</cleanHistoryOnStart>
+    </rollingPolicy>
+    <encoder>
+      <pattern>${PATTERN}</pattern>
     </encoder>
   </appender>
 
@@ -11,5 +56,10 @@
 
   <root level="INFO">
     <appender-ref ref="CONSOLE"/>
+    <appender-ref ref="FILE"/>
+    <appender-ref ref="WARN_FILE"/>
   </root>
+
+  <!-- Flush and finish pending archive compression when the JVM exits. -->
+  <shutdownHook class="ch.qos.logback.core.hook.DefaultShutdownHook"/>
 </configuration>

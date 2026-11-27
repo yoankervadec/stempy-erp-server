@@ -95,6 +95,32 @@ java -jar app/target/stempy-erp-server.jar      # http://localhost:8080
 
 Migrations run automatically on startup.
 
+### Development script
+
+`./dev` wraps the usual loops (`./dev help` lists everything):
+
+```bash
+./dev start | stop | restart | status   # background server; restart keeps the old one up if the build fails
+./dev run                              # foreground server, Ctrl+C to stop
+./dev compile                          # quick compile check
+./dev test [Pattern]                   # e.g. ./dev test 'CustomersE2ETest#creates*'
+./dev verify                           # full build + tests, MySQL required
+./dev logs | warn                      # follow the main log or the WARN/ERROR log
+./dev errors [days] | grep <re> [days] | req <requestId>   # search current and archived logs
+./dev db                               # mysql shell on the dev database from .env
+```
+
+The background server runs from a copy of the jar in `.run/`, so rebuilding (including `./dev verify`) does not pull classes out from under it.
+
+### Logs
+
+The server logs to the console and to `logs/` (set `LOG_DIR` to move it):
+
+- `logs/stempy-erp.log`: INFO and above, rolled daily or at 50MB, gzipped into `logs/archive/`, kept 90 days (3GB cap)
+- `logs/stempy-erp-warn.log`: WARN and ERROR only, kept 1 year (1GB cap)
+
+Each line carries the request id (`[...]` after the thread name), so `./dev req <id>` pulls up one whole request. Configuration: [app/src/main/resources/logback.xml](app/src/main/resources/logback.xml).
+
 ### Create a first user
 
 There is no command to create users or companies yet, so on a fresh database insert the first ones by hand (after the server has started once, so the tables exist):

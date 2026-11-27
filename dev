@@ -1,0 +1,260 @@
+#!/usr/bin/env bash
+# Development helper for Stempy ERP Server. Run ./dev help for the commands.
+#
+# The background server runs from a copy of the jar (.run/stempy-erp-server.jar), so
+# rebuilding never touches the jar a running server is using, and a failed build during
+# ./dev restart leaves the old server up.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT"
+
+JAR="app/target/stempy-erp-server.jar"
+RUN_DIR=".run"
+RUN_JAR="$RUN_DIR/stempy-erp-server.jar"
+PID_FILE="$RUN_DIR/server.pid"
+export LOG_DIR="${LOG_DIR:-$ROOT/logs}"
+LOG_FILE="$LOG_DIR/stempy-erp.log"
+WARN_FILE="$LOG_DIR/stempy-erp-warn.log"
+# stdout/stderr of the background JVM: duplicates the log, plus anything printed outside
+# logback (JVM crashes, startup failures before logging starts). Replaced on each start.
+CONSOLE_FILE="$LOG_DIR/console.out"
+JAVA_OPTS="${JAVA_OPTS:-}"
+# Stop waits this long for a clean shutdown (scheduler.shutdownGrace is 30s) before SIGKILL.
+STOP_TIMEOUT="${STOP_TIMEOUT:-45}"
+START_TIMEOUT="${START_TIMEOUT:-60}"
+
+PORT="$(sed -n 's/^server\.port=//p' app/src/main/resources/application.properties | tr -d '[:space:]')"
+PORT="${PORT:-8080}"
+
+c_red=$'\e[31m'; c_green=$'\e[32m'; c_yellow=$'\e[33m'; c_dim=$'\e[2m'; c_off=$'\e[0m'
+[[ -t 1 ]] || { c_red=; c_green=; c_yellow=; c_dim=; c_off=; }
+info() { printf '%s==>%s %s\n' "$c_green" "$c_off" "$*"; }
+warn() { printf '%s==>%s %s\n' "$c_yellow" "$c_off" "$*" >&2; }
+die()  { printf '%serror:%s %s\n' "$c_red" "$c_off" "$*" >&2; exit 1; }
+
+usage() {
+  cat <<EOF
+Usage: ./dev <command> [args]
+
+Build
+  compile [mvn args]       Compile all modules (fast check, no jar)
+  build   [mvn args]       Build the server jar, skipping tests
+  clean                    Remove build output (target/ directories)
+
+Run
+  run                      Build, then run the server in the foreground (Ctrl+C stops it)
+  start                    Build, then start the server in the background
+  stop                     Stop the background server (graceful, then SIGKILL after ${STOP_TIMEOUT}s)
+  restart                  Rebuild, then restart (the old server keeps running if the build fails)
+  status                   Is the server running, and is it healthy?
+  cli <args>               Run a CLI command from the built jar, e.g.
+                             ./dev cli set-password ADMIN
+                             ./dev cli assign-role ADMIN MYCO ADMINISTRATOR
+
+Test
+  test [Pattern] [mvn args]  Run tests; Pattern is a surefire -Dtest value, e.g.
+                               ./dev test CustomersE2ETest
+                               ./dev test 'CustomersE2ETest#creates*'
+  verify [mvn args]        Full build + tests with MySQL required (what to run before merging)
+
+Logs  (in ${LOG_DIR#"$ROOT"/})
+  logs [-n N]              Follow the main log (tail -f)
+  warn [-n N]              Follow the WARN/ERROR log
+  errors [days]            WARN/ERROR lines from the last N days (default 1), archives included
+  grep <pattern> [days]    Search the main log and archives from the last N days (default 7)
+  req <requestId>          Every line of one request (the id from the X-Request-Id header)
+
+Database
+  db [mysql args]          Open a mysql shell on the dev database (from .env)
+  testdb [mysql args]      Same, on TEST_DATABASE_NAME
+
+Environment: JAVA_OPTS (extra JVM flags), LOG_DIR, STOP_TIMEOUT, START_TIMEOUT.
+EOF
+}
+
+# Maven's bundled Guice calls sun.misc.Unsafe, which JDK 25 warns about on every build.
+export MAVEN_OPTS="${MAVEN_OPTS:---sun-misc-unsafe-memory-access=allow}"
+mvn() { ./mvnw "$@"; }
+
+build() {
+  info "Building jar (tests skipped)"
+  mvn -q package -DskipTests "$@"
+  [[ -f "$JAR" ]] || die "build finished but $JAR is missing"
+}
+
+# The pid of the running server: from the pid file, else any java -jar of this repo's
+# jar whose working directory is this repo (catches servers started by hand).
+server_pid() {
+  local pid
+  if [[ -f "$PID_FILE" ]]; then
+    pid="$(<"$PID_FILE")"
+    if kill -0 "$pid" 2>/dev/null; then echo "$pid"; return 0; fi
+    rm -f "$PID_FILE"
+  fi
+  for pid in $(pgrep -f 'stempy-erp-server\.jar' 2>/dev/null || true); do
+    [[ "$(readlink "/proc/$pid/cwd" 2>/dev/null)" == "$ROOT" ]] || continue
+    # Only the server itself: no CLI command arguments after the jar.
+    if tr '\0' ' ' <"/proc/$pid/cmdline" | grep -Eq 'stempy-erp-server\.jar ?$'; then
+      echo "$pid"; return 0
+    fi
+  done
+  return 1
+}
+
+healthy() { curl -fs -o /dev/null --max-time 2 "http://localhost:$PORT/health/ready"; }
+
+start() {
+  local pid
+  if pid="$(server_pid)"; then die "server already running (pid $pid); use ./dev restart"; fi
+  [[ -f "$JAR" ]] || die "$JAR not found; run ./dev build"
+  mkdir -p "$RUN_DIR" "$LOG_DIR"
+  cp "$JAR" "$RUN_JAR"
+  info "Starting server on port $PORT"
+  # shellcheck disable=SC2086
+  nohup java $JAVA_OPTS -jar "$RUN_JAR" >"$CONSOLE_FILE" 2>&1 </dev/null &
+  pid=$!
+  echo "$pid" >"$PID_FILE"
+
+  local waited=0
+  until healthy; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      rm -f "$PID_FILE"
+      warn "server exited during startup; last output:"
+      tail -n 30 "$CONSOLE_FILE" >&2
+      exit 1
+    fi
+    (( waited++ >= START_TIMEOUT )) && { warn "not healthy after ${START_TIMEOUT}s (pid $pid still running); see ./dev logs"; exit 1; }
+    sleep 1
+  done
+  info "Server up (pid $pid) at http://localhost:$PORT  ${c_dim}[logs: ./dev logs]${c_off}"
+}
+
+stop() {
+  local pid
+  if ! pid="$(server_pid)"; then info "server not running"; return 0; fi
+  info "Stopping server (pid $pid)"
+  kill -TERM "$pid"
+  local waited=0
+  while kill -0 "$pid" 2>/dev/null; do
+    if (( waited++ >= STOP_TIMEOUT )); then
+      warn "still running after ${STOP_TIMEOUT}s, sending SIGKILL"
+      kill -KILL "$pid" 2>/dev/null || true
+      break
+    fi
+    sleep 1
+  done
+  rm -f "$PID_FILE"
+  info "Stopped"
+}
+
+status() {
+  local pid
+  if pid="$(server_pid)"; then
+    if healthy; then
+      info "running (pid $pid), healthy on port $PORT"
+    else
+      warn "running (pid $pid), but /health/ready is not answering OK on port $PORT"
+      return 1
+    fi
+  else
+    info "not running"
+    return 3
+  fi
+}
+
+# Log files (current and archived) touched in the last N days, oldest first.
+log_files() {
+  local base="$1" days="$2"
+  find "$LOG_DIR" -maxdepth 2 \( -name "$base.log" -o -name "$base.*.log.gz" \) -mtime "-$days" -printf '%T@ %p\n' 2>/dev/null \
+    | sort -n | cut -d' ' -f2-
+}
+
+search_logs() {
+  local base="$1" days="$2"; shift 2
+  local files
+  mapfile -t files < <(log_files "$base" "$days")
+  (( ${#files[@]} )) || { warn "no $base logs from the last $days day(s) in $LOG_DIR"; return 0; }
+  zgrep -h "$@" "${files[@]}" || true
+}
+
+follow() {
+  local file="$1"; shift
+  [[ -f "$file" ]] || die "$file does not exist yet (has the server run since logging to files was added?)"
+  tail -F "$@" "$file"
+}
+
+mysql_shell() {
+  local db_var="$1"; shift
+  [[ -f .env ]] || die ".env not found (cp .env.example .env)"
+  # Read only the keys needed, without sourcing the file as shell code. Real environment
+  # variables win over .env, as they do for the server.
+  while IFS='=' read -r key value; do
+    case "$key" in
+      DATABASE_HOST|DATABASE_PORT|DATABASE_USER|DATABASE_PASSWORD|DATABASE_NAME|TEST_DATABASE_NAME)
+        printf -v "$key" '%s' "${!key:-$value}" ;;
+    esac
+  done < <(grep -E '^[A-Z_]+=' .env)
+  local name="${!db_var:-}"
+  [[ -n "$name" ]] || die "$db_var is not set in .env"
+  MYSQL_PWD="${DATABASE_PASSWORD:-}" exec mysql -h "${DATABASE_HOST:-localhost}" -P "${DATABASE_PORT:-3306}" \
+    -u "${DATABASE_USER:-root}" "$name" "$@"
+}
+
+cmd="${1:-help}"
+shift || true
+
+case "$cmd" in
+  compile) info "Compiling"; mvn -q compile "$@"; info "OK" ;;
+  build)   build "$@"; info "Built $JAR" ;;
+  clean)   mvn -q clean; info "Cleaned" ;;
+
+  run)
+    if pid="$(server_pid)"; then die "server already running in the background (pid $pid); ./dev stop first"; fi
+    build
+    mkdir -p "$LOG_DIR"
+    info "Running in the foreground on port $PORT (Ctrl+C to stop)"
+    # shellcheck disable=SC2086
+    exec java $JAVA_OPTS -jar "$JAR"
+    ;;
+  start)   build; start ;;
+  stop)    stop ;;
+  restart) build; stop; start ;;
+  status)  status ;;
+  cli)
+    (( $# )) || die "usage: ./dev cli <set-password USER_NO | assign-role USER_NO COMPANY ROLE>"
+    [[ -f "$JAR" ]] || build
+    # shellcheck disable=SC2086
+    exec java $JAVA_OPTS -jar "$JAR" "$@"
+    ;;
+
+  test)
+    if [[ $# -gt 0 && "$1" != -* ]]; then
+      pattern="$1"; shift
+      info "Running tests matching $pattern"
+      mvn test -Dtest="$pattern" -Dsurefire.failIfNoSpecifiedTests=false "$@"
+    else
+      info "Running all tests"
+      mvn test "$@"
+    fi
+    ;;
+  verify)  info "Full verify, MySQL required"; mvn verify -Dtests.requireDb=true "$@" ;;
+
+  logs)    (( $# )) || set -- -n 100; follow "$LOG_FILE" "$@" ;;
+  warn)    (( $# )) || set -- -n 100; follow "$WARN_FILE" "$@" ;;
+  errors)  search_logs stempy-erp-warn "${1:-1}" -E '' ;;
+  grep)
+    (( $# )) || die "usage: ./dev grep <pattern> [days]"
+    search_logs stempy-erp "${2:-7}" -E -- "$1"
+    ;;
+  req)
+    (( $# )) || die "usage: ./dev req <requestId>"
+    search_logs stempy-erp 30 -F -- "[$1]"
+    ;;
+
+  db)      mysql_shell DATABASE_NAME "$@" ;;
+  testdb)  mysql_shell TEST_DATABASE_NAME "$@" ;;
+
+  help|-h|--help) usage ;;
+  *) usage >&2; die "unknown command: $cmd" ;;
+esac
