@@ -1,0 +1,13 @@
+# Units of measure module (docs/ARCHITECTURE.md §23.5, §24). UTF-8.
+# Each key lists its texts by language. error.* and status.* are French only: English is the code's own message.
+
+module.masterdata.units:
+  en: Units of measure
+  fr: Unités de mesure
+
+unitOfMeasure:
+  en: Units of measure
+  fr: Unités de mesure
+unitOfMeasure.one:
+  en: Unit of measure
+  fr: Unité de mesure

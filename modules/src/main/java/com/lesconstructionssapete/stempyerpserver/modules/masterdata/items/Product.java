@@ -3,6 +3,8 @@ package com.lesconstructionssapete.stempyerpserver.modules.masterdata.items;
 import java.math.BigDecimal;
 
 import com.lesconstructionssapete.stempyerpserver.modules.common.Entities;
+import com.lesconstructionssapete.stempyerpserver.modules.masterdata.currencies.Currency;
+import com.lesconstructionssapete.stempyerpserver.modules.masterdata.units.UnitOfMeasure;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.EntityDefinition;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Field;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Relation;
@@ -45,6 +47,14 @@ public class Product extends StandardEntity {
   public static final Field<Product, Long> PRODUCT_CATEGORY_ID = DEF.integer(
       "productCategoryId", "product_category_id", Product::productCategoryId, Product::setProductCategoryId)
       .required().filterable();
+
+  /** The unit the product is sold in; filters like "unitOfMeasure.code". */
+  public static final Relation<Product, UnitOfMeasure> UNIT_OF_MEASURE_REL = DEF.manyToOne(
+      "unitOfMeasure", () -> UnitOfMeasure.DEF, "unit_of_measure_id");
+
+  /** The currency of unitAmount; filters like "currency.code". */
+  public static final Relation<Product, Currency> CURRENCY_REL = DEF.manyToOne(
+      "currency", () -> Currency.DEF, "currency_id");
 
   /** Lets clients filter and sort on the category, e.g. "category.code". */
   public static final Relation<Product, ProductCategory> CATEGORY_REL = DEF.manyToOne(

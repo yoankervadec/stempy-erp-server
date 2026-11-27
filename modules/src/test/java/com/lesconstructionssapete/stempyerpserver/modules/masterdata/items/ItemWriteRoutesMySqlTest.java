@@ -88,8 +88,8 @@ class ItemWriteRoutesMySqlTest {
 
   private static void seed(Statement st) throws SQLException {
     st.execute("INSERT INTO companies (id, code, is_enabled) VALUES (1, 'ACME', TRUE), (2, 'OTHER', TRUE)");
-    st.execute("INSERT INTO currencies (id, code, is_enabled) VALUES (1, 'CAD', TRUE)");
-    st.execute("INSERT INTO units_of_measure (id, code, is_enabled) VALUES (1, 'UN', TRUE)");
+    st.execute("INSERT INTO currencies (id, code, name, is_enabled) VALUES (1, 'CAD', 'Canadian dollar', TRUE)");
+    st.execute("INSERT INTO units_of_measure (id, code, description, is_enabled) VALUES (1, 'UN', 'Unit', TRUE)");
     st.execute("""
         INSERT INTO users (id, default_company_id, user_no, name, created_by, updated_by) VALUES
           (1, 1, 'U1', 'Editor', 1, 1), (2, 1, 'U2', 'Reader', 1, 1), (3, 2, 'U3', 'Other editor', 1, 1)""");
@@ -218,8 +218,9 @@ class ItemWriteRoutesMySqlTest {
         fieldErrors(send("POST", PRODUCTS, product("P-REF1", "productCategoryId", 2), editor)));
     assertEquals(Map.of("productCategoryId", "INVALID_REFERENCE"), // soft-deleted
         fieldErrors(send("POST", PRODUCTS, product("P-REF2", "productCategoryId", 3), editor)));
-    // no entity for currencies yet: the foreign key catches it
-    assertRejected(422, "INVALID_REFERENCE", send("POST", PRODUCTS, product("P-REF3", "currencyId", 999), editor));
+    // currencies and units are install-wide: any live one will do, an unknown one is refused
+    assertEquals(Map.of("currencyId", "INVALID_REFERENCE", "unitOfMeasureId", "INVALID_REFERENCE"),
+        fieldErrors(send("POST", PRODUCTS, product("P-REF3", "currencyId", 999, "unitOfMeasureId", 999), editor)));
   }
 
   // ---- update ----

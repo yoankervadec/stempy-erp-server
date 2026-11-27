@@ -1,0 +1,13 @@
+# Currencies module (docs/ARCHITECTURE.md §23.5, §24). UTF-8.
+# Each key lists its texts by language. error.* and status.* are French only: English is the code's own message.
+
+module.masterdata.currencies:
+  en: Currencies
+  fr: Devises
+
+currency:
+  en: Currencies
+  fr: Devises
+currency.one:
+  en: Currency
+  fr: Devise

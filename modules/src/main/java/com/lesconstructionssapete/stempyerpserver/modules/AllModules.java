@@ -4,7 +4,9 @@ import java.time.Clock;
 import java.util.List;
 
 import com.lesconstructionssapete.stempyerpserver.modules.gl.GlModule;
+import com.lesconstructionssapete.stempyerpserver.modules.masterdata.currencies.CurrenciesModule;
 import com.lesconstructionssapete.stempyerpserver.modules.masterdata.items.ItemsModule;
+import com.lesconstructionssapete.stempyerpserver.modules.masterdata.units.UnitsModule;
 import com.lesconstructionssapete.stempyerpserver.modules.system.numbering.NumberingModule;
 import com.lesconstructionssapete.stempyerpserver.modules.system.scheduling.SchedulingModule;
 import com.lesconstructionssapete.stempyerpserver.modules.tax.TaxModule;
@@ -35,6 +37,8 @@ public final class AllModules {
     return List.of(
         new UsersModule(AuthSettings.from(settings), hasher, Clock.systemUTC()),
         new TaxModule(),
+        new CurrenciesModule(),
+        new UnitsModule(),
         new ItemsModule(),
         new SchedulingModule(Clock.systemUTC()),
         new NumberingModule(Clock.systemUTC()),

@@ -24,13 +24,14 @@ java -jar app/target/stempy-erp-server.jar assign-role U1 LCS ADMINISTRATOR  # e
 
 Your dev database already has `U1` with a password and `ADMINISTRATOR` in company `LCS` (id 1).
 
-**Reference data products need.** A product points at a currency and a unit of measure. There are no endpoints for those yet, so insert them once in SQL (they are install-wide tables):
+**Reference data products need.** A product points at a currency and a unit of measure. Both lists are install-wide (every company shares them); add them once through their routes (§5), as a user with `masterdata.currency.create` / `masterdata.unitOfMeasure.create`:
 
-```sql
-INSERT INTO currencies (code, is_enabled) VALUES ('CAD', TRUE);
-INSERT INTO units_of_measure (code, description, is_enabled) VALUES ('UN', 'Unit', TRUE);
--- note the ids (SELECT id, code FROM currencies; ...): the collection assumes 1 and 1
+```http
+POST /masterdata/currencies        { "code": "CAD", "name": "Canadian dollar" }
+POST /masterdata/units-of-measure  { "code": "UN", "description": "Unit" }
 ```
+
+The collection assumes ids 1 and 1. Rows inserted by SQL before migration V16 are kept (their name / description start as their code).
 
 Optional, to test permissions and multiple companies, see §11.
 
@@ -84,7 +85,7 @@ Every error has the same shape (RFC 7807, `Content-Type: application/problem+jso
 | 403 | `PERMISSION_DENIED`, `COMPANY_ACCESS_DENIED` | Missing permission (named in `detail`), not a member of that company |
 | 404 | `NOT_FOUND` | No such row **in your company** (another company's row is also 404) |
 | 409 | `VERSION_CONFLICT`, `RECORD_LOCKED`, `DUPLICATE_VALUE`, `RUN_ALREADY_QUEUED` | Someone changed the row since you read it (`current` has it as it is now); the record can't change in its state (a posted document); concurrent duplicate; a manual run of that schedule is already waiting |
-| 422 | `VALIDATION_FAILED` (see `errors`: `REQUIRED`, `ALREADY_EXISTS`, `INVALID_REFERENCE`, `LOCKED`, `UNKNOWN_LINE`, ...), `INVALID_REFERENCE` | Field problems (`LOCKED`: a field the record's state freezes, see its `_meta.locked`); a reference the pre-checks couldn't see (e.g. an unknown `currencyId`) |
+| 422 | `VALIDATION_FAILED` (see `errors`: `REQUIRED`, `ALREADY_EXISTS`, `INVALID_REFERENCE`, `LOCKED`, `UNKNOWN_LINE`, ...), `INVALID_REFERENCE` | Field problems (`LOCKED`: a field the record's state freezes, see its `_meta.locked`); a reference the pre-checks couldn't see |
 | 429 | `LOGIN_RATE_LIMITED` | 5 failed logins for one user from one IP: locked 15 minutes |
 | 503 | `DATABASE_BUSY` | Retry |
 
@@ -149,7 +150,7 @@ Choose the language the server answers you in, in every company: `{"language": "
 
 ---
 
-## 5. Entity routes (products, product categories)
+## 5. Entity routes (products, product categories, currencies, units of measure)
 
 Every entity exposed generically gets the same seven routes. `{base}` is `/masterdata/products` or `/masterdata/product-categories`.
 
@@ -206,6 +207,24 @@ Server-managed on every row (returned, never accepted in a body: sending one giv
 | `description` | string | required | max 255 |
 | `isEnabled` | boolean | optional (default `true`) | |
 
+**Currency** (`/masterdata/currencies`, install-wide: every company sees the same list)
+
+| Field | Type | Create | Rules |
+| --- | --- | --- | --- |
+| `code` | string | required | an ISO 4217 code with a minor unit (`CAD`, `USD`, `EUR`; not `XAU`), upper case, unique, can't change once created |
+| `name` | string | required | max 100 |
+| `isEnabled` | boolean | optional (default `true`) | |
+
+**Unit of measure** (`/masterdata/units-of-measure`, install-wide)
+
+| Field | Type | Create | Rules |
+| --- | --- | --- | --- |
+| `code` | string | required | 1 to 10 upper case letters and digits, starting with a letter (`UN`, `BOX`, `M2`), unique; can be corrected |
+| `description` | string | required | max 255 |
+| `isEnabled` | boolean | optional (default `true`) | |
+
+Currencies and units have no `DELETE` (`404`): disable them (`isEnabled: false`) instead. Their permissions are `masterdata.currency.*` and `masterdata.unitOfMeasure.*` (`read`, `create`, `update`); since the lists are shared, a change made in one company shows in all of them.
+
 **Product**
 
 | Field | Type | Create | Rules |
@@ -214,8 +233,8 @@ Server-managed on every row (returned, never accepted in a body: sending one giv
 | `name` | string | required | max 255 |
 | `unitAmount` | decimal | required | ≥ 0, 4 decimals stored |
 | `productCategoryId` | integer | required | a live category of **your** company |
-| `unitOfMeasureId` | integer | required | an existing unit of measure |
-| `currencyId` | integer | required | an existing currency |
+| `unitOfMeasureId` | integer | required | an existing unit of measure (`unitOfMeasure.code` in filters and sorts) |
+| `currencyId` | integer | required | an existing currency (`currency.code` in filters and sorts) |
 | `isEnabled` | boolean | optional (default `true`) | |
 
 ### Create
@@ -726,7 +745,8 @@ WHERE u.user_no = 'U1' AND c.code = 'LCS';
 - [ ] Send `createdBy`, `id` or `version` in a create: `READ_ONLY`. Send `companyId` or a made-up field: `UNKNOWN_FIELD`.
 - [ ] `unitAmount: "-1"` → `TOO_SMALL`; `"abc"` → `INVALID_VALUE`.
 - [ ] Duplicate `productNo` → `ALREADY_EXISTS` (also for a soft-deleted product's number).
-- [ ] `productCategoryId` of a category from DEMO, or a deleted one → `INVALID_REFERENCE`. `currencyId: 999` → `422 INVALID_REFERENCE`.
+- [ ] `productCategoryId` of a category from DEMO, or a deleted one → `INVALID_REFERENCE`. `currencyId: 999` → `422` with `currencyId: INVALID_REFERENCE`.
+- [ ] `POST /masterdata/currencies` with `"code": "ZZZ"` or `"usd"` → `INVALID_FORMAT`; `PATCH` its `code` → `422`; `DELETE` → `404`. A currency added in LCS shows in DEMO's list too.
 - [ ] Two PATCHes with the same `version`: the second is `409 VERSION_CONFLICT`.
 - [ ] Delete without `?version=` → `422`; with a wrong version → `409`; then `GET` → `404`.
 
