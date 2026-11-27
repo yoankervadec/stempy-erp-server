@@ -33,7 +33,7 @@ POST /masterdata/units-of-measure  { "code": "UN", "description": "Unit" }
 
 In Postman, run Currencies > Create currency and Units of measure > Create unit: they store `currencyId` and `unitOfMeasureId` for Create product (both default to 1 if the rows already exist). Rows inserted by SQL before migration V16 are kept (their name / description start as their code).
 
-Optional, to test permissions and multiple companies, see §11.
+Optional, to test permissions and multiple companies, see §12.
 
 ---
 
@@ -175,7 +175,7 @@ Permissions are `masterdata.product.read|create|update|delete` and `masterdata.p
            "actions": [{ "name": "reverse", "confirm": "Contrepasser l'écriture JE00000012 ?" }] }
 ```
 
-`can`: your permission **and** the record's state (an account is never deleted). `locked`: fields this record's state freezes (`"*"`: all): an account with postings keeps its type, a heading with sub-accounts stays one. `actions`: the actions of the resource (listed in `/meta`, §10) you may run on this record now, each with its confirmation question already worded for it (`null`: none). The server still checks everything when you write.
+`can`: your permission **and** the record's state (an account is never deleted). `locked`: fields this record's state freezes (`"*"`: all): an account with postings keeps its type, a heading with sub-accounts stays one. `actions`: the actions of the resource (listed in `/meta`, §11) you may run on this record now, each with its confirmation question already worded for it (`null`: none). The server still checks everything when you write.
 
 **Documents** (a header and its lines, e.g. an order with lines and payments) use the same routes plus `POST {base}/calculate` and `POST {base}/{id}/calculate`, and are read and written **whole**:
 
@@ -636,7 +636,53 @@ Idempotency-Key: 2f1c6a52-6d0e-4b8e-9a3c-0c5f0b7f4a11
 - **Account ledger:** one posting account's `opening`, `debits`, `credits`, `closing`, and its `lines` in date order: `entryId`, `entryNo`, `lineNo`, `postingDate`, `description` (the line's, else the entry's), `sourceType`, `sourceNo`, `debit`, `credit`, the running `balance`, `dimensions`. At most 5,000 lines (`TOO_MANY_LINES`: narrow the dates). Codes: `UNKNOWN_ACCOUNT`, `HEADING_ACCOUNT`.
 - Other codes: `REQUIRED`, `BEFORE_FROM`, `UNKNOWN_VALUE` (no such dimension value); a date that doesn't parse is `400 INVALID_PARAMETER`.
 
-## 10. UI metadata (`GET /meta`)
+## 10. Company: settings and exchange rates
+
+Both on the entity routes of §5 (`QUERY`, `GET`, `/new`, `/history`, `PATCH`; `POST` and `DELETE` for rates).
+
+### The company's settings
+
+| Method | Path | Permission |
+| --- | --- | --- |
+| `QUERY` | `/company/companies` | `company.settings.read` |
+| `GET` | `/company/companies/{id}` | `company.settings.read` |
+| `PATCH` | `/company/companies/{id}` | `company.settings.update` |
+
+You only ever see the company of the request (`X-Company-Id`, else your default): `QUERY` returns that one row, another company's id is `404`. Use the `companyId` from `GET /auth/me`.
+
+Fields: `code`, `description`, `baseCurrencyCode` (ISO 4217, e.g. `CAD`), `defaultLanguage` (`fr` or `en`), `isEnabled`, plus `id`, `version`, `createdAt`, `createdBy`, `updatedAt`, `updatedBy`. Only `description` and `defaultLanguage` can be changed; the others are `READ_ONLY` (they are set when the company is made). A new `defaultLanguage` applies from the next request, for users who haven't chosen their own.
+
+```http
+PATCH /company/companies/1
+{ "version": 0, "description": "Les Constructions Sapete", "defaultLanguage": "fr" }
+```
+
+### Exchange rates
+
+| Method | Path | Permission |
+| --- | --- | --- |
+| `QUERY` | `/company/exchange-rates` | `company.exchangeRate.read` |
+| `GET` | `/company/exchange-rates/{id}` | `company.exchangeRate.read` |
+| `POST` | `/company/exchange-rates` | `company.exchangeRate.create` |
+| `PATCH` | `/company/exchange-rates/{id}` | `company.exchangeRate.update` |
+| `DELETE` | `/company/exchange-rates/{id}?version=N` | `company.exchangeRate.delete` |
+
+A rate is what **one unit of the currency is worth in the company's base currency**, from `startingDate` until the next rate of that currency starts. Each company keeps its own.
+
+| Field | Type | Create | Rules |
+| --- | --- | --- | --- |
+| `currencyId` | integer | required | a currency (§5); can't change once created; not the base currency (`BASE_CURRENCY`: its rate is always 1) |
+| `startingDate` | date | required | one rate per currency and date (`RATE_EXISTS`) |
+| `rate` | decimal | required | above zero (`TOO_SMALL`), at most 10 decimals (`TOO_MANY_DECIMALS`) |
+
+```http
+POST /company/exchange-rates
+{ "currencyId": 2, "startingDate": "2026-11-27", "rate": "1.3650" }
+```
+
+Means 1 USD = 1.3650 CAD from 2026-11-27. To find the rate of a date, take the latest `startingDate` on or before it: `QUERY` with `currency.code` equals `USD`, `startingDate` `lessThanOrEquals` the date, sorted by `startingDate` `desc`, `limit` 1. A deleted rate can be entered again on the same date.
+
+## 11. UI metadata (`GET /meta`)
 
 What the caller may see and do in the request's company, for building menus, lists and forms (docs/ARCHITECTURE.md §23). Any signed-in user may call it.
 
@@ -689,7 +735,7 @@ If-None-Match: "<etag>"    (optional: 304 when nothing changed)
 
 ---
 
-## 11. Optional: a second user and company, to test permissions
+## 12. Optional: a second user and company, to test permissions
 
 ```sql
 INSERT INTO companies (code, description, is_enabled) VALUES ('DEMO', 'Demo company', TRUE);
@@ -723,7 +769,7 @@ WHERE u.user_no = 'U1' AND c.code = 'LCS';
 
 ---
 
-## 12. Things worth trying
+## 13. Things worth trying
 
 **Authentication**
 - [ ] Login with a wrong password, then an unknown user: same `401 INVALID_CREDENTIALS`, same message.
@@ -733,7 +779,7 @@ WHERE u.user_no = 'U1' AND c.code = 'LCS';
 - [ ] Logout, then reuse the token: `401`.
 - [ ] `set-password U1` while logged in: every session of U1 ends.
 
-**Companies and permissions** (after §11)
+**Companies and permissions** (after §12)
 - [ ] U1 with two companies: `GET /auth/me` without `X-Company-Id` uses the default; with `X-Company-Id: <DEMO id>` you see DEMO.
 - [ ] `X-Company-Id: 999` → `403 COMPANY_ACCESS_DENIED`; `X-Company-Id: abc` → `400 INVALID_COMPANY_ID`.
 - [ ] Data created in LCS is invisible (`404` / not listed) with `X-Company-Id: <DEMO id>`.
@@ -746,6 +792,8 @@ WHERE u.user_no = 'U1' AND c.code = 'LCS';
 - [ ] `unitAmount: "-1"` → `TOO_SMALL`; `"abc"` → `INVALID_VALUE`.
 - [ ] Duplicate `productNo` → `ALREADY_EXISTS` (also for a soft-deleted product's number).
 - [ ] `productCategoryId` of a category from DEMO, or a deleted one → `INVALID_REFERENCE`. `currencyId: 999` → `422` with `currencyId: INVALID_REFERENCE`.
+- [ ] `POST /company/exchange-rates` for the base currency (`currencyId` of CAD) → `BASE_CURRENCY`; the same currency and date twice → `RATE_EXISTS`; `"rate": "0"` → `TOO_SMALL`. As DEMO, `QUERY /company/exchange-rates` doesn't show LCS's rates, and `GET /company/companies/1` is `404`.
+- [ ] `PATCH /company/companies/{id}` with `"defaultLanguage": "en"`, then `GET /auth/me` as a user without a language of their own → `"language": "en"`. `"baseCurrencyCode": "USD"` → `READ_ONLY`.
 - [ ] `POST /masterdata/currencies` with `"code": "ZZZ"` or `"usd"` → `INVALID_FORMAT`; `PATCH` its `code` → `422`; `DELETE` → `404`. A currency added in LCS shows in DEMO's list too.
 - [ ] Two PATCHes with the same `version`: the second is `409 VERSION_CONFLICT`.
 - [ ] Delete without `?version=` → `422`; with a wrong version → `409`; then `GET` → `404`.

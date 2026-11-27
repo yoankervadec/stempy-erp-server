@@ -315,7 +315,7 @@ modules/
 │   ├── items/        products + product categories
 │   ├── customers/   
 │   └── vendors/     
-├── company/          legal entities, fiscal calendars, exchange rates
+├── company/          the company's own settings, exchange rates; CompanyApi (§25). Fiscal calendars are in gl/
 ├── tax/              TaxApi: sales taxes for every province (rules, rates, document rounding; §19).
 │                     Tax postings to GL later
 ├── gl/               general ledger (§22): GeneralLedgerApi; chart of accounts, fiscal years and periods,
@@ -536,7 +536,7 @@ shared/
 
 - **Exact until you round.** `plus`, `minus`, `times`, `negate` keep every digit; `rounded()` rounds to the currency's minor unit (2 decimals for CAD) when a value becomes a real amount (line total, tax, balance).
 - **One rounding rule:** `Money.ROUNDING = HALF_UP` (half a cent or more rounds away from zero), the rule CRA and Revenu Quebec give for sales taxes. Another mode only on purpose: `rounded(RoundingMode.DOWN)`.
-- **One currency at a time.** Combining or comparing two currencies throws; conversion needs an exchange rate (business logic, later).
+- **One currency at a time.** Combining or comparing two currencies throws; conversion needs an exchange rate: `CompanyApi.toBaseCurrency` (§25.4) gives the exact amount in the company's base currency.
 - **Equal by value:** `10.0 CAD` equals `10.00 CAD`.
 - **`allocate(weights)` / `allocate(n)`** splits a rounded amount so the parts add up to it exactly (largest remainder; ties to the earlier part; negative amounts mirror positive ones). For instalments, cost spreading.
 - **`roundKeepingTotal(exactParts)`** rounds several exact amounts so they add up to their rounded total, each within one cent of its exact value, whatever the signs, and symmetrically (a credit note mirrors its invoice line by line). The tax engine uses it for document-level rounding: line taxes that add up to the tax on the subtotal.
@@ -780,7 +780,7 @@ Decide these early; they are painful to retrofit.
 1.  `platform/db` (UnitOfWork, Hikari), `platform/web` (Javalin, errors, RequestContext), Flyway baseline.
 2.  `platform/security` + `modules/users` (sessions, login throttle, set-password CLI), multi-company users + RBAC (§16).  Admin API for roles / overrides / memberships (with the generic write side).
 3.  `platform/events` (sync bus ), `platform/audit` (done 2026-11-24, §20),  `platform/numbering`, `platform/settings`.
-4.  `modules/masterdata/items` ; `masterdata/currencies` and `masterdata/units` (done 2026-11-27, §24) ; `shared.Money` (done 2026-11-24, §6) ; `modules/tax` calculation (done 2026-11-24, §19) ;  `modules/company`, `masterdata/customers`, `masterdata/vendors`.
+4.  `modules/masterdata/items` ; `masterdata/currencies` and `masterdata/units` (done 2026-11-27, §24) ; `modules/company` settings and exchange rates (done 2026-11-27, §25) ; `shared.Money` (done 2026-11-24, §6) ; `modules/tax` calculation (done 2026-11-24, §19) ;  `modules/company`, `masterdata/customers`, `masterdata/vendors`.
 5.  `modules/gl` (accounts, periods, journal posting, trial balance): done 2026-11-25, §22.
 6.  First transactional module (e.g. `sales` or `ap`) wired to GL through events, as the reference implementation for all later modules.
 7.  `platform/scheduler` (done 2026-11-23, §17) + outbox dispatcher (done 2026-11-24, its own loop, §18).
@@ -1849,7 +1849,7 @@ All per company (the request's), `ADMINISTRATOR` has them all, writes audited (�
 
 ## 23. Server-driven UI
 
-_Status: planned 2026-11-25; steps 2 to 9 built 2026-11-25/26 (catalog, `GET /meta`, UI hints, translation, list and record reads, layouts, documents, GL pilot; migration V14). How to call it: docs/API_GUIDE.md §10. Steps in §23.12._
+_Status: planned 2026-11-25; steps 2 to 9 built 2026-11-25/26 (catalog, `GET /meta`, UI hints, translation, list and record reads, layouts, documents, GL pilot; migration V14). How to call it: docs/API_GUIDE.md §11. Steps in §23.12._
 
 The desktop client (Electron + React, in its own repository, built later) should be almost entirely generic: one list page, one record modal, one record page and one action dialog serve every resource. The server already describes its entities (`EntityDefinition`, §5) and their routes (`EntityEndpoints`). This section makes it publish everything a screen needs, **per caller, per company and in the caller's language**, so the client only renders what it is told. Hand-written React is kept for screens the layouts below can't express.
 
@@ -2105,7 +2105,7 @@ A module with a hand-written orchestrator (`JournalPostingService`) keeps its ow
 - **Version conflicts**: the `409 VERSION_CONFLICT` body includes the current row, so the client can show what changed and offer "reload" or "apply my changes again".
 
 **As built (step 6):**
-- `platform/web/RecordRules` (`locked`, `canUpdate`, `canDelete`, `defaults`, each given the read's `UnitOfWork`, the caller and the row) registered with `EntityEndpoints.rules(entity, rules)`; implemented by a module's `*Service`, which reads through operations (ArchUnit: only operations touch repositories). Accounts: `AccountService` (`DescribeAccountLocksOperation`: postings lock `accountType` and `isHeading`, sub-accounts lock `isHeading`). Products: `ProductService` (a new product's `currencyId` is the company's base currency).
+- `platform/web/RecordRules` (`locked`, `canUpdate`, `canDelete`, `defaults`, each given the read's `UnitOfWork`, the caller and the row) registered with `EntityEndpoints.rules(entity, rules)`; implemented by a module's `*Service`, which reads through operations (ArchUnit: only operations touch repositories). Accounts: `AccountService` (`DescribeAccountLocksOperation`: postings lock `accountType` and `isHeading`, sub-accounts lock `isHeading`). Products: `ProductService` (a new product's `currencyId` is the company's base currency). `validateWrite` (since §25) adds rules the fields can't say, checked by the generic create and update before the write (422 with its errors): exchange rates, `ExchangeRateService`.
 - `_meta` (`RecordMeta`) on every single-record answer of `EntityEndpoints` (`GET`, `POST`, `PATCH`, and `EntityEndpoints.read` for hand-written controllers), not on lists. Rules and confirmation texts see the row without `_refs` / `_meta`.
 - `ResourceAction` (scope `RECORD` or `RESOURCE`, route, permission, `ActionParam`s, `confirm()`, `when(row -> ...)` for record actions) registered with `EntityEndpoints.action(entity, action)`; described in `/meta` (`actions`, only those the caller holds the permission for) and listed per record in `_meta.actions` when `when` holds. The route is the module's own. `ModuleHost` refuses to start when an action's label, confirmation or parameter label is missing in a language (`ResourceCatalog.missingActionLabels`): actions are declared with the routes, out of `UiLabelsTest`'s reach. No action is declared yet: the GL pilot (step 9) adds reverse, close and reopen.
 - `GET {path}/new`: every readable field at `Field.defaultValue(...)` (declared: `isEnabled` on every entity, an account's `isHeading` / `manualPosting`), then `RecordRules.defaults`, else null; `_refs`; `"_meta": {"new": true}`. Registered with the `READ` routes, before `{id}`; needs the create permission the catalog knows (generic or declared write), 404 without one. A declared default is only a form's starting value: a create that leaves the field out still gets the database's default.
@@ -2162,7 +2162,7 @@ The client starts once step 6 is done: products and accounts are then fully usab
 ### 23.13 Known gaps and limits (planned)
 
 - **Two languages only** (`fr`, `en`), and only for the texts the server owns. Data the users type (product names, account names) isn't translated. A third language is a `Language` constant (with its locale), a third text under each key, and the V14 check constraints widened.
-- **No route changes a company's default language** yet: SQL until a company admin screen exists (the cache's TTL picks it up).
+- **A company's default language** changes through `PATCH /company/companies/{id}` (§25.2), which empties the permission cache so the next request uses it. Only on the instance that took the change: others wait for the cache's TTL.
 - **Labels are deployed with the code.** A company can't rename a field or hide one without a release. Per-company label and layout overrides would come later, as data.
 - **No conditional fields inside a form** beyond `locked` per state (e.g. "show the bank account only when the method is transfer"). Add a `visibleWhen` rule to layouts if a screen needs it.
 - **Journal entries list through their own `GET`**, not `QUERY`, so their list has the report-style filters only until it is moved.
@@ -2206,5 +2206,79 @@ modules/masterdata/units/        UnitsModule ("masterdata.units"), UnitOfMeasure
 
 - **Shared means shared.** Any company's `masterdata.currency.update` changes the list for every company. An install-level permission (outside any company) would fit better once one exists.
 - **Nothing checks that a company's `base_currency_code` is a row of `currencies`** (V7 keeps it as a code), nor stops disabling a currency still used as one. Disabled currencies and units also stay valid references for products.
-- **No exchange rates and no unit conversions** (box of 12 -> units). Both come with the modules that need them (`company/` for rates, `inventory/` for conversions).
+- **No unit conversions** (box of 12 -> units): they come with `inventory/`. Exchange rates: §25.
+
+---
+
+## 25. Company: settings and exchange rates
+
+_Status: built 2026-11-27 (migration V17). How to call it: docs/API_GUIDE.md §10._
+
+```
+modules/company/
+├── CompanyModule.java          ERPModule ("company"). Generic routes for both entities; publishes CompanyApi;
+│                               empties the permission cache when a company's default language changes
+├── CompanyApi.java             PUBLIC API: baseCurrency, exchangeRate, toBaseCurrency
+├── CompanyApiService.java      implements it (orchestrator, in the caller's transaction)
+├── ExchangeRateService.java    the exchange rates' RecordRules.validateWrite
+├── CompanyRepository.java      companies.base_currency_code, currencies, exchange_rates lookups
+├── operations/                 FindBaseCurrency, FindCurrencyCode, CheckRateDateTaken, FindExchangeRate
+├── Company.java                DEF on companies, company column = id
+└── ExchangeRate.java           DEF on exchange_rates
+```
+
+After `masterdata.currencies` in `AllModules` (rates point at currencies), before the modules that will convert amounts.
+
+### 25.1 Decisions this design rests on
+
+- **Exchange rates are per company.** Each company keeps its own (its own source, its own base currency). A rate says what one unit of a currency is worth in the base currency, from its starting date until the next rate of that currency starts: no end dates, so no gaps or overlaps to check.
+- **Generic routes plus one platform hook.** Both entities are plain records on `EntityEndpoints`. The rules the field declarations can't say go in `RecordRules.validateWrite`, which the generic create and update run in their transaction, before the SQL, on the record as it would be saved (for an update, the current row with the patch applied). Errors answer 422 like the field checks and nothing is written.
+- **Base currency fixed through the API.** Amounts already posted are in it (§22), so it is set when the company is made (SQL today, with the code and the enabled flag).
+
+### 25.2 The company's settings
+
+`/company/companies`, permission `company.settings.read` / `.update`. The entity's company column is `id`, so every read and write is scoped to the request's company: QUERY returns one row, another company's id is 404.
+
+| Field | API |
+| --- | --- |
+| `code`, `baseCurrencyCode`, `isEnabled`, `createdAt`, `createdBy`, `updatedAt`, `updatedBy` | read-only |
+| `description` | max 255 |
+| `defaultLanguage` | `fr` or `en`: what the server writes in for users who chose no language of their own |
+
+No POST or DELETE: making or closing a company is install-level work, and no install-level permission exists yet.
+
+### 25.3 Exchange rates
+
+`/company/exchange-rates`, permissions `company.exchangeRate.{read,create,update,delete}`; soft delete.
+
+| Field | Rules |
+| --- | --- |
+| `currencyId` | required, a live currency, fixed once created; never the company's base currency (`BASE_CURRENCY`) |
+| `startingDate` | required; one live rate per currency and date (`RATE_EXISTS`) |
+| `rate` | required, above zero, at most 10 decimals (`DECIMAL(20, 10)`) |
+
+Table (V17): `exchange_rates` with the standard columns, `CHECK (rate > 0)`, and a unique key on `(company_id, currency_id, starting_date, live_key)`, where `live_key` is a stored generated column, 1 while the row is live and NULL once deleted. A concurrent duplicate that passes `RATE_EXISTS` hits the key (409 `DUPLICATE_VALUE`); a deleted rate can be entered again. V17 also gives `companies` the `version`, `created_by`, `updated_at` and `updated_by` columns the generic update needs (authors NULL for existing companies).
+
+### 25.4 Using it from another module
+
+```java
+CompanyApi company = services.get(CompanyApi.class);                    // in registerServices / registerRoutes
+Money cad = company.toBaseCurrency(uow, rc.companyId(), Money.of("100.00", "USD"), invoiceDate).rounded();
+BigDecimal rate = company.exchangeRate(uow, rc.companyId(), Money.currency("USD"), invoiceDate);
+```
+
+- `exchangeRate` is 1 for the base currency, else the latest live rate starting on or before the date; `ConflictException` `EXCHANGE_RATE_NOT_FOUND` (params `currency`, `date`) when there is none.
+- `toBaseCurrency` is exact (amount x rate): round it when it becomes a real amount (`Money.rounded()`, §6). Store the rate used on the document: rates can be changed or deleted afterwards.
+- No permission is checked; the calling module checked its own.
+
+### 25.5 Tests
+
+`CompanyRoutesMySqlTest`: one company per caller, read-only fields, language validated and in effect at once, rates scoped by company, `RATE_EXISTS` / `BASE_CURRENCY` / `INVALID_REFERENCE`, rate bounds and decimals, moving a rate's date, currency fixed, re-entering a deleted rate, read-only callers, and `CompanyApi` lookups by date and conversion.
+
+### 25.6 Known gaps and limits
+
+- **One rate type.** No separate buy / sell / average rates, and no rate between two foreign currencies (convert through the base currency).
+- **No automatic rate download** (Bank of Canada): a scheduled job (§17) can fill the table later.
+- **Nothing uses the rates yet.** GL and tax still work in the base currency only (§19.5, §22.11); the first module with foreign-currency documents (sales or purchasing) calls `CompanyApi`.
+- **Base currency and company creation by SQL only**, and `companies.base_currency_code` still isn't checked against `currencies` (§24.4).
 

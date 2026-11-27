@@ -4,6 +4,7 @@ import java.util.Map;
 import java.util.Set;
 
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWork;
+import com.lesconstructionssapete.stempyerpserver.platform.error.Validation;
 
 /**
  * What one record's state allows (docs/ARCHITECTURE.md §23.9), for an entity
@@ -12,7 +13,9 @@ import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWork;
  * EntityEndpoints.rules(entity, rules); GET answers carry the result as
  * "_meta", and GET {path}/new uses defaults().
  *
- * It only describes: the writes still enforce their rules themselves. Every
+ * It mostly describes: the writes still enforce their rules themselves, except
+ * that the generic create and update (EntityEndpoints) enforce locked,
+ * canUpdate, canDelete and validateWrite for an entity registered there. Every
  * method runs in the read's transaction and receives the row as the caller
  * sees it (API field names, readable fields only). Implemented by a module's
  * orchestrator (*Service), which reaches the database through its operations.
@@ -35,6 +38,21 @@ public interface RecordRules {
   /** False when this record can't be deleted in its state, permission or not. */
   default boolean canDelete(UnitOfWork uow, RequestContext rc, Map<String, Object> row) {
     return true;
+  }
+
+  /**
+   * Rules the field declarations can't express ("one rate per currency and
+   * date", "not the company's own currency"), checked by the generic create
+   * and update in their transaction, before the row is written: every error
+   * added to {@code v} is answered as 422 VALIDATION_FAILED and nothing is
+   * written. Runs after the fields passed their own checks.
+   *
+   * @param record the record as it would be saved, by API field name: for a
+   *               create, the fields the body set (an id is absent); for an
+   *               update, the current row as the caller sees it with the
+   *               patch applied (its id included)
+   */
+  default void validateWrite(UnitOfWork uow, RequestContext rc, Map<String, Object> record, Validation v) {
   }
 
   /**
