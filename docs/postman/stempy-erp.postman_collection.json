@@ -53,7 +53,7 @@
     {
       "key": "foreignCurrencyId",
       "value": "2",
-      "description": "A currency other than the base one (USD), for Create exchange rate"
+      "description": "Set by Currencies > Create a foreign currency; used by Create exchange rate"
     },
     {
       "key": "exchangeRateId",
@@ -495,6 +495,58 @@
                   "  const row = pm.response.json();",
                   "  pm.collectionVariables.set(\"currencyId\", row.id);",
                   "  pm.collectionVariables.set(\"currencyVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create a foreign currency: USD (stores foreignCurrencyId)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/currencies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "currencies"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"USD\",\n  \"name\": \"US dollar\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "For Company > Create exchange rate, which needs a currency other than the base one."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  pm.collectionVariables.set(\"foreignCurrencyId\", pm.response.json().id);",
                   "}"
                 ]
               }
