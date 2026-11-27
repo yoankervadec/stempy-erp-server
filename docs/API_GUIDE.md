@@ -31,7 +31,7 @@ POST /masterdata/currencies        { "code": "CAD", "name": "Canadian dollar" }
 POST /masterdata/units-of-measure  { "code": "UN", "description": "Unit" }
 ```
 
-The collection assumes ids 1 and 1. Rows inserted by SQL before migration V16 are kept (their name / description start as their code).
+In Postman, run Currencies > Create currency and Units of measure > Create unit: they store `currencyId` and `unitOfMeasureId` for Create product (both default to 1 if the rows already exist). Rows inserted by SQL before migration V16 are kept (their name / description start as their code).
 
 Optional, to test permissions and multiple companies, see §11.
 
