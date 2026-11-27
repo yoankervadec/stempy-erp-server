@@ -3,6 +3,7 @@ package com.lesconstructionssapete.stempyerpserver.modules;
 import java.time.Clock;
 import java.util.List;
 
+import com.lesconstructionssapete.stempyerpserver.modules.company.CompanyModule;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.GlModule;
 import com.lesconstructionssapete.stempyerpserver.modules.masterdata.currencies.CurrenciesModule;
 import com.lesconstructionssapete.stempyerpserver.modules.masterdata.items.ItemsModule;
@@ -39,6 +40,7 @@ public final class AllModules {
         new TaxModule(),
         new CurrenciesModule(),
         new UnitsModule(),
+        new CompanyModule(),
         new ItemsModule(),
         new SchedulingModule(Clock.systemUTC()),
         new NumberingModule(Clock.systemUTC()),

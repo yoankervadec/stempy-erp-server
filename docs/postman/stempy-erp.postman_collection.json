@@ -46,6 +46,26 @@
       "description": "Set by Create / Get / Update unit"
     },
     {
+      "key": "companyVersion",
+      "value": "0",
+      "description": "Set by Get / Update company settings"
+    },
+    {
+      "key": "foreignCurrencyId",
+      "value": "2",
+      "description": "A currency other than the base one (USD), for Create exchange rate"
+    },
+    {
+      "key": "exchangeRateId",
+      "value": "",
+      "description": "Set by Create / Get exchange rate"
+    },
+    {
+      "key": "exchangeRateVersion",
+      "value": "0",
+      "description": "Set by Create / Get / Update exchange rate"
+    },
+    {
       "key": "currencyId",
       "value": "1",
       "description": "Set by Create / Get currency; used by Create product"
@@ -1082,6 +1102,499 @@
               }
             },
             "description": "INVALID_FORMAT: 1 to 10 upper case letters and digits, starting with a letter (UN, BOX, M2)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Company",
+      "item": [
+        {
+          "name": "Get my company (stores version)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": true
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/company/companies/{{companyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "company",
+                "companies",
+                "{{companyId}}"
+              ]
+            },
+            "description": "Only the request's company is visible: another id is 404."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"companyVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Query companies (just mine)",
+          "request": {
+            "method": "QUERY",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/company/companies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "company",
+                "companies"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Always one row: the request's company."
+          }
+        },
+        {
+          "name": "Update company settings (uses the last version read)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/company/companies/{{companyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "company",
+                "companies",
+                "{{companyId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": {{companyVersion}},\n  \"description\": \"Les Constructions Sapete\",\n  \"defaultLanguage\": \"fr\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Only description and defaultLanguage (fr, en) change; code, baseCurrencyCode and isEnabled are READ_ONLY."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"companyVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Company history (who changed what)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": true
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/company/companies/{{companyId}}/history?limit=20&offset=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "company",
+                "companies",
+                "{{companyId}}",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create exchange rate (stores id, version)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/company/exchange-rates",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "company",
+                "exchange-rates"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currencyId\": {{foreignCurrencyId}},\n  \"startingDate\": \"2026-11-27\",\n  \"rate\": \"1.3650\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "1 unit of the currency = rate units of the company's base currency, from startingDate until the next rate."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"exchangeRateId\", row.id);",
+                  "  pm.collectionVariables.set(\"exchangeRateVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Query: rate of a currency on a date",
+          "request": {
+            "method": "QUERY",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/company/exchange-rates",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "company",
+                "exchange-rates"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"where\": {\n    \"and\": [\n      {\n        \"field\": \"currency.code\",\n        \"op\": \"equals\",\n        \"value\": \"USD\"\n      },\n      {\n        \"field\": \"startingDate\",\n        \"op\": \"lessThanOrEquals\",\n        \"value\": \"2026-12-15\"\n      }\n    ]\n  },\n  \"sort\": [\n    {\n      \"field\": \"startingDate\",\n      \"dir\": \"desc\"\n    }\n  ],\n  \"page\": {\n    \"limit\": 1,\n    \"offset\": 0\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "The latest rate starting on or before the date is the one that applies."
+          }
+        },
+        {
+          "name": "Get exchange rate (stores version)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": true
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/company/exchange-rates/{{exchangeRateId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "company",
+                "exchange-rates",
+                "{{exchangeRateId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"exchangeRateId\", row.id);",
+                  "  pm.collectionVariables.set(\"exchangeRateVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update exchange rate (uses the last version read)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/company/exchange-rates/{{exchangeRateId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "company",
+                "exchange-rates",
+                "{{exchangeRateId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": {{exchangeRateVersion}},\n  \"rate\": \"1.3700\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "currencyId can't change; startingDate can, to a date without another rate of the currency."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"exchangeRateVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Exchange rate history (who changed what)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": true
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/company/exchange-rates/{{exchangeRateId}}/history?limit=20&offset=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "company",
+                "exchange-rates",
+                "{{exchangeRateId}}",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete exchange rate (soft)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": true
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/company/exchange-rates/{{exchangeRateId}}?version={{exchangeRateVersion}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "company",
+                "exchange-rates",
+                "{{exchangeRateId}}"
+              ],
+              "query": [
+                {
+                  "key": "version",
+                  "value": "{{exchangeRateVersion}}"
+                }
+              ]
+            },
+            "description": "A deleted rate can be entered again on the same date."
+          }
+        },
+        {
+          "name": "422: a rate for the base currency",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/company/exchange-rates",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "company",
+                "exchange-rates"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currencyId\": {{currencyId}},\n  \"startingDate\": \"2026-11-27\",\n  \"rate\": \"1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "BASE_CURRENCY when currencyId is the company's base currency (its rate is always 1)."
           }
         }
       ]

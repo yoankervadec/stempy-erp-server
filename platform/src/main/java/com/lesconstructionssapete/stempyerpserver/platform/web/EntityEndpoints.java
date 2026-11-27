@@ -8,6 +8,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.web.ResourceCatalog.R
 import java.net.URI;
 import java.time.Clock;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -31,6 +32,7 @@ import com.lesconstructionssapete.stempyerpserver.platform.entity.FieldType;
 import com.lesconstructionssapete.stempyerpserver.platform.entity.Operator;
 import com.lesconstructionssapete.stempyerpserver.platform.error.BadRequestException;
 import com.lesconstructionssapete.stempyerpserver.platform.error.ResourceNotFoundException;
+import com.lesconstructionssapete.stempyerpserver.platform.error.Validation;
 import com.lesconstructionssapete.stempyerpserver.platform.error.ValidationFailedException;
 import com.lesconstructionssapete.stempyerpserver.platform.events.EventBus;
 import com.lesconstructionssapete.stempyerpserver.platform.i18n.LabelKeys;
@@ -344,6 +346,7 @@ public final class EntityEndpoints {
       WriteContext wc = writeContext(rc);
       SQLWrite<E> insert = writes.insert(entity, JsonBodies.read(ctx, BODY_TYPE.getType()), wc, access(rc));
       Map<String, Object> created = uowFactory.execute(uow -> {
+        validateWrite(uow, entity, byName(insert.values()), rc);
         long id = writer.insert(uow, insert, rc.companyId());
         eventBus.publish(uow, new EntityChanged.Created(entity.name(), id, rc.companyId(), rc.userId(),
             rc.requestId(), wc.now(), FieldChanges.created(insert.values())));
@@ -369,6 +372,7 @@ public final class EntityEndpoints {
       try {
         ctx.json(uowFactory.execute(uow -> {
           enforceRules(uow, entity, id, patch.keySet(), rc, false);
+          validateUpdate(uow, entity, id, update, rc);
           var before = writer.update(uow, update, id, rc.companyId());
           eventBus.publish(uow, new EntityChanged.Updated(entity.name(), id, rc.companyId(), rc.userId(),
               rc.requestId(), wc.now(), changed, FieldChanges.updated(before, update.values())));
@@ -475,6 +479,44 @@ public final class EntityEndpoints {
         throw new ValidationFailedException("Validation failed", errors);
       }
     }
+  }
+
+  /**
+   * The resource's RecordRules.validateWrite on the record as it would be
+   * saved: 422 VALIDATION_FAILED with its errors. Nothing without rules.
+   */
+  private void validateWrite(UnitOfWork uow, EntityDefinition<?> entity, Map<String, Object> record,
+      RequestContext rc) {
+    RecordRules rules = catalog.forEntity(entity).map(Resource::rules).orElse(null);
+    if (rules == null) {
+      return;
+    }
+    List<FieldError> errors = new ArrayList<>();
+    rules.validateWrite(uow, rc, Collections.unmodifiableMap(record),
+        Validation.into(errors));
+    if (!errors.isEmpty()) {
+      throw new ValidationFailedException("Validation failed", errors);
+    }
+  }
+
+  /** validateWrite on the current row with the patch applied; nothing when the row is gone (the write 404s). */
+  private <E> void validateUpdate(UnitOfWork uow, EntityDefinition<E> entity, long id, SQLWrite<E> update,
+      RequestContext rc) {
+    if (catalog.forEntity(entity).map(Resource::rules).isEmpty()) {
+      return;
+    }
+    plainRow(uow, entity, id, rc).ifPresent(current -> {
+      Map<String, Object> record = new LinkedHashMap<>(current);
+      record.putAll(byName(update.values()));
+      validateWrite(uow, entity, record, rc);
+    });
+  }
+
+  /** Field values by API name; keeps nulls (a field set to null). */
+  private static Map<String, Object> byName(Map<? extends Field<?, ?>, Object> values) {
+    Map<String, Object> out = new LinkedHashMap<>();
+    values.forEach((f, v) -> out.put(f.name(), v));
+    return out;
   }
 
   /** The row as this caller sees it, without _refs and _meta. */

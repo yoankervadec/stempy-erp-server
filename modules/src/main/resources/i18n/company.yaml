@@ -1,0 +1,42 @@
+# Company module (docs/ARCHITECTURE.md §23.5, §25). UTF-8.
+# Each key lists its texts by language. error.* and status.* are French only: English is the code's own message.
+
+module.company:
+  en: Company
+  fr: Entreprise
+
+company:
+  en: Company settings
+  fr: Paramètres de l'entreprise
+company.one:
+  en: Company
+  fr: Entreprise
+company.field.baseCurrencyCode:
+  en: Base currency
+  fr: Devise de base
+company.field.defaultLanguage:
+  en: Default language
+  fr: Langue par défaut
+
+exchangeRate:
+  en: Exchange rates
+  fr: Taux de change
+exchangeRate.one:
+  en: Exchange rate
+  fr: Taux de change
+exchangeRate.field.currencyId:
+  en: Currency
+  fr: Devise
+exchangeRate.field.startingDate:
+  en: Starting date
+  fr: Date de début
+exchangeRate.field.rate:
+  en: Rate
+  fr: Taux
+
+error.BASE_CURRENCY:
+  fr: "est la devise de base de l'entreprise ({currency}) : son taux est toujours 1"
+error.RATE_EXISTS:
+  fr: Un taux de {currency} commence déjà le {date}
+error.EXCHANGE_RATE_NOT_FOUND:
+  fr: Aucun taux de change de {currency} au {date} ou avant
