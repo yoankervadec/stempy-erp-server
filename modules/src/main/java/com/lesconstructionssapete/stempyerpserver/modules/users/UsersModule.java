@@ -6,13 +6,16 @@ import java.util.Objects;
 
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.AssignRoleOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.CreateSessionOperation;
+import com.lesconstructionssapete.stempyerpserver.modules.users.operations.DeletePreferenceOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.EnsureSystemUserOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.FindLoginCandidateOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.FindUserSummariesOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.GetUserProfileOperation;
+import com.lesconstructionssapete.stempyerpserver.modules.users.operations.ListPreferencesOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.ListUserCompaniesOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.LoadEffectivePermissionsOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.PurgeDeadSessionsOperation;
+import com.lesconstructionssapete.stempyerpserver.modules.users.operations.PutPreferenceOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.ResolveLanguageOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.ResolveSessionOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.users.operations.RevokeSessionOperation;
@@ -37,7 +40,8 @@ import com.lesconstructionssapete.stempyerpserver.platform.security.UserDirector
 import com.lesconstructionssapete.stempyerpserver.platform.web.Routes;
 
 /**
- * Users and authentication (credentials, sessions, /auth routes).
+ * Users and authentication (credentials, sessions, /auth routes), and each
+ * user's own preferences (/auth/me/preferences).
  *
  * Publishes:
  * - SessionAuthenticator, used by the platform's AuthFilter on every request
@@ -58,6 +62,7 @@ public class UsersModule implements ERPModule {
   private final Clock clock;
 
   private AuthService authService; // built in registerServices, used by registerRoutes
+  private PreferencesService preferencesService; // likewise
   private SessionCleanupService sessionCleanup; // built in registerServices, used by registerJobs
 
   /** Tests pass a cheap hasher so seeding and logging in stay fast. */
@@ -103,6 +108,9 @@ public class UsersModule implements ERPModule {
         new SetPasswordOperation(accounts, sessions, audit),
         new GetUserProfileOperation(accounts),
         listCompanies, resolveLanguage, new SetLanguageOperation(accounts, audit), companyAccess);
+    var preferences = new PreferenceRepository();
+    preferencesService = new PreferencesService(uowFactory, clock, new ListPreferencesOperation(preferences),
+        new PutPreferenceOperation(preferences, PreferencesService.MAX_KEYS), new DeletePreferenceOperation(preferences));
     var authorization = new AuthorizationService(uowFactory, companyAccess, clock,
         new AssignRoleOperation(accounts, access, audit));
 
@@ -134,5 +142,6 @@ public class UsersModule implements ERPModule {
   @Override
   public void registerRoutes(Routes routes, ServiceRegistry serviceRegistry) {
     new AuthController(authService).register(routes);
+    new PreferencesController(preferencesService).register(routes);
   }
 }

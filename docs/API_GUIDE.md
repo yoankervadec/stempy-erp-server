@@ -84,7 +84,7 @@ Every error has the same shape (RFC 7807, `Content-Type: application/problem+jso
 | 401 | `UNAUTHENTICATED`, `SESSION_INVALID`, `AUTH_HEADER_INVALID`, `INVALID_CREDENTIALS` | No / bad / expired token, wrong login |
 | 403 | `PERMISSION_DENIED`, `COMPANY_ACCESS_DENIED` | Missing permission (named in `detail`), not a member of that company |
 | 404 | `NOT_FOUND` | No such row **in your company** (another company's row is also 404) |
-| 409 | `VERSION_CONFLICT`, `RECORD_LOCKED`, `DUPLICATE_VALUE`, `RUN_ALREADY_QUEUED` | Someone changed the row since you read it (`current` has it as it is now); the record can't change in its state (a posted document); concurrent duplicate; a manual run of that schedule is already waiting |
+| 409 | `VERSION_CONFLICT`, `RECORD_LOCKED`, `DUPLICATE_VALUE`, `RUN_ALREADY_QUEUED`, `TOO_MANY_PREFERENCES` | Someone changed the row since you read it (`current` has it as it is now); the record can't change in its state (a posted document); concurrent duplicate; a manual run of that schedule is already waiting; 500 preferences already |
 | 422 | `VALIDATION_FAILED` (see `errors`: `REQUIRED`, `ALREADY_EXISTS`, `INVALID_REFERENCE`, `LOCKED`, `UNKNOWN_LINE`, ...), `INVALID_REFERENCE` | Field problems (`LOCKED`: a field the record's state freezes, see its `_meta.locked`); a reference the pre-checks couldn't see |
 | 429 | `LOGIN_RATE_LIMITED` | 5 failed logins for one user from one IP: locked 15 minutes |
 | 503 | `DATABASE_BUSY` | Retry |
@@ -143,6 +143,27 @@ Who you are in the request's company and what you may do there:
 ### `PATCH /auth/me`
 
 Choose the language the server answers you in, in every company: `{"language": "en"}` (or `"fr"`). `{"language": null}` goes back to each company's default. Answers like `GET /auth/me`, already in the new language. Anything else in the body is `422 UNKNOWN_FIELD`; another language is `422 INVALID_VALUE`.
+
+### `GET /auth/me/preferences`, `PUT` / `DELETE /auth/me/preferences/{key}`
+
+Your own preferences: JSON values under keys the client chooses (layout choices: list columns, sort, filter views, menu). Signed in is enough; they are yours in every company, so `X-Company-Id` is ignored (docs/ARCHITECTURE.md §27).
+
+```json
+GET /auth/me/preferences
+200 { "items": [ { "key": "shell.menuPinned", "value": false, "updatedAt": "2026-11-27T18:04:11Z" } ] }
+
+PUT /auth/me/preferences/list.product
+{ "value": { "columns": [ { "key": "name", "width": 240 } ], "pageSize": 50 } }
+200 { "key": "list.product", "value": { ... }, "updatedAt": "2026-11-27T18:04:11Z" }
+
+DELETE /auth/me/preferences/list.product
+204
+```
+
+- `GET` with none is `200 { "items": [] }`, never `404`. Items come sorted by key.
+- `PUT` creates or replaces; the last write wins (no `version`). `value` is any JSON value but `null` (`DELETE` removes one): missing or `null` is `422 value: REQUIRED`, any other field `UNKNOWN_FIELD`. A value comes back as sent; numbers are kept by value (`1.50` comes back `1.5`).
+- `DELETE` is `204`, also for a key you don't have.
+- Keys match `^[A-Za-z0-9._:@-]{1,100}$` and are case-sensitive (`422 key: INVALID_FORMAT`). A value is at most 64 KB written as JSON (`422 value: VALUE_TOO_LARGE`, `params.max`). At most 500 keys: one more is `409 TOO_MANY_PREFERENCES`.
 
 ### `POST /auth/logout`
 

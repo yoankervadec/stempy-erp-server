@@ -34,3 +34,7 @@ error.COMPANY_NOT_FOUND:
   fr: "Entreprise introuvable : {company}"
 error.RESERVED_USER:
   fr: Cet utilisateur réservé ne peut pas se connecter
+error.TOO_MANY_PREFERENCES:
+  fr: "Au plus {max} préférences par utilisateur : supprimez-en une avant d'en ajouter une autre"
+error.VALUE_TOO_LARGE:
+  fr: doit faire au plus {max} octets en JSON

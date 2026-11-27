@@ -344,6 +344,8 @@ modules/users/
 ├── UsersApi.java                    PUBLIC API: setPassword, assignRole. Used by the CLI commands.
 ├── UsersApiService.java             Implements UsersApi by delegating to AuthService / AuthorizationService.
 ├── AuthController.java              POST /auth/login, POST /auth/logout, GET /auth/me
+├── PreferencesController.java       GET / PUT / DELETE /auth/me/preferences (§27)
+├── PreferencesService.java          ORCHESTRATOR: checks key, value and size; not company-scoped.
 ├── AuthService.java                 ORCHESTRATOR: login (two short transactions, slow hash between them,
 │                                    so the pool isn't held during PBKDF2), logout, profile, setPassword.
 ├── SessionService.java              ORCHESTRATOR behind AuthFilter: implements SessionAuthenticator.
@@ -365,8 +367,11 @@ modules/users/
 │   ├── GetUserProfileOperation.java
 │   ├── ListUserCompaniesOperation.java       accessible companies + the default rule (§16.7)
 │   ├── LoadEffectivePermissionsOperation.java membership check + formula; warns once per stale name
-│   └── AssignRoleOperation.java     adds/re-enables membership, sets default if none, adds role
+│   ├── AssignRoleOperation.java     adds/re-enables membership, sets default if none, adds role
+│   ├── ListPreferencesOperation.java, DeletePreferenceOperation.java
+│   └── PutPreferenceOperation.java  locks the user row, then the 500-key limit, then upsert
 ├── UserAccountRepository.java       users + user_credentials
+├── PreferenceRepository.java        user_preferences
 ├── SessionRepository.java           user_sessions; every time bound from Java, never NOW() in SQL
 ├── AccessRepository.java            user_companies, roles, role_permissions, user_company_roles,
 │                                    user_permission_overrides
@@ -377,6 +382,7 @@ modules/users/
     ├── LoginResponse.java           toString() hides the token; lists companies + defaultCompanyId
     ├── MeResponse.java              user, the request's company, sorted permissions
     ├── CompanySummary.java
+    ├── Preference.java, PreferenceList.java   key, value (any JSON), updatedAt
     └── UserProfile.java
 ```
 
@@ -778,7 +784,7 @@ Decide these early; they are painful to retrofit.
 ## 14. Build order and progress
 
 1.  `platform/db` (UnitOfWork, Hikari), `platform/web` (Javalin, errors, RequestContext), Flyway baseline.
-2.  `platform/security` + `modules/users` (sessions, login throttle, set-password CLI), multi-company users + RBAC (§16).  Admin API for roles / overrides / memberships (with the generic write side).
+2.  `platform/security` + `modules/users` (sessions, login throttle, set-password CLI), multi-company users + RBAC (§16); user preferences (done 2026-11-27, §27).  Admin API for roles / overrides / memberships (with the generic write side).
 3.  `platform/events` (sync bus ), `platform/audit` (done 2026-11-24, §20),  `platform/numbering`, `platform/settings`.
 4.  `modules/masterdata/items` ; `masterdata/currencies` and `masterdata/units` (done 2026-11-27, §24) ; `modules/company` settings and exchange rates (done 2026-11-27, §25) ; `masterdata/customers` (done 2026-11-27, §26) ; `shared.Money` (done 2026-11-24, §6) ; `modules/tax` calculation (done 2026-11-24, §19) ;  `modules/company`, `masterdata/vendors`.
 5.  `modules/gl` (accounts, periods, journal posting, trial balance): done 2026-11-25, §22.
@@ -2324,3 +2330,34 @@ After `company` in `AllModules` (it uses `CompanyApi`), which comes after `maste
 - **Nothing blocks deleting a customer** that documents will point at. Once sales or AR exist, `canDelete` must refuse a customer with documents or entries.
 - **No credit check, tax exemption or AR account** on the customer: each comes with the module that uses it.
 
+---
+
+## 27. User preferences
+
+_Status: built 2026-11-27 (migration V19). How to call it: docs/API_GUIDE.md §4._
+
+The desktop client's layout choices (list columns, sort, page size, saved filter views, menu, the menu bar pinned) are stored per user, so they follow the user from one machine to another. The window's size and position are not: they describe the machine's screens and stay on it.
+
+In `modules/users` (§4.4): `PreferencesController`, `PreferencesService`, `PreferenceRepository`, three operations.
+
+### 27.1 Decisions this design rests on
+
+- **The server doesn't read the values.** Each preference is any JSON value except `null` under a key the client chooses, and the client checks a value's shape when it reads it, so a new preference needs no server change. The keys the client uses (`shell.menuPinned`, `list.<resource>`, `views.<resource>@<companyId>`, `menu`...) are the client's business.
+- **Per user, not per company.** Being signed in is enough: no permission, and no company is resolved, so `X-Company-Id` is ignored and a user with several companies and no default needs none. A preference that depends on a company names it in its key.
+- **The last write wins.** No `version`: a lost layout change costs little. The client waits about a second after the last change before writing.
+- **Kept as written.** The value is stored as compact JSON text, not in a MySQL `JSON` column, which would reorder object keys. Numbers are kept by value (`1.50` comes back `1.5`, decimals exact). Keys are case-sensitive (`utf8mb4_bin`).
+- **Limits**: key `^[A-Za-z0-9._:@-]{1,100}$` (`key: INVALID_FORMAT`), value required and not `null` (`value: REQUIRED`), at most 64 KB as UTF-8 JSON (`value: VALUE_TOO_LARGE`), at most 500 keys per user (`409 TOO_MANY_PREFERENCES`; replacing an existing key always works). Field problems are `422 VALIDATION_FAILED`, like everywhere else. The user's row is locked before the count, so two writes can't both take the last place.
+- **Not audited**, and `DELETE` of a missing key is `204`: the client resets a preference to its default that way.
+
+### 27.2 Table (V19)
+
+`user_preferences`: `user_id` (FK `users`, cascade), `pref_key` `VARCHAR(100)` (binary collation), `value_json` `MEDIUMTEXT` (`CHECK JSON_VALID`), `updated_at`. Primary key `(user_id, pref_key)`.
+
+### 27.3 Tests
+
+`PreferenceRoutesMySqlTest`: an empty list, values back as sent (key order, numbers, accents), replace and delete (missing key included), each user's own, no company needed or checked, key format and case, value required / not null / 64 KB in bytes, the 500-key limit, 401 without a session.
+
+### 27.4 Known gaps and limits
+
+- **No way to clear all of a user's preferences at once**, and an administrator can't see or reset another user's: delete them in SQL for now.
+- **Deleted users keep their rows** (users are soft-deleted; the cascade only acts on a hard delete).
