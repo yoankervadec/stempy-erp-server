@@ -20,7 +20,19 @@ public final class Entities {
 
   /** Standard columns plus createdByUser / updatedByUser relations to User. */
   public static <E extends StandardEntity> EntityDefinition<E> define(String name, String table, Supplier<E> factory) {
-    EntityDefinition<E> def = StandardEntity.define(name, table, factory);
+    return withUsers(StandardEntity.define(name, table, factory));
+  }
+
+  /**
+   * The same for an install-wide table shared by every company (currencies,
+   * units of measure): standard columns minus company_id.
+   */
+  public static <E extends StandardEntity> EntityDefinition<E> defineGlobal(String name, String table,
+      Supplier<E> factory) {
+    return withUsers(StandardEntity.defineGlobal(name, table, factory));
+  }
+
+  private static <E extends StandardEntity> EntityDefinition<E> withUsers(EntityDefinition<E> def) {
     def.manyToOne("createdByUser", () -> User.DEF, "created_by");
     def.manyToOne("updatedByUser", () -> User.DEF, "updated_by");
     return def;

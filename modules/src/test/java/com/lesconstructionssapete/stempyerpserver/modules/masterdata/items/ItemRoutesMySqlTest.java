@@ -67,8 +67,8 @@ class ItemRoutesMySqlTest {
 
   private static void seed(Statement st) throws SQLException {
     st.execute("INSERT INTO companies (id, code, is_enabled) VALUES (1, 'ACME', TRUE), (2, 'OTHER', TRUE)");
-    st.execute("INSERT INTO currencies (id, code, is_enabled) VALUES (1, 'CAD', TRUE)");
-    st.execute("INSERT INTO units_of_measure (id, code, is_enabled) VALUES (1, 'UN', TRUE)");
+    st.execute("INSERT INTO currencies (id, code, name, is_enabled) VALUES (1, 'CAD', 'Canadian dollar', TRUE)");
+    st.execute("INSERT INTO units_of_measure (id, code, description, is_enabled) VALUES (1, 'UN', 'Unit', TRUE)");
     st.execute("""
         INSERT INTO users (id, default_company_id, user_no, name, created_by, updated_by) VALUES
           (1, 1, 'U1', 'Admin', 1, 1),

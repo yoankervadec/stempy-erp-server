@@ -310,10 +310,12 @@ modules/
 ├── users/            users, credentials, sessions, login/logout/me, set-password, SYSTEM user,
 │                     job users.purge-expired-sessions
 ├── masterdata/
-│   ├── items/        products + product categories (read/query only so far)
+│   ├── currencies/   currencies: install-wide, ISO 4217 codes (§24)
+│   ├── units/        units of measure: install-wide (§24)
+│   ├── items/        products + product categories
 │   ├── customers/   
 │   └── vendors/     
-├── company/          legal entities, fiscal calendars, currencies, exchange rates (tables exist in V1)
+├── company/          legal entities, fiscal calendars, exchange rates
 ├── tax/              TaxApi: sales taxes for every province (rules, rates, document rounding; §19).
 │                     Tax postings to GL later
 ├── gl/               general ledger (§22): GeneralLedgerApi; chart of accounts, fiscal years and periods,
@@ -517,7 +519,7 @@ How a write runs (`platform.write`):
 
 Field options for writes: `required()` (on create), `readOnly()` (server-set: audit columns, totals), `immutable()` (settable on create only), `unique()` (per company), plus `maxLength / min / max / pattern / writePermission`. `StandardEntity`'s audit and soft-delete fields are `readOnly()`.
 
-Database constraint violations the checks can't see (a concurrent insert; a foreign key to a table without an entity, like `currencies`) still become clean errors: `ErrorTranslator` maps MySQL 1062 -> 409 `DUPLICATE_VALUE` and 1452 -> 422 `INVALID_REFERENCE`.
+Database constraint violations the checks can't see (a concurrent insert; a foreign key to a table without an entity) still become clean errors: `ErrorTranslator` maps MySQL 1062 -> 409 `DUPLICATE_VALUE` and 1452 -> 422 `INVALID_REFERENCE`.
 
 ---
 
@@ -778,7 +780,7 @@ Decide these early; they are painful to retrofit.
 1.  `platform/db` (UnitOfWork, Hikari), `platform/web` (Javalin, errors, RequestContext), Flyway baseline.
 2.  `platform/security` + `modules/users` (sessions, login throttle, set-password CLI), multi-company users + RBAC (§16).  Admin API for roles / overrides / memberships (with the generic write side).
 3.  `platform/events` (sync bus ), `platform/audit` (done 2026-11-24, §20),  `platform/numbering`, `platform/settings`.
-4.  `modules/masterdata/items` (query only) ; `shared.Money` (done 2026-11-24, §6) ; `modules/tax` calculation (done 2026-11-24, §19) ;  `modules/company`, `masterdata/customers`, `masterdata/vendors`.
+4.  `modules/masterdata/items` ; `masterdata/currencies` and `masterdata/units` (done 2026-11-27, §24) ; `shared.Money` (done 2026-11-24, §6) ; `modules/tax` calculation (done 2026-11-24, §19) ;  `modules/company`, `masterdata/customers`, `masterdata/vendors`.
 5.  `modules/gl` (accounts, periods, journal posting, trial balance): done 2026-11-25, §22.
 6.  First transactional module (e.g. `sales` or `ap`) wired to GL through events, as the reference implementation for all later modules.
 7.  `platform/scheduler` (done 2026-11-23, §17) + outbox dispatcher (done 2026-11-24, its own loop, §18).
@@ -1903,7 +1905,7 @@ All optional, all with a default:
 
 - Enum values come from the enum class itself (`FieldType.javaType().getEnumConstants()`); nothing is declared.
 - A reference is only shown as a picker if the caller can read the target resource; otherwise it is a read-only id.
-- Gaps found while planning: `Product.unitOfMeasureId` and `currencyId` are plain integers with no relation. They get `references(...)` once units and currencies are resources.
+- Gaps found while planning: `Product.unitOfMeasureId` and `currencyId` were plain integers with no relation. Since §24 they are `manyToOne` relations (`unitOfMeasure`, `currency`) to their resources.
 
 **As built (step 3):**
 - Types in `platform/entity`: `Format` (`MONEY`, `PERCENT`, `MULTILINE`), `Presentation` (`MODAL`, `PAGE`), `SortKey` (`asc(f)`, `desc(f)`). Entities declare their hints in a `static { ... }` block after their fields, since a hint names fields declared after it (`UNIT_AMOUNT.scale(4).money(CURRENCY_ID)`).
@@ -1911,7 +1913,7 @@ All optional, all with a default:
 - **A declared scale is enforced**: a value with more decimals is refused (`TOO_MANY_DECIMALS`, trailing zeros don't count) instead of being rounded by the database. Declare it to match the column (`products.unit_amount` is `DECIMAL(19, 4)`: `scale(4)`). Without a declaration, clients show 2 decimals and nothing is checked.
 - `GET /meta` adds per resource `title`, `subtitle` (or `null`), `listColumns`, `defaultSort` (`[{field, dir}]`), `presentation` (`modal` / `page`), and per field `scale` (decimals), `format`, `currencyField`. A hint naming a field the caller can't read is dropped: the title falls back to the id, an empty order to id descending, empty declared columns to the defaults.
 - `presentation` is `MODAL` unless declared; the "PAGE when the layout has collections" default arrives with layouts (step 7).
-- Declared so far: products (title `productNo`, subtitle `name`, five columns, by number, `unitAmount` money in the row's `currencyId` with 4 decimals), product categories, GL accounts (by number, `description` multiline), dimensions, dimension values (title `code`, since it is unique per dimension only).
+- Declared so far: products (title `productNo`, subtitle `name`, five columns, by number, `unitAmount` money in the row's `currencyId` with 4 decimals), product categories, GL accounts (by number, `description` multiline), dimensions, dimension values (title `code`, since it is unique per dimension only), currencies and units of measure (by code).
 
 ### 23.5 Translation
 
@@ -2165,3 +2167,44 @@ The client starts once step 6 is done: products and accounts are then fully usab
 - **No conditional fields inside a form** beyond `locked` per state (e.g. "show the bank account only when the method is transfer"). Add a `visibleWhen` rule to layouts if a screen needs it.
 - **Journal entries list through their own `GET`**, not `QUERY`, so their list has the report-style filters only until it is moved.
 - **The metadata is a description, not an enforcement layer.** Every route keeps checking permissions, state and validation itself.
+
+---
+
+## 24. Currencies and units of measure
+
+_Status: built 2026-11-27 (migration V16)._
+
+Two plain master-data modules on the install-wide tables V1 created, served entirely by the generic entity routes (§5.3):
+
+```
+modules/masterdata/currencies/   CurrenciesModule ("masterdata.currencies"), Currency    /masterdata/currencies
+modules/masterdata/units/        UnitsModule ("masterdata.units"), UnitOfMeasure         /masterdata/units-of-measure
+```
+
+### 24.1 Decisions this design rests on
+
+- **Install-wide, not per company.** The tables have no `company_id` (V1) and products of every company point at them. The entities use `Entities.defineGlobal` (standard columns minus the company, plus the `createdByUser` / `updatedByUser` relations). Reads, uniqueness and reference checks skip the company filter; audit entries have no company (§20).
+- **QUERY, GET, POST, PATCH; no DELETE.** A currency or unit is disabled (`isEnabled: false`), never deleted, so products, companies and journal entries never point at a removed row. Permissions are `masterdata.currency.{read,create,update}` and `masterdata.unitOfMeasure.{read,create,update}`; no `.delete` is declared.
+- **A currency's code is ISO 4217 and fixed.** `Currency.CODE` is `immutable()` and its pattern is the alternation of every JDK currency with a minor unit, so anything `shared.Money` would refuse (`ZZZ`, `XAU`, `usd`) is `INVALID_FORMAT` at the door. Fixed because `companies.base_currency_code` and `gl_journal_entries.currency_code` hold the code by value.
+- **A unit's code can be corrected** (`[A-Z][A-Z0-9]{0,9}`): products point at the id.
+- **Modules before `masterdata.items`** in `AllModules`: `Product` now declares `unitOfMeasure` and `currency` many-to-one relations, so an unknown id is a field error (`INVALID_REFERENCE`) before the insert, and lists can filter and sort on `currency.code`.
+
+### 24.2 Tables (V16)
+
+| Table | Added | Notes |
+| --- | --- | --- |
+| `currencies` | `version`, `name` (backfilled with the code), `created_by`, `updated_at`, `updated_by`, `deleted_at`; `code` becomes `CHAR(3)` | |
+| `units_of_measure` | `version`, `created_by`, `updated_at`, `updated_by`, `deleted_at`; `description` becomes required (backfilled with the code) | |
+
+`created_by` / `updated_by` are nullable on these two tables only: the rows from before V16 have no recorded author (the SYSTEM user is created at runtime, not by a migration). Every API write fills both.
+
+### 24.3 Tests
+
+`ReferenceDataRoutesMySqlTest`: one list for every company, uniqueness across companies, ISO and unit code formats, a currency's code fixed and its name and state changeable, a pre-V16 row (no author) updatable, no DELETE, read-only callers.
+
+### 24.4 Known gaps and limits
+
+- **Shared means shared.** Any company's `masterdata.currency.update` changes the list for every company. An install-level permission (outside any company) would fit better once one exists.
+- **Nothing checks that a company's `base_currency_code` is a row of `currencies`** (V7 keeps it as a code), nor stops disabling a currency still used as one. Disabled currencies and units also stay valid references for products.
+- **No exchange rates and no unit conversions** (box of 12 -> units). Both come with the modules that need them (`company/` for rates, `inventory/` for conversions).
+
