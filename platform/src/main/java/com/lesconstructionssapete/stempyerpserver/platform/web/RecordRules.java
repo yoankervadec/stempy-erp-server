@@ -15,7 +15,8 @@ import com.lesconstructionssapete.stempyerpserver.platform.error.Validation;
  *
  * It mostly describes: the writes still enforce their rules themselves, except
  * that the generic create and update (EntityEndpoints) enforce locked,
- * canUpdate, canDelete and validateWrite for an entity registered there. Every
+ * canUpdate, canDelete and validateWrite, and use assignOnCreate, for an
+ * entity registered there. Every
  * method runs in the read's transaction and receives the row as the caller
  * sees it (API field names, readable fields only). Implemented by a module's
  * orchestrator (*Service), which reaches the database through its operations.
@@ -38,6 +39,21 @@ public interface RecordRules {
   /** False when this record can't be deleted in its state, permission or not. */
   default boolean canDelete(UnitOfWork uow, RequestContext rc, Map<String, Object> row) {
     return true;
+  }
+
+  /**
+   * Values the server fills on a generic create, for fields the body left
+   * out or sent as null: a number from a series. By API field name; keys the
+   * body did set are ignored. Written as server values (whatever the field's
+   * access), checked like the body's, and seen by validateWrite. Runs in the
+   * create's transaction, first; if the create then fails, nothing is written
+   * (a number taken from a GAPS_ALLOWED series is lost, which such a series
+   * allows). Declare such a field optional, so clients may leave it out.
+   *
+   * @param record the fields the body set, by API field name
+   */
+  default Map<String, Object> assignOnCreate(UnitOfWork uow, RequestContext rc, Map<String, Object> record) {
+    return Map.of();
   }
 
   /**

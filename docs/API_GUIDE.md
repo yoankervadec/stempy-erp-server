@@ -150,7 +150,7 @@ Choose the language the server answers you in, in every company: `{"language": "
 
 ---
 
-## 5. Entity routes (products, product categories, currencies, units of measure)
+## 5. Entity routes (products, product categories, currencies, units of measure, customers)
 
 Every entity exposed generically gets the same seven routes. `{base}` is `/masterdata/products` or `/masterdata/product-categories`.
 
@@ -224,6 +224,28 @@ Server-managed on every row (returned, never accepted in a body: sending one giv
 | `isEnabled` | boolean | optional (default `true`) | |
 
 Currencies and units have no `DELETE` (`404`): disable them (`isEnabled: false`) instead. Their permissions are `masterdata.currency.*` and `masterdata.unitOfMeasure.*` (`read`, `create`, `update`); since the lists are shared, a change made in one company shows in all of them.
+
+**Customer** (`/masterdata/customers`)
+
+| Field | Type | Create | Rules |
+| --- | --- | --- | --- |
+| `customerNo` | string | optional | left out: the next number of the company's series (`CA000123` by default; change it under `/numbering`, document type `masterdata.customer`). Typed in: kept, max 20, no leading or trailing spaces. Unique in the company, a deleted customer's number stays taken; can't change once created |
+| `name` | string | required | max 100 |
+| `contactName` | string | optional | max 100 |
+| `email` | string | optional | `name@domain.tld`, max 254 |
+| `phone` | string | optional | digits, spaces, `+ ( ) - .`, optionally `ext. 12`; max 30 |
+| `addressLine1`, `addressLine2` | string | optional | max 100 each |
+| `city` | string | optional | max 50 |
+| `provinceCode` | string | optional | 1 to 3 upper case letters or digits (`QC`); in Canada one of the 13 provinces and territories (`UNKNOWN_PROVINCE`) |
+| `postalCode` | string | optional | max 20; in Canada written `A1A 1A1` (`INVALID_FORMAT`) |
+| `countryCode` | string | required | ISO 3166-1 alpha-2 (`CA`, `US`); `GET /new` gives `CA` |
+| `currencyId` | integer | required | an existing currency; `GET /new` gives the company's base currency |
+| `language` | string | optional | `fr` or `en`; null: the company's default language |
+| `creditLimit` | decimal | optional | ≥ 0, 2 decimals, in the company's base currency; null: no limit |
+| `notes` | string | optional | max 2000 |
+| `isEnabled` | boolean | optional (default `true`) | |
+
+The address is checked as a whole: changing only `provinceCode` is checked against the stored `countryCode`. Permissions: `masterdata.customer.{read,create,update,delete}`.
 
 **Product**
 
@@ -792,6 +814,7 @@ WHERE u.user_no = 'U1' AND c.code = 'LCS';
 - [ ] `unitAmount: "-1"` → `TOO_SMALL`; `"abc"` → `INVALID_VALUE`.
 - [ ] Duplicate `productNo` → `ALREADY_EXISTS` (also for a soft-deleted product's number).
 - [ ] `productCategoryId` of a category from DEMO, or a deleted one → `INVALID_REFERENCE`. `currencyId: 999` → `422` with `currencyId: INVALID_REFERENCE`.
+- [ ] `POST /masterdata/customers` with `"provinceCode": "NY"` (country `CA`) → `UNKNOWN_PROVINCE`; `"postalCode": "h2x1y4"` → `INVALID_FORMAT`; with `"countryCode": "US"` both are accepted. Create two customers without `customerNo` → `CA000001`, `CA000002`; `PATCH` a `customerNo` → `422`. Delete a customer, then create another with its number → `ALREADY_EXISTS`.
 - [ ] `POST /company/exchange-rates` for the base currency (`currencyId` of CAD) → `BASE_CURRENCY`; the same currency and date twice → `RATE_EXISTS`; `"rate": "0"` → `TOO_SMALL`. As DEMO, `QUERY /company/exchange-rates` doesn't show LCS's rates, and `GET /company/companies/1` is `404`.
 - [ ] `PATCH /company/companies/{id}` with `"defaultLanguage": "en"`, then `GET /auth/me` as a user without a language of their own → `"language": "en"`. `"baseCurrencyCode": "USD"` → `READ_ONLY`.
 - [ ] `POST /masterdata/currencies` with `"code": "ZZZ"` or `"usd"` → `INVALID_FORMAT`; `PATCH` its `code` → `422`; `DELETE` → `404`. A currency added in LCS shows in DEMO's list too.

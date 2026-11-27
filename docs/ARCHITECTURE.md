@@ -313,7 +313,7 @@ modules/
 │   ├── currencies/   currencies: install-wide, ISO 4217 codes (§24)
 │   ├── units/        units of measure: install-wide (§24)
 │   ├── items/        products + product categories
-│   ├── customers/   
+│   ├── customers/    customers: per company, billing address, currency, language (§26)
 │   └── vendors/     
 ├── company/          the company's own settings, exchange rates; CompanyApi (§25). Fiscal calendars are in gl/
 ├── tax/              TaxApi: sales taxes for every province (rules, rates, document rounding; §19).
@@ -780,7 +780,7 @@ Decide these early; they are painful to retrofit.
 1.  `platform/db` (UnitOfWork, Hikari), `platform/web` (Javalin, errors, RequestContext), Flyway baseline.
 2.  `platform/security` + `modules/users` (sessions, login throttle, set-password CLI), multi-company users + RBAC (§16).  Admin API for roles / overrides / memberships (with the generic write side).
 3.  `platform/events` (sync bus ), `platform/audit` (done 2026-11-24, §20),  `platform/numbering`, `platform/settings`.
-4.  `modules/masterdata/items` ; `masterdata/currencies` and `masterdata/units` (done 2026-11-27, §24) ; `modules/company` settings and exchange rates (done 2026-11-27, §25) ; `shared.Money` (done 2026-11-24, §6) ; `modules/tax` calculation (done 2026-11-24, §19) ;  `modules/company`, `masterdata/customers`, `masterdata/vendors`.
+4.  `modules/masterdata/items` ; `masterdata/currencies` and `masterdata/units` (done 2026-11-27, §24) ; `modules/company` settings and exchange rates (done 2026-11-27, §25) ; `masterdata/customers` (done 2026-11-27, §26) ; `shared.Money` (done 2026-11-24, §6) ; `modules/tax` calculation (done 2026-11-24, §19) ;  `modules/company`, `masterdata/vendors`.
 5.  `modules/gl` (accounts, periods, journal posting, trial balance): done 2026-11-25, §22.
 6.  First transactional module (e.g. `sales` or `ap`) wired to GL through events, as the reference implementation for all later modules.
 7.  `platform/scheduler` (done 2026-11-23, §17) + outbox dispatcher (done 2026-11-24, its own loop, §18).
@@ -2105,7 +2105,7 @@ A module with a hand-written orchestrator (`JournalPostingService`) keeps its ow
 - **Version conflicts**: the `409 VERSION_CONFLICT` body includes the current row, so the client can show what changed and offer "reload" or "apply my changes again".
 
 **As built (step 6):**
-- `platform/web/RecordRules` (`locked`, `canUpdate`, `canDelete`, `defaults`, each given the read's `UnitOfWork`, the caller and the row) registered with `EntityEndpoints.rules(entity, rules)`; implemented by a module's `*Service`, which reads through operations (ArchUnit: only operations touch repositories). Accounts: `AccountService` (`DescribeAccountLocksOperation`: postings lock `accountType` and `isHeading`, sub-accounts lock `isHeading`). Products: `ProductService` (a new product's `currencyId` is the company's base currency). `validateWrite` (since §25) adds rules the fields can't say, checked by the generic create and update before the write (422 with its errors): exchange rates, `ExchangeRateService`.
+- `platform/web/RecordRules` (`locked`, `canUpdate`, `canDelete`, `defaults`, each given the read's `UnitOfWork`, the caller and the row) registered with `EntityEndpoints.rules(entity, rules)`; implemented by a module's `*Service`, which reads through operations (ArchUnit: only operations touch repositories). Accounts: `AccountService` (`DescribeAccountLocksOperation`: postings lock `accountType` and `isHeading`, sub-accounts lock `isHeading`). Products: `ProductService` (a new product's `currencyId` is the company's base currency). `validateWrite` (since §25) adds rules the fields can't say, checked by the generic create and update before the write (422 with its errors): exchange rates, `ExchangeRateService`. `assignOnCreate` (§26) fills fields a create body left out, in its transaction, as server values: customers' numbers, `CustomerService`.
 - `_meta` (`RecordMeta`) on every single-record answer of `EntityEndpoints` (`GET`, `POST`, `PATCH`, and `EntityEndpoints.read` for hand-written controllers), not on lists. Rules and confirmation texts see the row without `_refs` / `_meta`.
 - `ResourceAction` (scope `RECORD` or `RESOURCE`, route, permission, `ActionParam`s, `confirm()`, `when(row -> ...)` for record actions) registered with `EntityEndpoints.action(entity, action)`; described in `/meta` (`actions`, only those the caller holds the permission for) and listed per record in `_meta.actions` when `when` holds. The route is the module's own. `ModuleHost` refuses to start when an action's label, confirmation or parameter label is missing in a language (`ResourceCatalog.missingActionLabels`): actions are declared with the routes, out of `UiLabelsTest`'s reach. No action is declared yet: the GL pilot (step 9) adds reverse, close and reopen.
 - `GET {path}/new`: every readable field at `Field.defaultValue(...)` (declared: `isEnabled` on every entity, an account's `isHeading` / `manualPosting`), then `RecordRules.defaults`, else null; `_refs`; `"_meta": {"new": true}`. Registered with the `READ` routes, before `{id}`; needs the create permission the catalog knows (generic or declared write), 404 without one. A declared default is only a form's starting value: a create that leaves the field out still gets the database's default.
@@ -2281,4 +2281,46 @@ BigDecimal rate = company.exchangeRate(uow, rc.companyId(), Money.currency("USD"
 - **No automatic rate download** (Bank of Canada): a scheduled job (§17) can fill the table later.
 - **Nothing uses the rates yet.** GL and tax still work in the base currency only (§19.5, §22.11); the first module with foreign-currency documents (sales or purchasing) calls `CompanyApi`.
 - **Base currency and company creation by SQL only**, and `companies.base_currency_code` still isn't checked against `currencies` (§24.4).
+
+---
+
+## 26. Customers
+
+_Status: built 2026-11-27 (migration V18). How to call it: docs/API_GUIDE.md §5._
+
+```
+modules/masterdata/customers/
+├── CustomersModule.java   ERPModule ("masterdata.customers"). QUERY / GET / POST / PATCH / DELETE /masterdata/customers
+├── Customer.java          DEF on customers
+├── CustomerService.java   RecordRules: a new customer's number and currency, address rules
+├── AddressRules.java      pure helper: Canadian province codes and postal codes
+├── CustomerRepository.java  whether a number is taken
+└── operations/TakeCustomerNumberOperation.java   the next free number of the series
+```
+
+After `company` in `AllModules` (it uses `CompanyApi`), which comes after `masterdata.currencies`.
+
+### 26.1 Decisions this design rests on
+
+- **Plain master data on the generic routes**, per company, soft delete; `CustomerService` only adds `defaults` and `validateWrite` (§25.1).
+- **One address, the billing one.** Ship-to addresses come with sales, as their own resource.
+- **Addresses use codes, not names.** `countryCode` is ISO 3166-1 alpha-2 (the JDK's list, as a pattern), `provinceCode` the ISO 3166-2 subdivision without its country, so `countryCode + "-" + provinceCode` is a tax place of supply (`CA-QC`, §19). A Canadian address must have one of the 13 provinces and territories (`UNKNOWN_PROVINCE`) and a postal code written `A1A 1A1` (`INVALID_FORMAT`); other countries are taken as typed. `validateWrite` sees the whole address, so a PATCH of the province alone is checked against the stored country.
+- **Numbers come from a series, gaps allowed.** Document type `masterdata.customer`, default series `CA` with pattern `CA{SEQ:6}` and mode `GAPS_ALLOWED` (§21), so `CA000123`; each company can change its series under `/numbering`. A create that leaves `customerNo` out (or null) gets the next number through `RecordRules.assignOnCreate`, a hook of the generic create: after the body's own checks (an invalid body takes no number), in the create's transaction, as a server value. A rule that then refuses the record (`validateWrite`) loses that number, as the mode allows.
+- **A typed-in number is kept** (customers imported from the old system), and the series skips numbers already taken instead of failing, up to 1,000 in a row (then the counter should be moved past the imports, `set-next`).
+- **Numbers are fixed and never reused.** `customerNo` is immutable, and unique in the company, deleted customers included (the platform's rule for every unique field), so an old document or audit entry naming a number stays unambiguous.
+- **Billed in a currency** (`currencyId`, the company's base currency by default, `GET /new`), **written to in a language** (`language`, null for the company's default), with an optional **credit limit** in the base currency (2 decimals; nothing enforces it yet).
+
+### 26.2 Table (V18)
+
+`customers`: the standard columns, `customer_no`, `name`, `contact_name`, `email`, `phone`, `address_line1`, `address_line2`, `city`, `province_code`, `postal_code`, `country_code` (default `CA`), `currency_id` (FK `currencies`), `language` (`fr` / `en` / NULL), `credit_limit` (`DECIMAL(19, 4)`, NULL = none, never negative), `notes`, `is_enabled`. Unique `(company_id, customer_no)`; an index on `(company_id, name)` for searches.
+
+### 26.3 Tests
+
+`CustomerRoutesMySqlTest`: defaults (`/new` in each company's currency), numbers from each company's series (in order, skipping a typed-in one, none taken by an invalid body), numbers fixed, unique per company and never reused, field formats (email, phone, language, country, credit limit), Canadian addresses on create and on update (merged with the stored row), reads per company and through `currency.code`, read-only callers.
+
+### 26.4 Known gaps and limits
+
+- **No ship-to addresses, contacts or payment terms** yet; they come with the sales and AR modules.
+- **Nothing blocks deleting a customer** that documents will point at. Once sales or AR exist, `canDelete` must refuse a customer with documents or entries.
+- **No credit check, tax exemption or AR account** on the customer: each comes with the module that uses it.
 

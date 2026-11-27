@@ -92,6 +92,16 @@
       "value": "0"
     },
     {
+      "key": "customerId",
+      "value": "",
+      "description": "Set by Create / Get customer"
+    },
+    {
+      "key": "customerVersion",
+      "value": "0",
+      "description": "Set by Create / Get / Update customer"
+    },
+    {
       "key": "jobKey",
       "value": "users.purge-expired-sessions",
       "description": "Job type used by the Scheduler requests (see List job types)"
@@ -2247,6 +2257,387 @@
                 }
               ]
             }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Customers",
+      "item": [
+        {
+          "name": "New customer form (defaults, saves nothing)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": true
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/customers/new",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "customers",
+                "new"
+              ]
+            },
+            "description": "currencyId: the company's base currency; countryCode: CA."
+          }
+        },
+        {
+          "name": "Create customer: numbered by the series (stores id, version)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/customers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "customers"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Construction Tremblay inc.\",\n  \"contactName\": \"Marie Tremblay\",\n  \"email\": \"comptes@tremblay.example\",\n  \"phone\": \"514 555-0100\",\n  \"addressLine1\": \"1200 rue Sherbrooke Ouest\",\n  \"city\": \"Montréal\",\n  \"provinceCode\": \"QC\",\n  \"postalCode\": \"H3A 1H6\",\n  \"countryCode\": \"CA\",\n  \"currencyId\": {{currencyId}},\n  \"language\": \"fr\",\n  \"creditLimit\": \"25000.00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "No customerNo: the next number of the company's series (CA000001...). Send one to keep your own (an import). Canadian addresses: a real province or territory, postal code written A1A 1A1."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"customerId\", row.id);",
+                  "  pm.collectionVariables.set(\"customerVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Query: by name, sorted",
+          "request": {
+            "method": "QUERY",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/customers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "customers"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"where\": {\n    \"field\": \"name\",\n    \"op\": \"contains\",\n    \"value\": \"Tremblay\"\n  },\n  \"sort\": [\n    {\n      \"field\": \"customerNo\",\n      \"dir\": \"asc\"\n    }\n  ],\n  \"page\": {\n    \"limit\": 50,\n    \"offset\": 0\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Query: in a province, through the currency",
+          "request": {
+            "method": "QUERY",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/customers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "customers"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"where\": {\n    \"and\": [\n      {\n        \"field\": \"provinceCode\",\n        \"op\": \"equals\",\n        \"value\": \"QC\"\n      },\n      {\n        \"field\": \"currency.code\",\n        \"op\": \"equals\",\n        \"value\": \"CAD\"\n      }\n    ]\n  },\n  \"page\": {\n    \"limit\": 50,\n    \"offset\": 0\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Get customer (stores version)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": true
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/customers/{{customerId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "customers",
+                "{{customerId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"customerId\", row.id);",
+                  "  pm.collectionVariables.set(\"customerVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update customer (uses the last version read)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/customers/{{customerId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "customers",
+                "{{customerId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": {{customerVersion}},\n  \"phone\": \"514 555-0199\",\n  \"creditLimit\": \"30000.00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "  const row = pm.response.json();",
+                  "  pm.collectionVariables.set(\"customerVersion\", row.version);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Customer history (who changed what)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": true
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/customers/{{customerId}}/history?limit=20&offset=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "customers",
+                "{{customerId}}",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete customer (soft)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": true
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/customers/{{customerId}}?version={{customerVersion}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "customers",
+                "{{customerId}}"
+              ],
+              "query": [
+                {
+                  "key": "version",
+                  "value": "{{customerVersion}}"
+                }
+              ]
+            },
+            "description": "Its number stays taken."
+          }
+        },
+        {
+          "name": "422: a US state in a Canadian address",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "disabled": false
+              },
+              {
+                "key": "X-Company-Id",
+                "value": "{{companyId}}",
+                "disabled": true,
+                "description": "Enable to act in another company"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/masterdata/customers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "masterdata",
+                "customers"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Bad address\",\n  \"provinceCode\": \"NY\",\n  \"postalCode\": \"10001\",\n  \"countryCode\": \"CA\",\n  \"currencyId\": {{currencyId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "UNKNOWN_PROVINCE on provinceCode, INVALID_FORMAT on postalCode. With countryCode US both are accepted."
           }
         }
       ]

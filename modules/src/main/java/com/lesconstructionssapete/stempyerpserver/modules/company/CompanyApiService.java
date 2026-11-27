@@ -3,7 +3,9 @@ package com.lesconstructionssapete.stempyerpserver.modules.company;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Currency;
+import java.util.Optional;
 
+import com.lesconstructionssapete.stempyerpserver.modules.company.operations.FindBaseCurrencyIdOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.company.operations.FindBaseCurrencyOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.company.operations.FindExchangeRateOperation;
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWork;
@@ -14,11 +16,19 @@ import com.lesconstructionssapete.stempyerpserver.shared.Money;
 public class CompanyApiService implements CompanyApi {
 
   private final FindBaseCurrencyOperation findBaseCurrency;
+  private final FindBaseCurrencyIdOperation findBaseCurrencyId;
   private final FindExchangeRateOperation findRate;
 
-  public CompanyApiService(FindBaseCurrencyOperation findBaseCurrency, FindExchangeRateOperation findRate) {
+  public CompanyApiService(FindBaseCurrencyOperation findBaseCurrency, FindBaseCurrencyIdOperation findBaseCurrencyId,
+      FindExchangeRateOperation findRate) {
     this.findBaseCurrency = findBaseCurrency;
+    this.findBaseCurrencyId = findBaseCurrencyId;
     this.findRate = findRate;
+  }
+
+  @Override
+  public Optional<Long> baseCurrencyId(UnitOfWork uow, long companyId) {
+    return findBaseCurrencyId.execute(uow, companyId);
   }
 
   @Override
