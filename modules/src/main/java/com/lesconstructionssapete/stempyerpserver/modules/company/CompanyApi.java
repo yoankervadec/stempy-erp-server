@@ -3,6 +3,7 @@ package com.lesconstructionssapete.stempyerpserver.modules.company;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Currency;
+import java.util.Optional;
 
 import com.lesconstructionssapete.stempyerpserver.platform.db.UnitOfWork;
 import com.lesconstructionssapete.stempyerpserver.shared.Money;
@@ -27,6 +28,13 @@ public interface CompanyApi {
    * @throws IllegalStateException for an unknown company or a code that isn't ISO 4217
    */
   Currency baseCurrency(UnitOfWork uow, long companyId);
+
+  /**
+   * The id of the base currency's row in currencies, for a field that points
+   * at a currency (a new customer's or product's currencyId). Empty when the
+   * company is unknown or its base currency has no live currencies row.
+   */
+  Optional<Long> baseCurrencyId(UnitOfWork uow, long companyId);
 
   /**
    * Units of the base currency one unit of {@code currency} is worth on

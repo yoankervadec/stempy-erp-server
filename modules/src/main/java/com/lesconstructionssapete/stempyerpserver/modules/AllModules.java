@@ -6,6 +6,7 @@ import java.util.List;
 import com.lesconstructionssapete.stempyerpserver.modules.company.CompanyModule;
 import com.lesconstructionssapete.stempyerpserver.modules.gl.GlModule;
 import com.lesconstructionssapete.stempyerpserver.modules.masterdata.currencies.CurrenciesModule;
+import com.lesconstructionssapete.stempyerpserver.modules.masterdata.customers.CustomersModule;
 import com.lesconstructionssapete.stempyerpserver.modules.masterdata.items.ItemsModule;
 import com.lesconstructionssapete.stempyerpserver.modules.masterdata.units.UnitsModule;
 import com.lesconstructionssapete.stempyerpserver.modules.system.numbering.NumberingModule;
@@ -41,6 +42,7 @@ public final class AllModules {
         new CurrenciesModule(),
         new UnitsModule(),
         new CompanyModule(),
+        new CustomersModule(),
         new ItemsModule(),
         new SchedulingModule(Clock.systemUTC()),
         new NumberingModule(Clock.systemUTC()),

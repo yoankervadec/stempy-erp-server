@@ -1,6 +1,7 @@
 package com.lesconstructionssapete.stempyerpserver.modules.company;
 
 import com.lesconstructionssapete.stempyerpserver.modules.company.operations.CheckRateDateTakenOperation;
+import com.lesconstructionssapete.stempyerpserver.modules.company.operations.FindBaseCurrencyIdOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.company.operations.FindBaseCurrencyOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.company.operations.FindCurrencyCodeOperation;
 import com.lesconstructionssapete.stempyerpserver.modules.company.operations.FindExchangeRateOperation;
@@ -61,7 +62,8 @@ public class CompanyModule implements ERPModule {
   @Override
   public void registerServices(ServiceRegistry serviceRegistry) {
     serviceRegistry.register(CompanyApi.class,
-        new CompanyApiService(findBaseCurrency, new FindExchangeRateOperation(repository)));
+        new CompanyApiService(findBaseCurrency, new FindBaseCurrencyIdOperation(repository),
+            new FindExchangeRateOperation(repository)));
   }
 
   @Override

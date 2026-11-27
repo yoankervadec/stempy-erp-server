@@ -16,6 +16,13 @@ public class CompanyRepository {
         rs -> rs.getString(1), companyId);
   }
 
+  /** The live currencies row of the company's base currency. */
+  public Optional<Long> findBaseCurrencyId(UnitOfWork uow, long companyId) {
+    return Jdbc.queryFirst(uow, """
+        SELECT cu.id FROM companies c JOIN currencies cu ON cu.code = c.base_currency_code
+        WHERE c.id = ? AND cu.deleted_at IS NULL""", rs -> rs.getLong(1), companyId);
+  }
+
   /** The code of a live currency. */
   public Optional<String> findCurrencyCode(UnitOfWork uow, long currencyId) {
     return Jdbc.queryFirst(uow, "SELECT code FROM currencies WHERE id = ? AND deleted_at IS NULL",

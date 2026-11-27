@@ -1,0 +1,71 @@
+# Customers module (docs/ARCHITECTURE.md §23.5, §26). UTF-8.
+# Each key lists its texts by language. error.* and status.* are French only: English is the code's own message.
+
+module.masterdata.customers:
+  en: Customers
+  fr: Clients
+
+customer:
+  en: Customers
+  fr: Clients
+customer.one:
+  en: Customer
+  fr: Client
+customer.field.customerNo:
+  en: Customer no.
+  fr: No de client
+customer.field.contactName:
+  en: Contact
+  fr: Personne-ressource
+customer.field.email:
+  en: Email
+  fr: Courriel
+customer.field.phone:
+  en: Phone
+  fr: Téléphone
+customer.field.addressLine1:
+  en: Address
+  fr: Adresse
+customer.field.addressLine2:
+  en: Address (line 2)
+  fr: Adresse (ligne 2)
+customer.field.city:
+  en: City
+  fr: Ville
+customer.field.provinceCode:
+  en: Province / state
+  fr: Province / État
+customer.field.postalCode:
+  en: Postal code
+  fr: Code postal
+customer.field.countryCode:
+  en: Country
+  fr: Pays
+customer.field.currencyId:
+  en: Currency
+  fr: Devise
+customer.field.language:
+  en: Language
+  fr: Langue
+customer.field.creditLimit:
+  en: Credit limit
+  fr: Limite de crédit
+customer.field.notes:
+  en: Notes
+  fr: Notes
+
+customer.section.contact:
+  en: Contact
+  fr: Coordonnées
+customer.section.address:
+  en: Billing address
+  fr: Adresse de facturation
+customer.section.billing:
+  en: Billing
+  fr: Facturation
+customer.section.notes:
+  en: Notes
+  fr: Notes
+
+error.UNKNOWN_PROVINCE:
+  fr: "n'est pas une province ou un territoire de ce pays ({country})"

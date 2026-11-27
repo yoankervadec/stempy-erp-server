@@ -344,8 +344,10 @@ public final class EntityEndpoints {
     return ctx -> {
       RequestContext rc = authorize(ctx, permission);
       WriteContext wc = writeContext(rc);
-      SQLWrite<E> insert = writes.insert(entity, JsonBodies.read(ctx, BODY_TYPE.getType()), wc, access(rc));
+      Map<String, Object> body = JsonBodies.read(ctx, BODY_TYPE.getType());
+      SQLWrite<E> checked = writes.insert(entity, body, wc, access(rc)); // the body's own problems, before a connection
       Map<String, Object> created = uowFactory.execute(uow -> {
+        SQLWrite<E> insert = assignOnCreate(uow, entity, body, checked, wc, rc);
         validateWrite(uow, entity, byName(insert.values()), rc);
         long id = writer.insert(uow, insert, rc.companyId());
         eventBus.publish(uow, new EntityChanged.Created(entity.name(), id, rc.companyId(), rc.userId(),
@@ -497,6 +499,28 @@ public final class EntityEndpoints {
     if (!errors.isEmpty()) {
       throw new ValidationFailedException("Validation failed", errors);
     }
+  }
+
+  /**
+   * The insert with the values the resource's RecordRules.assignOnCreate fills
+   * for fields the body left out or null; {@code checked} itself when there
+   * are none.
+   */
+  private <E> SQLWrite<E> assignOnCreate(UnitOfWork uow, EntityDefinition<E> entity, Map<String, Object> body,
+      SQLWrite<E> checked, WriteContext wc, RequestContext rc) {
+    RecordRules rules = catalog.forEntity(entity).map(Resource::rules).orElse(null);
+    if (rules == null) {
+      return checked;
+    }
+    Map<String, Object> assigned = new LinkedHashMap<>(
+        rules.assignOnCreate(uow, rc, Collections.unmodifiableMap(byName(checked.values()))));
+    assigned.keySet().removeIf(name -> body.get(name) != null);
+    if (assigned.isEmpty()) {
+      return checked;
+    }
+    Map<String, Object> rest = new LinkedHashMap<>(body);
+    rest.keySet().removeAll(assigned.keySet()); // the nulls they replace
+    return writes.insert(entity, rest, wc, access(rc), assigned);
   }
 
   /** validateWrite on the current row with the patch applied; nothing when the row is gone (the write 404s). */
